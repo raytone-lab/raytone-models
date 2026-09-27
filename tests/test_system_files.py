@@ -36,6 +36,12 @@ class SystemFilesTests(unittest.TestCase):
             self.assertIn(needle, pkg)
         self.assertNotIn("plugin/raytone.models", pkg)
 
+    def test_the_package_can_build_engines_on_the_device(self):
+        pkg = (ROOT / "packaging/PKGBUILD").read_text()
+        for needle in ('"$src/engines" "$lib/engines"', "scripts/build-engine", "usr/bin/raytone-models-build-engine"):
+            self.assertIn(needle, pkg)
+        self.assertTrue((ROOT / "engines/comfyui/Dockerfile").exists())
+
     def test_polkit_allows_the_helper_only(self):
         policy = (ROOT / "polkit/org.raytone.models.policy").read_text()
         self.assertIn(f'<annotate key="org.freedesktop.policykit.exec.path">{HELPER}</annotate>', policy)
