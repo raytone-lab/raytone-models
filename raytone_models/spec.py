@@ -15,7 +15,6 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 WORD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 DIGEST_RE = re.compile(r"^(?P<repo>[a-z0-9][a-z0-9._/-]*)@sha256:[0-9a-f]{64}$")
 SNAPSHOT_RE = re.compile(r"^models--[A-Za-z0-9_.-]+--[A-Za-z0-9_.-]+/snapshots/[0-9a-f]{40}$")
-ENV_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:,/=-]{0,256}$")
 
 
 class SpecError(ValueError):
@@ -72,7 +71,8 @@ ENGINES = {
             "speculative-config": _json_object,
             "limit-mm-per-prompt": _json_object,
         },
-        "env": re.compile(r"^VLLM_[A-Z0-9_]{1,64}$"),
+        # each variable by name, with the values it may take (Qwen3.8 Flash Next's PLE table options)
+        "env": {"VLLM_PLE_MMAP": re.compile(r"^[01]$"), "VLLM_PLE_SSD": re.compile(r"^[01]$")},
     },
 }
 
@@ -121,6 +121,7 @@ def load(data):
         if not check(v):
             raise SpecError(f"args: bad value for {k!r}")
     for k, v in d["env"].items():
-        if not engine["env"].match(k) or not isinstance(v, str) or not ENV_VALUE_RE.match(v):
+        allowed = engine["env"].get(k)
+        if allowed is None or not isinstance(v, str) or not allowed.match(v):
             raise SpecError(f"env: {k!r} is not allowed or has a bad value")
     return Spec(**{k: d[k] for k in FIELDS})
