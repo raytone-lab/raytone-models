@@ -408,7 +408,11 @@ def main(argv=None, env=None):
         elif a.command == "instances":
             _print(_instances(env), a.json)
         elif a.command == "agents":
-            _print(agents.catalog(), a.json)
+            rows = agents.catalog()
+            for r in rows:
+                if r["connectable"]:
+                    r["connected"] = agents.get(r["id"], home=env.home, state=env.state).status()["connected"]
+            _print(rows, a.json)
         elif a.command == "start":
             _print(cmd_start(a, env), a.json)
         elif a.command == "stop":

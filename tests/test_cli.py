@@ -302,6 +302,13 @@ class CliTests(unittest.TestCase):
         self.assertIn("opencode", ids)
         self.assertIn("gemini", ids)
 
+    def test_agents_json_says_which_are_connected(self):
+        (self.reg / "qwen.json").write_text(json.dumps(
+            {"id": "qwen", "served_name": "qwen3.8-27b", "port": 18000, "engine": "vllm", "args": {"max-model-len": 131072}}))
+        self.run_cli("agent", "connect", "crush")
+        got = {a["id"]: a.get("connected") for a in json.loads(self.run_cli("agents", "--json")[1])}
+        self.assertEqual((got["crush"], got["opencode"], got["gemini"]), (True, False, None))
+
 
 if __name__ == "__main__":
     unittest.main()
