@@ -1,0 +1,1 @@
+[{"id": "qwen3-8-27b", "served_name": "qwen3.8-27b", "engine": "vllm", "port": 18001, "context": 262144, "ready": true}]

@@ -1,0 +1,308 @@
+{
+ "search": [
+  {
+   "id": "Qwen/Qwen3.8-27B",
+   "downloads": 6727629,
+   "gated": false,
+   "pipeline": "image-text-to-text",
+   "library": "transformers",
+   "gguf": false
+  },
+  {
+   "id": "unsloth/Qwen3.8-27B-GGUF",
+   "downloads": 6651662,
+   "gated": false,
+   "pipeline": "",
+   "library": "",
+   "gguf": true
+  },
+  {
+   "id": "Qwen/Qwen3.8-27B-FP8",
+   "downloads": 5322914,
+   "gated": false,
+   "pipeline": "image-text-to-text",
+   "library": "transformers",
+   "gguf": false
+  },
+  {
+   "id": "cdiamond/Qwen3.8-27B-iMatrix-NVFP4-MTP-GGUF",
+   "downloads": 4707156,
+   "gated": false,
+   "pipeline": "image-text-to-text",
+   "library": "",
+   "gguf": true
+  },
+  {
+   "id": "lmstudio-community/Qwen3.8-27B-MLX-4bit",
+   "downloads": 4431061,
+   "gated": false,
+   "pipeline": "image-text-to-text",
+   "library": "transformers",
+   "gguf": false
+  },
+  {
+   "id": "lmstudio-community/Qwen3.8-27B-MLX-8bit",
+   "downloads": 4239070,
+   "gated": false,
+   "pipeline": "image-text-to-text",
+   "library": "transformers",
+   "gguf": false
+  },
+  {
+   "id": "lmstudio-community/Qwen3.8-27B-MLX-6bit",
+   "downloads": 4207386,
+   "gated": false,
+   "pipeline": "image-text-to-text",
+   "library": "transformers",
+   "gguf": false
+  },
+  {
+   "id": "lmstudio-community/Qwen3.8-27B-MLX-5bit",
+   "downloads": 4188542,
+   "gated": false,
+   "pipeline": "image-text-to-text",
+   "library": "transformers",
+   "gguf": false
+  }
+ ],
+ "repo": "unsloth/Qwen3.8-27B-GGUF",
+ "revision": "4ca720788d1e01f1bff70c033e0d0028fd02e502",
+ "variants": [
+  {
+   "name": "BF16",
+   "include": [
+    "BF16/Qwen3.8-27B-BF16-00001-of-00002.gguf",
+    "BF16/Qwen3.8-27B-BF16-00002-of-00002.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 56516489536
+  },
+  {
+   "name": "Q4_0",
+   "include": [
+    "MTP/mtp-Qwen3.8-27B-Q4_0.gguf",
+    "Qwen3.8-27B-Q4_0.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 19284823264
+  },
+  {
+   "name": "Q4_1",
+   "include": [
+    "Qwen3.8-27B-Q4_1.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 19399459168
+  },
+  {
+   "name": "Q8_0",
+   "include": [
+    "Qwen3.8-27B-Q8_0.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 30905839968
+  },
+  {
+   "name": "UD-IQ1_M",
+   "include": [
+    "Qwen3.8-27B-UD-IQ1_M.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 8587920768
+  },
+  {
+   "name": "UD-IQ1_S",
+   "include": [
+    "Qwen3.8-27B-UD-IQ1_S.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 8050976128
+  },
+  {
+   "name": "UD-IQ2_S",
+   "include": [
+    "Qwen3.8-27B-UD-IQ2_S.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 10230723968
+  },
+  {
+   "name": "UD-IQ2_XXS",
+   "include": [
+    "Qwen3.8-27B-UD-IQ2_XXS.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 9124824448
+  },
+  {
+   "name": "UD-IQ3_S",
+   "include": [
+    "Qwen3.8-27B-UD-IQ3_S.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 13899637024
+  },
+  {
+   "name": "UD-IQ3_XXS",
+   "include": [
+    "Qwen3.8-27B-UD-IQ3_XXS.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 12793614624
+  },
+  {
+   "name": "UD-IQ4_XS",
+   "include": [
+    "Qwen3.8-27B-UD-IQ4_XS.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 16111599904
+  },
+  {
+   "name": "UD-Q2_K_XL",
+   "include": [
+    "Qwen3.8-27B-UD-Q2_K_XL.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 11687735584
+  },
+  {
+   "name": "UD-Q3_K_XL",
+   "include": [
+    "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 15005147424
+  },
+  {
+   "name": "UD-Q4_K_M",
+   "include": [
+    "Qwen3.8-27B-UD-Q4_K_M.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 18323194144
+  },
+  {
+   "name": "UD-Q4_K_S",
+   "include": [
+    "Qwen3.8-27B-UD-Q4_K_S.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 17216966944
+  },
+  {
+   "name": "UD-Q4_K_XL",
+   "include": [
+    "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 19417932064
+  },
+  {
+   "name": "UD-Q5_K_M",
+   "include": [
+    "Qwen3.8-27B-UD-Q5_K_M.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 21630263584
+  },
+  {
+   "name": "UD-Q5_K_S",
+   "include": [
+    "Qwen3.8-27B-UD-Q5_K_S.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 20524507424
+  },
+  {
+   "name": "UD-Q5_K_XL",
+   "include": [
+    "Qwen3.8-27B-UD-Q5_K_XL.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 22735692064
+  },
+  {
+   "name": "UD-Q6_K",
+   "include": [
+    "Qwen3.8-27B-UD-Q6_K.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 23842431264
+  },
+  {
+   "name": "UD-Q6_K_L",
+   "include": [
+    "Qwen3.8-27B-UD-Q6_K_L.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 26052673824
+  },
+  {
+   "name": "UD-Q6_K_M",
+   "include": [
+    "Qwen3.8-27B-UD-Q6_K_M.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 24947163424
+  },
+  {
+   "name": "UD-Q6_K_XL",
+   "include": [
+    "Qwen3.8-27B-UD-Q6_K_XL.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 27157815584
+  },
+  {
+   "name": "UD-Q8_K_L",
+   "include": [
+    "Qwen3.8-27B-UD-Q8_K_L.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 29904449824
+  },
+  {
+   "name": "UD-Q8_K_XL",
+   "include": [
+    "Qwen3.8-27B-UD-Q8_K_XL.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 33316745600
+  },
+  {
+   "name": "other",
+   "include": [
+    "imatrix_unsloth.gguf",
+    "mmproj-BF16.gguf",
+    "mmproj-F16.gguf"
+   ],
+   "size": 1872396576
+  }
+ ]
+}
