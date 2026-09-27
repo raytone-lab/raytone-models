@@ -134,6 +134,65 @@ class JsonAdapterTests(unittest.TestCase):
         self.assertFalse(info["gemini"]["connectable"])
 
 
+class CodexTests(unittest.TestCase):
+    """Codex keeps its settings in TOML (~/.codex/config.toml) and speaks the Responses API, which
+    vLLM and SGLang serve and the router forwards: a custom provider, no proxy in between."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = pathlib.Path(self.tmp.name)
+        self.home, self.state = t / "home", t / "state"
+        self.path = self.home / ".codex/config.toml"
+        self.a = agents.get("codex", home=self.home, state=self.state)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self):
+        import tomllib
+        return tomllib.loads(self.path.read_text())
+
+    def test_connect_without_a_config(self):
+        self.a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        cfg = self.read()
+        self.assertEqual((cfg["model"], cfg["model_provider"]), ("qwen3.8-27b", "raytone"))
+        p = cfg["model_providers"]["raytone"]
+        self.assertEqual((p["base_url"], p["wire_api"]), (BASE, "responses"))
+        self.assertNotIn("env_key", p)                # the router needs no key
+        self.assertEqual(cfg["model_context_window"], 131072)
+        self.a.revert()
+        self.assertFalse(self.path.exists())
+
+    def test_an_existing_config_is_kept_and_restored_exactly(self):
+        original = (b'# my settings\nmodel = "gpt-6"\napproval_policy = "on-request"\n\n'
+                    b'[model_providers.raytone]\nname = "old"\nbase_url = "http://old"\n\n'
+                    b'[mcp_servers.docs]\ncommand = "docs-mcp"\nargs = ["--x"]\n')
+        self.path.parent.mkdir(parents=True)
+        self.path.write_bytes(original)
+        self.a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        cfg = self.read()
+        self.assertEqual(cfg["model"], "qwen3.8-27b")
+        self.assertEqual(cfg["approval_policy"], "on-request")
+        self.assertEqual(cfg["mcp_servers"]["docs"], {"command": "docs-mcp", "args": ["--x"]})
+        self.assertEqual(cfg["model_providers"]["raytone"]["base_url"], BASE)
+        # connecting again replaces our own lines, it does not repeat them
+        self.a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        self.assertEqual(self.path.read_text().count("[model_providers.raytone]"), 1)
+        self.a.revert()
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_a_config_it_cannot_parse_is_left_alone(self):
+        self.path.parent.mkdir(parents=True)
+        self.path.write_bytes(b"model = [unclosed\n")
+        with self.assertRaises(agents.AgentError):
+            self.a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        self.assertEqual(self.path.read_bytes(), b"model = [unclosed\n")
+
+    def test_codex_is_connectable_now(self):
+        row = next(r for r in agents.catalog() if r["id"] == "codex")
+        self.assertTrue(row["supported"])
+
+
 class CatalogTests(unittest.TestCase):
     def test_unsupported_agents_say_why(self):
         info = {a["id"]: a for a in agents.catalog()}

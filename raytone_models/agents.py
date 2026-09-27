@@ -7,8 +7,10 @@ back byte for byte. A config it cannot parse is left alone rather than rewritten
 import json
 import os
 import pathlib
+import re
 import shutil
 import tempfile
+import tomllib
 
 STATE = pathlib.Path(os.environ.get("XDG_STATE_HOME", pathlib.Path.home() / ".local/state")) / "raytone-models/agents"
 ROUTER = "http://127.0.0.1:8090/v1"
@@ -17,7 +19,7 @@ ROUTER = "http://127.0.0.1:8090/v1"
 CATALOG = [
     ("opencode", "OpenCode", True, ""),
     ("claude", "Claude Code", True, ""),
-    ("codex", "Codex", True, "through CC Switch, which turns Codex's Responses API into chat completions"),
+    ("codex", "Codex", True, "through the Responses API, which vLLM and SGLang serve"),
     ("crush", "Crush", True, ""),
     ("pi", "Pi", True, ""),
     ("omp", "Oh My Pi", True, ""),
@@ -181,7 +183,60 @@ class Pi(JsonAdapter):
         }
 
 
-ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi)}
+class Codex(Adapter):
+    """~/.codex/config.toml: a custom provider on the Responses API. TOML has no writer in the
+    standard library, so the file is edited as text: our top-level keys and our provider table are
+    replaced, everything else stays, and the result must parse to exactly what was meant."""
+    id = "codex"
+    KEYS = re.compile(r"^\s*(model|model_provider|model_context_window)\s*=")
+    HEADER = re.compile(r"^\s*\[")
+    OURS = re.compile(r"^\s*\[\s*model_providers\s*\.\s*raytone\s*\]\s*(#.*)?$")
+
+    @property
+    def path(self):
+        return self.home / ".codex/config.toml"
+
+    def _edit(self, text, default, base_url, context):
+        lines = text.splitlines(keepends=True)
+        first = next((i for i, l in enumerate(lines) if self.HEADER.match(l)), len(lines))
+        top = [l for l in lines[:first] if not self.KEYS.match(l)]
+        rest, skipping = [], False
+        for l in lines[first:]:
+            if self.HEADER.match(l):
+                skipping = bool(self.OURS.match(l))
+            if not skipping:
+                rest.append(l)
+        mine = [f"# Raytone Models (raytone-models agent revert codex puts the original back)\n",
+                f"model = {json.dumps(default)}\n", 'model_provider = "raytone"\n',
+                f"model_context_window = {int(context)}\n"]
+        table = ["\n[model_providers.raytone]\n", 'name = "Raytone Models"\n', f"base_url = {json.dumps(base_url)}\n",
+                 'wire_api = "responses"\n']
+        body = "".join(top + rest)
+        return "".join(mine) + ("\n" if body.strip() else "") + body.rstrip("\n") + ("\n" if body.strip() else "") + "".join(table)
+
+    def connect(self, models, *, default, base_url=ROUTER):
+        chosen = next((m for m in models if m["id"] == default), None)
+        if chosen is None:
+            raise AgentError(f"{default} is not one of the running models")
+        text = self.path.read_text() if self.path.exists() else ""
+        try:
+            tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            raise AgentError(f"{self.path} is not valid TOML; left as it is") from None
+        new = self._edit(text, default, base_url, chosen["context"])
+        try:
+            cfg = tomllib.loads(new)
+        except tomllib.TOMLDecodeError:
+            raise AgentError(f"{self.path} has a layout this adapter cannot edit safely; left as it is") from None
+        p = cfg.get("model_providers", {}).get("raytone", {})
+        if (cfg.get("model"), cfg.get("model_provider"), p.get("base_url"), p.get("wire_api")) != (default, "raytone", base_url, "responses"):
+            raise AgentError(f"{self.path} has a layout this adapter cannot edit safely; left as it is")
+        mode = self.path.stat().st_mode & 0o7777 if self.path.exists() else 0o600
+        self._save_original()
+        _atomic_write(self.path, new.encode(), mode)
+
+
+ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Codex)}
 
 
 def get(agent_id, **kw):
