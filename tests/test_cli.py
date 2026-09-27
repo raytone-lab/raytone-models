@@ -80,6 +80,23 @@ class CliTests(unittest.TestCase):
         got = {i["served_name"]: i["ready"] for i in json.loads(out)}
         self.assertEqual(got, {"qwen3.8-27b": True, "muse": False})
 
+    def test_a_video_engine_is_ready_by_its_own_health_check(self):
+        (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3", "port": 18002, "engine": "comfyui"}))
+        self.env.probe = lambda url: url == "http://127.0.0.1:18002/system_stats"
+        rc, out = self.run_cli("instances", "--json")
+        [i] = json.loads(out)
+        self.assertEqual((i["served_name"], i["engine"], i["ready"]), ("minimax-h3", "comfyui", True))
+
+    def test_locally_built_engine_images_come_from_etc(self):
+        # scripts/build-engine records the image ID it built in /etc/raytone-models/engines.json
+        t = pathlib.Path(self.tmp.name)
+        shipped, local = t / "shipped.json", t / "local.json"
+        shipped.write_text(json.dumps({"vllm": {"image": "v@x"}, "comfyui": {"note": "built locally"}}))
+        local.write_text(json.dumps({"comfyui": {"image": "raytone/comfyui@sha256:" + "c" * 64, "tag": "v0.37.0"}}))
+        got = cli._engines((shipped, local, t / "missing.json"))
+        self.assertEqual(got["vllm"]["image"], "v@x")
+        self.assertEqual(got["comfyui"], {"note": "built locally", "image": "raytone/comfyui@sha256:" + "c" * 64, "tag": "v0.37.0"})
+
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")
         self.assertEqual(self.helper_calls, [(["stop", "qwen"], None)])

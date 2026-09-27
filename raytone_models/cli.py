@@ -29,10 +29,11 @@ import subprocess
 import sys
 import urllib.request
 
-from . import agents, downloads, hf, live, recipes, router, spec as spec_mod, store
+from . import agents, downloads, engines, hf, live, recipes, router, spec as spec_mod, store
 
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
+LOCAL_ENGINES_FILE = pathlib.Path("/etc/raytone-models/engines.json")
 CONFIG_DIR = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", pathlib.Path.home() / ".config")) / "raytone-models"
 USER_RECIPES = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local/share")) / "raytone-models/recipes"
 
@@ -66,11 +67,18 @@ def _probe(url):
         return False
 
 
-def _engines():
-    try:
-        return json.loads(ENGINES_FILE.read_text())
-    except (OSError, ValueError):
-        return {}
+def _engines(files=None):
+    """The shipped engine images, with what scripts/build-engine built on this machine over them."""
+    out = {}
+    for f in files or (ENGINES_FILE, LOCAL_ENGINES_FILE):
+        try:
+            data = json.loads(pathlib.Path(f).read_text())
+        except (OSError, ValueError):
+            continue
+        for name, e in data.items():
+            if isinstance(e, dict):
+                out[name] = {**out.get(name, {}), **e}
+    return out
 
 
 @dataclasses.dataclass
@@ -140,7 +148,7 @@ def _instances(env):
         port = d.get("port")
         out.append({"id": d.get("id"), "served_name": d.get("served_name"), "engine": d.get("engine"), "port": port,
                     "context": (d.get("args") or {}).get("max-model-len"),
-                    "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}/v1/models")})
+                    "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}{engines.health_path(d.get('engine'))}")})
     return out
 
 
