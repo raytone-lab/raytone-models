@@ -1,0 +1,15 @@
+[Unit]
+Description=Raytone Models engine instance %i
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=simple
+# the helper re-validates the registered spec and execs the confined docker run
+ExecStartPre=-/usr/bin/docker rm -f raytone-%i
+ExecStart=/usr/lib/raytone-models/raytone-models-helper run %i
+ExecStop=/usr/bin/docker stop --time 30 raytone-%i
+ExecStopPost=/usr/lib/raytone-models/raytone-models-helper unregister %i
+TimeoutStartSec=0
+TimeoutStopSec=60
+Restart=no

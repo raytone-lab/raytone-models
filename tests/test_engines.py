@@ -7,7 +7,8 @@ from tests.test_spec import DIGEST, SNAPSHOT, good
 
 class VllmTests(unittest.TestCase):
     def argv(self, **over):
-        return engines.docker_argv(spec.load(good(**over)), store="/srv/hf", cache="/var/cache/raytone-models/qwen38-27b")
+        return engines.docker_argv(spec.load(good(**over)), store="/srv/hf", cache="/var/cache/raytone-models/qwen38-27b",
+                                   user=(961, 961), groups=(983, 987))
 
     def test_container_is_confined(self):
         a = self.argv()
@@ -21,6 +22,22 @@ class VllmTests(unittest.TestCase):
         for bad in ("--privileged", "--network=host", "--ipc=host", "--pid=host"):
             self.assertNotIn(bad, a)
         self.assertIn("--env=HF_HUB_OFFLINE=1", a)
+
+    def test_the_engine_runs_unprivileged(self):
+        # From Codex's review: a root container with a writable host cache could leave a root-owned
+        # setuid file for the user to run. The engine runs as its own user, with no capabilities.
+        a = self.argv()
+        self.assertIn("--user=961:961", a)
+        self.assertIn("--group-add=983", a)          # /dev/nvmap, /dev/dri/card* (video)
+        self.assertIn("--group-add=987", a)          # /dev/dri/renderD* (render)
+        self.assertIn("--cap-drop=ALL", a)
+        self.assertIn("--security-opt=no-new-privileges", a)
+        self.assertIn("--env=HOME=/cache", a)
+        self.assertLess(a.index("--user=961:961"), a.index(f"vllm/vllm-openai@{DIGEST}"))
+
+    def test_root_is_never_the_engine_user(self):
+        with self.assertRaises(ValueError):
+            engines.docker_argv(spec.load(good()), store="/srv/hf", cache="/c", user=(0, 0), groups=())
 
     def test_image_then_vllm_arguments(self):
         a = self.argv()

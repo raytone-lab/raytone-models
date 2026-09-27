@@ -1,0 +1,9 @@
+# The model store: root's (the helper hands it to docker by path); hub/ and xet/ inside belong to the
+# user who downloads models (created by the setup step, which knows that user).
+d /var/lib/raytone-models 0755 root root -
+d /var/lib/raytone-models/hf 0755 root root -
+# One cache per instance, each owned by raytone-engine with mode 0700; users may not list them.
+d /var/cache/raytone-models 0711 root root -
+# The registry of running instances, readable by the router.
+d /run/raytone-models 0755 root root -
+d /run/raytone-models/instances 0755 root root -

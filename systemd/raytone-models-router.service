@@ -1,0 +1,9 @@
+[Unit]
+Description=Raytone Models router (OpenAI- and Anthropic-compatible, 127.0.0.1:8090)
+
+[Service]
+ExecStart=/usr/bin/raytone-models router
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -68,6 +68,10 @@ class SpecTests(unittest.TestCase):
         self.refused("a loader variable", env={"LD_PRELOAD": "/x.so"})
         self.refused("a value with a space", env={"VLLM_PLE_MMAP": "1 2"})
         self.assertEqual(spec.load(good(env={"VLLM_PLE_MMAP": "1"})).env, {"VLLM_PLE_MMAP": "1"})
+        # a prefix is not a whitelist (Codex): unsafe or path-moving variables are refused
+        self.refused("insecure serialization", env={"VLLM_ALLOW_INSECURE_SERIALIZATION": "1"})
+        self.refused("moving the cache", env={"VLLM_CACHE_ROOT": "/hf"})
+        self.refused("a value out of range", env={"VLLM_PLE_MMAP": "yes"})
 
     def test_unknown_top_level_keys_are_refused(self):
         with self.assertRaises(spec.SpecError):
