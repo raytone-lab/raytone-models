@@ -14,6 +14,7 @@ checks the spec first, so the helper sees only what it would accept anyway.
 import argparse
 import dataclasses
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -26,8 +27,18 @@ HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
 
 
+def elevate_argv(environ):
+    """pkexec from the desktop session (polkit lets the local admin in); sudo for work over SSH."""
+    how = environ.get("RAYTONE_MODELS_ELEVATE", "pkexec")
+    if how == "pkexec":
+        return ["pkexec", HELPER]
+    if how == "sudo":
+        return ["sudo", "-n", HELPER]
+    raise SystemExit("RAYTONE_MODELS_ELEVATE is pkexec or sudo")
+
+
 def _pkexec(args, stdin=None):
-    r = subprocess.run(["pkexec", HELPER, *args], input=stdin, capture_output=True, text=True)
+    r = subprocess.run([*elevate_argv(os.environ), *args], input=stdin, capture_output=True, text=True)
     if r.returncode:
         raise SystemExit(r.stderr.strip() or f"helper failed ({r.returncode})")
     return json.loads(r.stdout or "{}")

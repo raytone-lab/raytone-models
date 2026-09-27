@@ -97,6 +97,12 @@ class CliTests(unittest.TestCase):
         rc, _ = self.run_cli("agent", "connect", "opencode")
         self.assertNotEqual(rc, 0)
 
+    def test_elevation_is_pkexec_unless_told_otherwise(self):
+        self.assertEqual(cli.elevate_argv({}), ["pkexec", cli.HELPER])
+        self.assertEqual(cli.elevate_argv({"RAYTONE_MODELS_ELEVATE": "sudo"}), ["sudo", "-n", cli.HELPER])
+        with self.assertRaises(SystemExit):
+            cli.elevate_argv({"RAYTONE_MODELS_ELEVATE": "sh -c"})
+
     def test_agents_json_lists_the_catalog(self):
         rc, out = self.run_cli("agents", "--json")
         ids = [a["id"] for a in json.loads(out)]
