@@ -1,0 +1,28 @@
+# Built from this checkout: cd packaging && makepkg
+pkgname=raytone-models
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Raytone Models: local model engines, Hugging Face models, agents and recipes for Omarchy'
+arch=(any)
+url='https://github.com/raytone-lab/raytone-models'
+license=(MIT)
+depends=(python docker polkit)
+optdepends=('python-huggingface-hub: downloads from Hugging Face'
+            'python-hf-xet: faster Hugging Face downloads')
+
+package() {
+  local src="$startdir/.." lib="$pkgdir/usr/lib/raytone-models"
+  install -d "$lib/raytone_models"
+  install -m 0644 "$src"/raytone_models/*.py "$lib/raytone_models/"
+  [[ -f $src/raytone_models/engines.json ]] && install -m 0644 "$src/raytone_models/engines.json" "$lib/raytone_models/"
+  install -m 0755 "$src/bin/raytone-models" "$src/bin/raytone-models-helper" "$lib/"
+  install -d "$pkgdir/usr/bin"
+  ln -s /usr/lib/raytone-models/raytone-models "$pkgdir/usr/bin/raytone-models"
+  install -Dm0644 "$src/systemd/raytone-engine@.service" "$pkgdir/usr/lib/systemd/system/raytone-engine@.service"
+  install -Dm0644 "$src/systemd/raytone-models-router.service" "$pkgdir/usr/lib/systemd/user/raytone-models-router.service"
+  install -Dm0644 "$src/polkit/org.raytone.models.policy" "$pkgdir/usr/share/polkit-1/actions/org.raytone.models.policy"
+  install -Dm0644 "$src/polkit/50-raytone-models.rules" "$pkgdir/usr/share/polkit-1/rules.d/50-raytone-models.rules"
+  install -d "$pkgdir/usr/share/raytone-models/plugin/raytone.models"
+  install -m 0644 "$src"/plugin/raytone.models/* "$pkgdir/usr/share/raytone-models/plugin/raytone.models/"
+  install -Dm0644 "$src/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
