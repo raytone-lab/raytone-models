@@ -30,8 +30,10 @@ Everything below was checked there; the evidence is in [`docs/evidence/`](docs/e
 - **A router** on `http://127.0.0.1:8090/v1`, OpenAI- and Anthropic-compatible (chat, completions,
   embeddings, messages, responses), that sends each request to the instance serving its model.
 - **Agents**: OpenCode, Claude Code, Crush, Pi and Codex connect to the local models in one click
-  (their own config files, restored byte for byte by Revert). Gemini, Cursor and Muse Code cannot
-  use a local endpoint; Oh My Pi, Hermes, OpenClaw, Grok and Copilot are not connected yet.
+  (their own config files, restored byte for byte by Revert); GitHub Copilot CLI, which reads its
+  endpoint from the environment only, starts on them with `raytone-models agent-exec copilot` (the
+  Agents page's Launch). Gemini, Cursor and Muse Code cannot use a local endpoint, nor could Grok's
+  CLI as installed; Oh My Pi, Hermes and OpenClaw are not connected yet.
 - **Recipes**, signed by Raytone AI Lab (`ssh-keygen -Y`, verified offline):
 
   | Recipe | What | Checked on the Thor |
@@ -73,7 +75,9 @@ Tests: `python3 -m unittest discover -s tests`. The app's pages render offscreen
   user namespaces through AppArmor and Arch ships no profiles.
 - **Ollama** can start before the GPU after a boot and then stay on the CPU; `systemctl restart ollama`
   brings it to the GPU (the Thor edition's unit ordering, to be fixed there).
-- **Laguna S 2.1** (95.6 GiB of weights) leaves too little memory for its KV cache with Mia's settings.
+- **Laguna S 2.1** (95.6 GiB of weights) needs 90% of memory and a 64K context to start (21 minutes
+  the first time, 24-38 tokens/s), leaving about 6 GiB free, and its reasoning arrives in the answer
+  text: no recipe yet.
 - **Qwen3.8 Flash Next** does not fit with upstream vLLM (its PLE table is pinned in memory next to
   a 123.6 GiB checkpoint). **Ling 3.0 Flash** loads but writes stray tokens into code on sm_110.
 
