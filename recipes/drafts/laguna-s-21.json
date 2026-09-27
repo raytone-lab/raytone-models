@@ -2,30 +2,48 @@
   "schema": 1,
   "id": "laguna-s-21",
   "title": "Laguna S 2.1 (NVFP4) with DFlash",
-  "description": "Poolside's coding model, NVFP4, DFlash speculative decoding (7 tokens), 256K context.",
-  "platforms": ["thor-t5000"],
-  "requires": {"memory_gib": 105, "disk_gib": 95},
+  "description": "Poolside's coding model, NVFP4, DFlash speculative decoding (7 tokens). Draft: on the Thor it started once with these settings (vLLM v0.25.1, 0.9 of memory, 64K context, FP8 KV cache), leaving about 6 GiB free; Mia's 0.85 and 256K left no room for the KV cache.",
+  "platforms": [
+    "thor-t5000"
+  ],
+  "requires": {
+    "memory_gib": 116,
+    "disk_gib": 95
+  },
   "source": "Parameters from Mia's AI Lab (github.com/MiaAI-Lab/Laguna-S-2.1-DGX-Spark-RTX-6000-PRO)",
   "components": [
     {
       "role": "coder",
       "served_name": "laguna-s-2.1",
-      "model": {"repo": "poolside/Laguna-S-2.1-NVFP4", "revision": "826aacdf6d8b2699d4e367def6f17c83b06044c2"},
-      "draft": {"repo": "poolside/Laguna-S-2.1-DFlash-NVFP4", "revision": "b3b5921a900b9e0a1e27e50bdaeb480692a6d19b"},
+      "model": {
+        "repo": "poolside/Laguna-S-2.1-NVFP4",
+        "revision": "826aacdf6d8b2699d4e367def6f17c83b06044c2"
+      },
+      "draft": {
+        "repo": "poolside/Laguna-S-2.1-DFlash-NVFP4",
+        "revision": "b3b5921a900b9e0a1e27e50bdaeb480692a6d19b"
+      },
       "engine": "vllm",
-      "image": "vllm/vllm-openai@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90",
+      "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
       "args": {
-        "gpu-memory-utilization": 0.85,
-        "max-model-len": 262144,
+        "gpu-memory-utilization": 0.9,
+        "max-model-len": 65536,
         "max-num-batched-tokens": 8192,
         "max-num-seqs": 4,
         "enable-auto-tool-choice": true,
         "tool-call-parser": "poolside_v1",
         "reasoning-parser": "poolside_v1",
-        "speculative-config": {"method": "dflash", "num_speculative_tokens": 7}
+        "speculative-config": {
+          "method": "dflash",
+          "num_speculative_tokens": 7
+        },
+        "kv-cache-dtype": "fp8",
+        "trust-remote-code": true
       },
       "env": {}
     }
   ],
-  "agents": {"default_model": "laguna-s-2.1"}
+  "agents": {
+    "default_model": "laguna-s-2.1"
+  }
 }
