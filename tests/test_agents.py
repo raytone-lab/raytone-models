@@ -99,6 +99,8 @@ class JsonAdapterTests(unittest.TestCase):
         for tier in ("OPUS", "SONNET", "HAIKU"):
             self.assertEqual(env[f"ANTHROPIC_DEFAULT_{tier}_MODEL"], "qwen3.8-27b")
         self.assertEqual(env["CLAUDE_CODE_ATTRIBUTION_HEADER"], "0")               # keeps prefix caching working
+        # Claude Code asks for effort "high"; Qwen3.8's template knows xhigh, medium and low (seen on the Thor)
+        self.assertEqual(env["CLAUDE_CODE_EFFORT_LEVEL"], "medium")
         self.assertEqual(env["FOO"], "1")
         self.assertEqual(cfg["theme"], "dark")
 

@@ -146,6 +146,8 @@ class Claude(JsonAdapter):
             # a per-request hash in the system prompt would defeat the engine's prefix cache
             "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
             "API_TIMEOUT_MS": "3000000",
+            # Claude Code's default effort ("high") is not one every template knows; "medium" is common
+            "CLAUDE_CODE_EFFORT_LEVEL": "medium",
         })
 
 
