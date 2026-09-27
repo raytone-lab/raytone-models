@@ -68,7 +68,7 @@ function modelState(m) {
 
 // The command each connectable agent starts with (in a terminal, from the Agents page).
 function agentCommand(id) {
-    var commands = { "opencode": "opencode", "claude": "claude", "crush": "crush", "pi": "pi", "codex": "codex" }
+    var commands = { "opencode": "opencode", "claude": "claude", "crush": "crush", "pi": "pi", "codex": "codex", "copilot": "copilot" }
     return commands[id] || null
 }
 

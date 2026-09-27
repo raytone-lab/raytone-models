@@ -206,6 +206,41 @@ class CodexTests(unittest.TestCase):
         self.assertTrue(row["supported"])
 
 
+class EnvAdapterTests(unittest.TestCase):
+    """Copilot CLI and Grok take a custom endpoint from the environment only: the adapter writes a
+    systemd environment.d file (the Omarchy session reads it at login) that Launch also uses."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = pathlib.Path(self.tmp.name)
+        self.home, self.state = t / "home", t / "state"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_copilot_uses_its_byok_variables_offline(self):
+        a = agents.get("copilot", home=self.home, state=self.state)
+        a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        path = self.home / ".config/environment.d/60-raytone-copilot.conf"
+        env = dict(l.split("=", 1) for l in path.read_text().splitlines() if l and not l.startswith("#"))
+        self.assertEqual(env, {"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BASE_URL": BASE,
+                               "COPILOT_MODEL": "qwen3.8-27b", "COPILOT_OFFLINE": "true",
+                               "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": "131072"})
+        self.assertEqual(a.env(), env)
+        a.revert()
+        self.assertFalse(path.exists())
+        self.assertEqual(a.env(), {})
+
+    def test_an_existing_file_is_restored(self):
+        path = self.home / ".config/environment.d/60-raytone-copilot.conf"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"MINE=1\n")
+        a = agents.get("copilot", home=self.home, state=self.state)
+        a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        a.revert()
+        self.assertEqual(path.read_bytes(), b"MINE=1\n")
+
+
 class CatalogTests(unittest.TestCase):
     def test_unsupported_agents_say_why(self):
         info = {a["id"]: a for a in agents.catalog()}

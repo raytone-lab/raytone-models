@@ -26,7 +26,7 @@ CATALOG = [
     ("hermes", "Hermes", True, ""),
     ("openclaw", "OpenClaw", True, ""),
     ("grok", "Grok", True, ""),
-    ("copilot", "GitHub Copilot", True, ""),
+    ("copilot", "GitHub Copilot", True, "through its BYOK variables, offline; from the next login"),
     ("gemini", "Gemini", False, "speaks only Google's Gemini API"),
     ("cursor-agent", "Cursor CLI", False, "sends every request through Cursor's cloud"),
     ("muse", "Muse Code", False, "uses only Meta-hosted models"),
@@ -242,7 +242,47 @@ class Codex(Adapter):
         _atomic_write(self.path, new.encode(), mode)
 
 
-ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Codex)}
+class EnvAdapter(Adapter):
+    """An agent that takes a custom endpoint from its environment only: a systemd environment.d
+    file, which the Omarchy session reads at login (the agent sees it from the next login on)."""
+
+    @property
+    def path(self):
+        return self.home / ".config/environment.d" / f"60-raytone-{self.id}.conf"
+
+    def variables(self, default, base_url, context):
+        raise NotImplementedError
+
+    def connect(self, models, *, default, base_url=ROUTER):
+        chosen = next((m for m in models if m["id"] == default), None)
+        if chosen is None:
+            raise AgentError(f"{default} is not one of the running models")
+        values = self.variables(default, base_url, chosen["context"])
+        if any(not re.fullmatch(r"[A-Za-z0-9._:/@+-]+", str(v)) for v in values.values()):
+            raise AgentError("a value this adapter would write is not a plain word")
+        mode = self.path.stat().st_mode & 0o7777 if self.path.exists() else 0o644
+        self._save_original()
+        text = f"# Raytone Models: {self.id} on the local router (raytone-models agent revert {self.id})\n"
+        text += "".join(f"{k}={v}\n" for k, v in values.items())
+        _atomic_write(self.path, text.encode(), mode)
+
+    def env(self):
+        """The variables in effect when connected (for launching it right away), else {}."""
+        if not (self.state / "original.json").exists() or not self.path.exists():
+            return {}
+        return dict(l.split("=", 1) for l in self.path.read_text().splitlines() if "=" in l and not l.startswith("#"))
+
+
+class Copilot(EnvAdapter):
+    """GitHub Copilot CLI's BYOK variables, offline: it talks to the router only."""
+    id = "copilot"
+
+    def variables(self, default, base_url, context):
+        return {"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BASE_URL": base_url, "COPILOT_MODEL": default,
+                "COPILOT_OFFLINE": "true", "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": int(context)}
+
+
+ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Codex, Copilot)}
 
 
 def get(agent_id, **kw):
