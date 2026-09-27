@@ -88,26 +88,53 @@ function chatModels(instances) {
 // Include patterns match as the downloader's do: fnmatch, * crosses directories, "dir/" is all below.
 function includeMatch(path, pattern) {
     var p = /\/$/.test(pattern) ? pattern + "*" : pattern
-    // fnmatch.translate: * and ? and [set] / [!set]; an unclosed [ is literal
-    var re = "", i = 0
-    while (i < p.length) {
+    // A port of Python's fnmatch.translate (the downloader's rule), with "]" escaped in sets for JS
+    var esc = function (t) { return t.replace(/[.*+?^${}()|[\]\\\/-]/g, "\\$&") }
+    var re = "", i = 0, n = p.length
+    while (i < n) {
         var c = p[i++]
-        if (c === "*") re += ".*"
-        else if (c === "?") re += "."
-        else if (c === "[") {
-            var j = i
-            if (j < p.length && p[j] === "!") j++
-            if (j < p.length && p[j] === "]") j++
-            while (j < p.length && p[j] !== "]") j++
-            if (j >= p.length) { re += "\\["; continue }
-            var set = p.slice(i, j).replace(/\\/g, "\\\\").replace(/\]/g, "\\]")   // JS reads [] as an empty set
-            i = j + 1
-            if (set[0] === "!") set = "^" + set.slice(1)
-            else if (set[0] === "^") set = "\\" + set
-            re += "[" + set + "]"
-        } else re += c.replace(/[.+^${}()|[\]\\\/-]/g, "\\$&")
+        if (c === "*") { re += ".*"; continue }
+        if (c === "?") { re += "."; continue }
+        if (c !== "[") { re += esc(c); continue }
+        var j = i
+        if (j < n && p[j] === "!") j++
+        if (j < n && p[j] === "]") j++
+        while (j < n && p[j] !== "]") j++
+        if (j >= n) { re += "\\["; continue }
+        var stuff
+        if (p.slice(i, j).indexOf("-") < 0) {
+            stuff = p.slice(i, j).replace(/\\/g, "\\\\")
+        } else {
+            var chunks = [], k = p[i] === "!" ? i + 2 : i + 1
+            while (true) {
+                k = p.indexOf("-", k)
+                if (k < 0 || k >= j) break
+                chunks.push(p.slice(i, k))
+                i = k + 1
+                k = k + 3
+            }
+            var chunk = p.slice(i, j)
+            if (chunk) chunks.push(chunk)
+            else chunks[chunks.length - 1] += "-"
+            for (var m = chunks.length - 1; m > 0; m--) {      // drop empty (reversed) ranges
+                if (chunks[m - 1][chunks[m - 1].length - 1] > chunks[m][0]) {
+                    chunks[m - 1] = chunks[m - 1].slice(0, -1) + chunks[m].slice(1)
+                    chunks.splice(m, 1)
+                }
+            }
+            stuff = chunks.map(function (t) { return t.replace(/\\/g, "\\\\").replace(/-/g, "\\-") }).join("-")
+        }
+        stuff = stuff.replace(/([&~|])/g, "\\$1")
+        i = j + 1
+        if (!stuff) re += "(?!)"                     // an empty set never matches
+        else if (stuff === "!") re += "."            // a negated empty set matches any character
+        else {
+            if (stuff[0] === "!") stuff = "^" + stuff.slice(1)
+            else if (stuff[0] === "^" || stuff[0] === "[") stuff = "\\" + stuff
+            re += "[" + stuff.replace(/\]/g, "\\]") + "]"
+        }
     }
-    return new RegExp("^" + re + "$").test(path)
+    return new RegExp("^(?:" + re + ")$", "s").test(path)
 }
 
 function ggufFiles(m) {

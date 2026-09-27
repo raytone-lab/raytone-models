@@ -78,9 +78,27 @@ class AppLogicTests(unittest.TestCase):
         import fnmatch
         cases = [("x-Q8_0.gguf", "x-Q[8]_0.gguf"), ("x-Q8_0.gguf", "x-Q[!4]_0.gguf"), ("x-Q4_0.gguf", "x-Q[!4]_0.gguf"),
                  ("dir/x.gguf", "*.gguf"), ("x-Q8_0.gguf", "x-Q?_0.gguf"), ("a[b.gguf", "a[b.gguf"), ("x+y.gguf", "x+y.gguf"),
-                 ("x-Q8_0.gguf", "x-Q[0-9]_0.gguf"), ("x].gguf", "x[]].gguf"), ("xa.gguf", "x[!]].gguf")]
+                 ("x-Q8_0.gguf", "x-Q[0-9]_0.gguf"), ("x].gguf", "x[]].gguf"), ("xa.gguf", "x[!]].gguf"),
+                 # From Codex's review: reversed ranges are dropped, as Python does, not an error
+                 ("x-Q8_0.gguf", "x-Q[!9-0]_0.gguf"), ("x-Q8_0.gguf", "x-Q[9-0]_0.gguf"), ("x-Q8_0.gguf", "x-Q[a-z8]_0.gguf"),
+                 ("x-.gguf", "x[-].gguf"), ("x-.gguf", "x[a-].gguf"), ("x^.gguf", "x[^].gguf"), ("x&.gguf", "x[&&].gguf")]
         for path, pattern in cases:
             self.assertEqual(call("includeMatch", path, pattern), fnmatch.fnmatchcase(path, pattern), (path, pattern))
+
+    def test_include_patterns_agree_with_fnmatch_on_random_patterns(self):
+        import random
+        from raytone_models import downloads
+        rng = random.Random(7)
+        alphabet = "ab9-]![*?^\\/."
+        cases = [("".join(rng.choice("ab9-]^/.") for _ in range(rng.randint(0, 4))),
+                  "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 6)))) for _ in range(400)]
+        src = JS.read_text().replace(".pragma library", "")
+        prog = src + f"\nprocess.stdout.write(JSON.stringify({json.dumps(cases)}.map(function (c) {{" \
+                     "try { return includeMatch(c[0], c[1]) } catch (e) { return 'error: ' + e.message } })));"
+        got = json.loads(subprocess.run(["node", "-e", prog], capture_output=True, text=True, check=True).stdout)
+        for (path, pattern), g in zip(cases, got):
+            # the reference is the downloader's own rule (fnmatch, with "dir/" meaning all below)
+            self.assertEqual(g, downloads._matches(path, [pattern]), (path, pattern))
 
     def test_gguf_files_to_run(self):
         m = {"files": ["README.md", "Qwen3-0.6B-Q4_K_M.gguf", "mmproj-F16.gguf"]}
