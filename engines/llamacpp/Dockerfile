@@ -19,6 +19,9 @@ RUN cmake -S /src -B /src/build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="$CUDA
 FROM nvidia/cuda@sha256:6a0e31b59e70890446f2c17356d6efc0d54260090a8c63d6ca7c2ad049db95d2
 # 13.0.2-runtime-ubuntu24.04
 ARG LLAMA_CPP_COMMIT
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/build/bin/llama-server /usr/local/bin/llama-server
+# every shared library it needs is in this image (libcuda comes from the host through CDI)
+RUN ! ldd /usr/local/bin/llama-server | grep -v libcuda.so | grep "not found"
 LABEL org.raytone.models.engine=llamacpp org.raytone.models.llama-cpp-commit=$LLAMA_CPP_COMMIT
 ENTRYPOINT []
