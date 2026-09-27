@@ -25,6 +25,44 @@ def good(**over):
     return s
 
 
+DRAFT = "/hf/hub/models--nvidia--NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark/snapshots/" + "8" * 40
+
+
+def sglang(**over):
+    s = good(engine="sglang", image=f"nvcr.io/nvidia/sglang@{DIGEST}",
+             args={"mem-fraction-static": 0.6, "context-length": 262144, "mamba-ssm-dtype": "float16",
+                   "reasoning-parser": "nemotron_3", "tool-call-parser": "qwen3_coder",
+                   "speculative-algorithm": "DSPARK", "speculative-draft-model-path": DRAFT,
+                   "speculative-dspark-block-size": 3, "kv-cache-dtype": "fp8_e4m3"},
+             env={"SGLANG_ENABLE_SPEC_V2": "1"})
+    s.update(over)
+    return s
+
+
+class SglangSpecTests(unittest.TestCase):
+    def test_a_good_sglang_spec_loads(self):
+        s = spec.load(sglang())
+        self.assertEqual(s.engine, "sglang")
+        spec.load(sglang(image=f"lmsysorg/sglang@{DIGEST}"))
+
+    def refused(self, why, **over):
+        with self.assertRaises(spec.SpecError, msg=why):
+            spec.load(sglang(**over))
+
+    def test_images_and_arguments_are_sglang_own(self):
+        self.refused("a vllm image for sglang", image=f"vllm/vllm-openai@{DIGEST}")
+        self.refused("a vllm argument", args={"gpu-memory-utilization": 0.6})
+        self.refused("an unknown algorithm", args={"speculative-algorithm": "MAGIC"})
+        self.refused("a memory fraction out of range", args={"mem-fraction-static": 1.5})
+        self.refused("an unknown variable", env={"LD_PRELOAD": "/x.so"})
+
+    def test_the_draft_path_is_a_snapshot_in_the_mounted_store(self):
+        # the only path argument an engine takes: exactly /hf/hub/<snapshot>, nothing outside the store
+        for bad in ("/cache/evil", "/hf/hub/../../etc", DRAFT + "/../..", "/hf/hub/models--a--b/snapshots/xyz",
+                    "relative/" + DRAFT, DRAFT + " --x"):
+            self.refused(f"draft path {bad!r}", args={"speculative-draft-model-path": bad})
+
+
 class SpecTests(unittest.TestCase):
     def test_a_good_spec_loads(self):
         s = spec.load(good())
