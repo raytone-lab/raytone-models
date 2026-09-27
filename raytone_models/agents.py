@@ -136,8 +136,11 @@ class Claude(JsonAdapter):
     id, rel = "claude", ".claude/settings.json"
 
     def merge(self, cfg, models, default, base_url):
+        # an explicit model (settings or ANTHROPIC_MODEL) wins over the aliases: point it here too
+        cfg["model"] = default
         env = cfg.setdefault("env", {})
         env.update({
+            "ANTHROPIC_MODEL": default,
             "ANTHROPIC_BASE_URL": base_url.removesuffix("/v1"),
             "ANTHROPIC_AUTH_TOKEN": "raytone-local",
             "ANTHROPIC_DEFAULT_OPUS_MODEL": default,

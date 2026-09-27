@@ -104,6 +104,13 @@ class JsonAdapterTests(unittest.TestCase):
         self.assertEqual(env["FOO"], "1")
         self.assertEqual(cfg["theme"], "dark")
 
+    def test_claude_code_model_choice_follows_the_connect(self):
+        # a full model name in settings would bypass the aliases and ask the router for it (Codex)
+        cfg = self.roundtrip("claude", ".claude/settings.json",
+                             b'{"model": "claude-opus-4-7", "env": {"ANTHROPIC_MODEL": "claude-opus-4-7"}}\n')
+        self.assertEqual(cfg["model"], "qwen3.8-27b")
+        self.assertEqual(cfg["env"]["ANTHROPIC_MODEL"], "qwen3.8-27b")
+
     def test_crush_gets_an_openai_compatible_provider(self):
         cfg = self.roundtrip("crush", ".config/crush/crush.json", b'{"options": {"debug": false}}\n')
         p = cfg["providers"]["raytone"]
