@@ -89,8 +89,8 @@ def _component(c):
             sc = args["speculative-config"] = json.loads(sc)
         except ValueError:
             raise RecipeError("speculative-config is not JSON") from None
-    if isinstance(sc, dict) and "model" in sc:
-        raise RecipeError("speculative-config.model is filled in from draft; a recipe does not name paths")
+    if (isinstance(sc, dict) and "model" in sc) or "speculative-draft-model-path" in args:
+        raise RecipeError("the draft model's path is filled in from draft; a recipe does not name paths")
     # the engine, image, name, arguments and environment get the same checks as an instance spec
     probe = {"id": "recipe-check", "engine": c["engine"], "image": c["image"],
              "model": f"models--x--y/snapshots/{'0' * 40}", "served_name": c["served_name"],
@@ -205,6 +205,13 @@ def instance_id(served_name):
     return re.sub(r"[^a-z0-9-]+", "-", served_name.lower()).strip("-")[:64]
 
 
+def _fill_draft(engine, args, path):
+    if engine == "sglang":
+        args["speculative-draft-model-path"] = path
+    else:
+        args["speculative-config"] = {**args.get("speculative-config", {}), "model": path}
+
+
 def specs(recipe, hf_home=None, *, used_ports=()):
     st = status(recipe, hf_home)
     if st["state"] != "ready":
@@ -216,7 +223,7 @@ def specs(recipe, hf_home=None, *, used_ports=()):
         used.add(port)
         args = dict(c.args)
         if c.draft_repo:
-            args["speculative-config"] = {**args.get("speculative-config", {}), "model": f"/hf/hub/{s['draft_snapshot']}"}
+            _fill_draft(c.engine, args, f"/hf/hub/{s['draft_snapshot']}")
         out.append(spec_mod.load({"id": instance_id(c.served_name), "engine": c.engine, "image": c.image,
                                   "model": s["snapshot"], "served_name": c.served_name, "port": port,
                                   "args": args, "env": c.env}))
@@ -232,7 +239,7 @@ def expected(recipe, hf_home=None):
             continue
         args = dict(c.args)
         if c.draft_repo:
-            args["speculative-config"] = {**args.get("speculative-config", {}), "model": f"/hf/hub/{s['draft_snapshot']}"}
+            _fill_draft(c.engine, args, f"/hf/hub/{s['draft_snapshot']}")
         out[c.served_name] = (c.image, s["snapshot"], args, c.env)
     return out
 

@@ -209,6 +209,29 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(s.args["speculative-config"], {"method": "dflash", "num_speculative_tokens": 7,
                          "model": "/hf/hub/models--poolside--Laguna-S-2.1-DFlash-NVFP4/snapshots/" + "b" * 40})
 
+    def test_an_sglang_draft_path_is_filled_into_its_argument(self):
+        c = recipe()["components"][0]
+        draft = {"repo": "inclusionAI/Ling-3.0-flash-dspark", "revision": "b" * 40}
+        r = recipes.load(recipe(components=[{**c, "engine": "sglang", "image": f"nvcr.io/nvidia/sglang@{DIGEST}",
+                                             "draft": draft, "args": {"mem-fraction-static": 0.6,
+                                                                      "speculative-algorithm": "DSPARK"}}]))
+        put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        put(self.hf / "hub", draft["repo"], "b" * 40, {"config.json": b"{}"})
+        self.tree(REPO, SHA, ["config.json"])
+        self.tree(draft["repo"], "b" * 40, ["config.json"])
+        [s] = recipes.specs(r, self.hf)
+        path = "/hf/hub/models--inclusionAI--Ling-3.0-flash-dspark/snapshots/" + "b" * 40
+        self.assertEqual(s.args["speculative-draft-model-path"], path)
+        self.assertNotIn("speculative-config", s.args)
+        self.assertEqual(recipes.expected(r, self.hf)[c["served_name"]][2]["speculative-draft-model-path"], path)
+
+    def test_an_sglang_recipe_cannot_name_its_draft_path(self):
+        c = recipe()["components"][0]
+        path = "/hf/hub/models--inclusionAI--Ling-3.0-flash-dspark/snapshots/" + "b" * 40
+        with self.assertRaises(recipes.RecipeError):
+            recipes.load(recipe(components=[{**c, "engine": "sglang", "image": f"nvcr.io/nvidia/sglang@{DIGEST}",
+                                             "args": {"speculative-draft-model-path": path}}]))
+
     def test_a_recipe_cannot_name_its_own_draft_path(self):
         c = recipe()["components"][0]
         with self.assertRaises(recipes.RecipeError):
