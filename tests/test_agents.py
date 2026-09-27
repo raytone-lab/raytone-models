@@ -206,6 +206,44 @@ class CodexTests(unittest.TestCase):
         self.assertTrue(row["supported"])
 
 
+class EnvAdapterTests(unittest.TestCase):
+    """Copilot CLI takes a custom endpoint from its environment only. From Codex's review of PR #10:
+    not the session's environment (environment.d reaches every program and outlives a revert), but
+    variables of our own that `raytone-models agent-exec copilot` (and Launch) start it with."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = pathlib.Path(self.tmp.name)
+        self.home, self.state = t / "home", t / "state"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_copilot_uses_its_byok_variables_offline(self):
+        a = agents.get("copilot", home=self.home, state=self.state)
+        a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        path = self.home / ".config/raytone-models/agents/copilot.env"
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertFalse((self.home / ".config/environment.d").exists())
+        env = dict(l.split("=", 1) for l in path.read_text().splitlines() if l and not l.startswith("#"))
+        self.assertEqual(env, {"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BASE_URL": BASE,
+                               "COPILOT_MODEL": "qwen3.8-27b", "COPILOT_OFFLINE": "true",
+                               "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": "131072"})
+        self.assertEqual(a.env(), env)
+        a.revert()
+        self.assertFalse(path.exists())
+        self.assertEqual(a.env(), {})
+
+    def test_an_existing_file_is_restored(self):
+        path = self.home / ".config/raytone-models/agents/copilot.env"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"MINE=1\n")
+        a = agents.get("copilot", home=self.home, state=self.state)
+        a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        a.revert()
+        self.assertEqual(path.read_bytes(), b"MINE=1\n")
+
+
 class CatalogTests(unittest.TestCase):
     def test_unsupported_agents_say_why(self):
         info = {a["id"]: a for a in agents.catalog()}
