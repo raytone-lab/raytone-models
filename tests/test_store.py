@@ -73,6 +73,30 @@ class StoreTests(unittest.TestCase):
         put(self.hub, "a/b", SHA, {"x.safetensors": b"w"}, incomplete=("c1", "c2"))
         self.assertEqual(store.list_models(self.home)[0].incomplete, 2)
 
+    def tree(self, root, files):
+        """huggingface_hub 2's per-revision manifest: every file of the revision with its size."""
+        (root / "trees").mkdir(exist_ok=True)
+        (root / "trees" / f"{SHA}.json").write_text(json.dumps(
+            {"format_version": 1, "files": {p: {"size": n, "blob_id": "x"} for p, n in files.items()}}))
+
+    def test_completeness_comes_from_the_revision_manifest(self):
+        root = put(self.hub, "a/b", SHA, {"config.json": b"{}", "m-1.safetensors": b"w" * 10})
+        self.tree(root, {"config.json": 2, "m-1.safetensors": 10, "m-2.safetensors": 30})
+        [m] = store.list_models(self.home)
+        self.assertEqual((m.expected_size, m.complete), (42, False))
+        self.assertEqual(m.missing, ["m-2.safetensors"])
+        self.assertAlmostEqual(m.progress, 12 / 42)
+
+    def test_a_complete_revision(self):
+        root = put(self.hub, "a/b", SHA, {"config.json": b"{}"})
+        self.tree(root, {"config.json": 2})
+        [m] = store.list_models(self.home)
+        self.assertEqual((m.complete, m.progress), (True, 1.0))
+
+    def test_without_a_manifest_completeness_is_unknown(self):
+        put(self.hub, "a/b", SHA, {"config.json": b"{}"})
+        self.assertIsNone(store.list_models(self.home)[0].complete)
+
     def test_a_broken_link_is_not_counted(self):
         root = put(self.hub, "a/b", SHA, {"x.safetensors": b"w"})
         (root / "snapshots" / SHA / "gone.safetensors").symlink_to("../../blobs/missing")

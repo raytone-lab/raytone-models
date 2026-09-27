@@ -22,7 +22,10 @@ class Model:
     size: int              # bytes, each blob once
     files: list
     incomplete: int        # blobs still downloading
-    missing: list          # links whose blob is gone
+    missing: list          # files of the revision not (or no longer) here
+    expected_size: int = None   # from the revision manifest, when there is one
+    complete: bool = None       # every file of the revision is here; None without a manifest
+    progress: float = None      # bytes here / expected bytes
 
     def to_dict(self):
         return dataclasses.asdict(self)
@@ -78,7 +81,18 @@ def list_models(hf_home=None):
                     continue
                 files.append(rel)
                 blobs.add(target)
+            size = sum(b.stat().st_size for b in blobs)
+            # huggingface_hub 2 keeps the revision's file list in trees/COMMIT.json
+            manifest = (_read_json(root / "trees" / f"{snap.name}.json").get("files") or {})
+            expected = complete = progress = None
+            if manifest:
+                present = set(files)
+                missing += [f for f in sorted(manifest) if f not in present and f not in missing]
+                expected = sum(int(v.get("size", 0)) for v in manifest.values())
+                complete = not missing
+                progress = 1.0 if complete else (size / expected if expected else 0.0)
             out.append(Model(repo=repo, revision=snap.name, snapshot=f"{root.name}/snapshots/{snap.name}",
-                             format=_format(files), quant=_quant(snap), size=sum(b.stat().st_size for b in blobs),
-                             files=files, incomplete=incomplete, missing=missing))
+                             format=_format(files), quant=_quant(snap), size=size, files=files,
+                             incomplete=incomplete, missing=missing, expected_size=expected,
+                             complete=complete, progress=progress))
     return out
