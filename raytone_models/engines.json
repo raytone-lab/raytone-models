@@ -3,5 +3,10 @@
     "image": "vllm/vllm-openai@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90",
     "tag": "v0.30.0",
     "checked": "2026-09-27, Jetson AGX Thor: torch 2.13.0+cu130, arch list includes sm_110, CUDA matmul on NVIDIA Thor (11, 0)"
+  },
+  "sglang": {
+    "image": "nvcr.io/nvidia/sglang@sha256:80cf6f3f99233cc6a4492541d074b9fc54506660e951a66780a3c4a6204d060f",
+    "tag": "26.05-py3",
+    "checked": "2026-09-27, Jetson AGX Thor: SGLang 0.5.11, torch 2.12.0a0 (NGC 26.05, CUDA 13.2), arch list includes sm_110, NVIDIA Thor (11, 0); no DSPARK in this release"
   }
 }
