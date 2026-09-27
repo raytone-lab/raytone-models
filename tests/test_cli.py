@@ -295,6 +295,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(ran, [["hf", "cache", "rm", "model/RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "-y"]])
 
+    def test_delete_one_revision(self):
+        # From Codex's review: the app confirms one revision, so only that revision goes
+        self.hub()
+        other = "c" * 40
+        (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "q", "port": 18000,
+            "model": f"models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead/snapshots/{other}"}))
+        ran = []
+        self.env.run = lambda argv, env: ran.append(argv) or 0
+        rc, _ = self.run_cli("delete", f"RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@{SHA}")
+        self.assertEqual(rc, 0)           # another revision is in use, not this one
+        self.assertEqual(ran, [["hf", "cache", "rm", SHA, "-y"]])
+        rc, _ = self.run_cli("delete", f"RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@{other}")
+        self.assertNotEqual(rc, 0)
+        rc, _ = self.run_cli("delete", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@main")
+        self.assertNotEqual(rc, 0)        # a revision is a full commit
+
     def test_stats_json(self):
         (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "qwen3.8-27b", "port": 18000}))
         self.env.counters = lambda url: {"generation_tokens": 10.0} if ":18000/" in url else None

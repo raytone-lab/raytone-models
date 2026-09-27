@@ -10,7 +10,7 @@
     raytone-models hub files REPO [--revision COMMIT] [--json]
     raytone-models download REPO[@COMMIT] [--variant NAME | --include PATTERN...] [--json]
     raytone-models downloads [--json]      raytone-models download-cancel ID
-    raytone-models delete REPO             raytone-models hf-token set|clear   (token on stdin)
+    raytone-models delete REPO[@COMMIT]    raytone-models hf-token set|clear   (token on stdin)
     raytone-models stats|engines [--json]  raytone-models chat   (request JSON on stdin, JSON lines out)
     raytone-models recipes [--json]
     raytone-models recipe apply|stop|fetch ID [--json]
@@ -289,12 +289,17 @@ def cmd_download(a, env):
 
 
 def cmd_delete(a, env):
-    root = "models--" + a.repo.replace("/", "--")
-    users = [d.get("served_name") for d in _registered(env) if str(d.get("model", "")).startswith(root + "/")]
+    """The whole repo, or with @COMMIT that revision only (what the app confirms)."""
+    repo, _, rev = a.repo.partition("@")
+    if rev and not re.fullmatch(r"[0-9a-f]{40}", rev):
+        raise SystemExit("a revision to delete is a full 40-hex commit")
+    root = "models--" + repo.replace("/", "--")
+    prefix = f"{root}/snapshots/{rev}" if rev else root + "/"
+    users = [d.get("served_name") for d in _registered(env) if str(d.get("model", "")).startswith(prefix)]
     if users:
         raise SystemExit(f"{a.repo} is in use by {', '.join(users)}; stop it first")
     hf_env = dict(os.environ, HF_HOME=str(env.hf_home))
-    if env.run(["hf", "cache", "rm", f"model/{a.repo}", "-y"], hf_env):
+    if env.run(["hf", "cache", "rm", rev or f"model/{repo}", "-y"], hf_env):
         raise SystemExit(f"could not delete {a.repo}")
     return {"deleted": a.repo}
 
@@ -443,7 +448,7 @@ def main(argv=None, env=None):
             _print(downloads.listing(hf_home=env.hf_home, state_dir=env.downloads_dir), a.json)
         elif a.command == "download-cancel":
             try:
-                downloads.cancel(a.id, state_dir=env.downloads_dir)
+                downloads.cancel(a.id, hf_home=env.hf_home, state_dir=env.downloads_dir)
             except downloads.DownloadError as e:
                 raise SystemExit(str(e)) from None
             _print({"cancelled": a.id}, a.json)

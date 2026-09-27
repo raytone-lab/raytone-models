@@ -26,7 +26,7 @@ class DownloadTests(unittest.TestCase):
         self.hf, self.state = t / "hf", t / "state"
         self.spawned = []
         self.alive = {4242}
-        self.kw = dict(hf_home=self.hf, state_dir=self.state, alive=lambda pid: pid in self.alive,
+        self.kw = dict(hf_home=self.hf, state_dir=self.state, alive=lambda d: d.get("pid") in self.alive,
                        spawn=lambda argv, env, log: self.spawned.append((argv, env)) or FakeProc())
 
     def tearDown(self):
@@ -87,6 +87,65 @@ class DownloadTests(unittest.TestCase):
         self.start()
         with self.assertRaises(downloads.DownloadError):
             self.start()
+
+    def test_patterns_select_files_the_way_hf_does(self):
+        # From Codex's review: --include '*.gguf' matched nothing literally, so the state file held
+        # no files and the download read as done at once.
+        files = FILES + [{"path": "README.md", "size": 5, "sha256": None}, {"path": "Q8_0/x-Q8_0.gguf", "size": 7, "sha256": "7" * 64}]
+        d = downloads.start(REPO, SHA, files, include=["*.gguf"], **self.kw)
+        self.assertEqual(d["expected"], 127)          # * crosses directories, as in huggingface_hub
+        d = downloads.start(REPO, SHA, files, include=["Q8_0/"], **self.kw)
+        self.assertEqual(d["expected"], 7)            # a directory pattern means everything below it
+
+    def test_a_pattern_that_matches_nothing_is_refused(self):
+        with self.assertRaises(downloads.DownloadError):
+            downloads.start(REPO, SHA, FILES, include=["*.safetensors"], **self.kw)
+        self.assertEqual(self.spawned, [])
+
+    def test_start_holds_the_lock_while_it_spawns(self):
+        # two CLIs starting the same download: the second waits, then sees the first one running
+        import fcntl
+        held = []
+
+        def spawn(argv, env, log):
+            with open(self.state / ".lock", "a") as f:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    held.append(False)
+                except BlockingIOError:
+                    held.append(True)
+            return FakeProc()
+        downloads.start(REPO, SHA, FILES, **{**self.kw, "spawn": spawn})
+        self.assertEqual(held, [True])
+
+    def test_cancel_leaves_a_finished_download_alone(self):
+        # From Codex's review: a finished download's pid may belong to another process by now
+        d = self.start()
+        put(self.hf / "hub", REPO, SHA, {"mmproj-F16.gguf": b"p" * 20, "Qwen3.8-27B-Q4_K_M.gguf": b"q" * 100})
+        killed = []
+        with self.assertRaises(downloads.DownloadError):
+            downloads.cancel(d["id"], kill=killed.append, **self.kw)
+        self.assertEqual(killed, [])
+
+    def test_cancel_does_not_kill_a_reused_pid(self):
+        d = self.start()
+        self.alive.clear()           # the pid now names some other process (identity differs)
+        killed = []
+        downloads.cancel(d["id"], kill=killed.append, **self.kw)
+        self.assertEqual(killed, [])
+        [row] = downloads.listing(**self.kw)
+        self.assertEqual(row["state"], "cancelled")
+
+    def test_identity_is_recorded(self):
+        d = downloads.start(REPO, SHA, FILES, identity=lambda pid: "start-123", **self.kw)
+        self.assertEqual(d["ident"], "start-123")
+
+    def test_alive_checks_the_process_identity(self):
+        me = os.getpid()
+        ident = downloads._identity(me)
+        self.assertTrue(downloads._alive({"pid": me, "ident": ident}))
+        if ident is not None:
+            self.assertFalse(downloads._alive({"pid": me, "ident": "something-else"}))
 
     def test_ids_are_stable_and_safe(self):
         i = downloads.download_id("a/b", SHA, ["x/*"])
