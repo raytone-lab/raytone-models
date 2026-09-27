@@ -236,7 +236,7 @@ Item {
                                                         : "Not available: " + modelData.reason
                             status: ""
                             actionText: "Connect"
-                            actionVisible: modelData.supported && modelData.id === "opencode"
+                            actionVisible: modelData.connectable
                             actionEnabled: root.busyKey === "" && root.readyModels() > 0
                             secondaryText: "Revert"
                             secondaryVisible: actionVisible
