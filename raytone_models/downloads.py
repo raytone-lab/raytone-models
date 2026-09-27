@@ -49,7 +49,8 @@ def _alive(d):
         os.kill(pid, 0)
     except OSError:
         return False
-    return d.get("ident") is None or _identity(pid) == d["ident"]
+    # without a recorded identity the pid alone proves nothing: never taken for our process
+    return d.get("ident") is not None and _identity(pid) == d["ident"]
 
 
 def _matches(path, patterns):

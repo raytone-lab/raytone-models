@@ -143,9 +143,13 @@ class DownloadTests(unittest.TestCase):
     def test_alive_checks_the_process_identity(self):
         me = os.getpid()
         ident = downloads._identity(me)
-        self.assertTrue(downloads._alive({"pid": me, "ident": ident}))
         if ident is not None:
+            self.assertTrue(downloads._alive({"pid": me, "ident": ident}))
             self.assertFalse(downloads._alive({"pid": me, "ident": "something-else"}))
+        # From Codex's re-review: a record without an identity (from before it was kept, or where
+        # there is no /proc) is never taken for a live process, so it is never signalled
+        self.assertFalse(downloads._alive({"pid": me}))
+        self.assertFalse(downloads._alive({"pid": me, "ident": None}))
 
     def test_ids_are_stable_and_safe(self):
         i = downloads.download_id("a/b", SHA, ["x/*"])

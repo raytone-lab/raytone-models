@@ -294,8 +294,12 @@ def cmd_delete(a, env):
     if rev and not re.fullmatch(r"[0-9a-f]{40}", rev):
         raise SystemExit("a revision to delete is a full 40-hex commit")
     root = "models--" + repo.replace("/", "--")
-    prefix = f"{root}/snapshots/{rev}" if rev else root + "/"
-    users = [d.get("served_name") for d in _registered(env) if str(d.get("model", "")).startswith(prefix)]
+    if rev and not (pathlib.Path(env.hf_home) / "hub" / root / "snapshots" / rev).is_dir():
+        # hf cache rm SHA looks the commit up across the whole cache: it must be this repo's
+        raise SystemExit(f"{repo} has no revision {rev} in the store")
+    users = [d.get("served_name") for d in _registered(env)
+             if (str(d.get("model", "")).endswith(f"/snapshots/{rev}") if rev
+                 else str(d.get("model", "")).startswith(root + "/"))]
     if users:
         raise SystemExit(f"{a.repo} is in use by {', '.join(users)}; stop it first")
     hf_env = dict(os.environ, HF_HOME=str(env.hf_home))

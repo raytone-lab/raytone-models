@@ -311,6 +311,19 @@ class CliTests(unittest.TestCase):
         rc, _ = self.run_cli("delete", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@main")
         self.assertNotEqual(rc, 0)        # a revision is a full commit
 
+    def test_delete_by_revision_stays_in_its_repo(self):
+        # From Codex's re-review: hf cache rm SHA finds the SHA anywhere in the cache, so
+        # `delete A@<B's commit>` must not get past the in-use check on A and delete B
+        self.hub()
+        b = "d" * 40
+        (self.reg / "b.json").write_text(json.dumps({"id": "b", "served_name": "b", "port": 18000,
+            "model": f"models--nvidia--B/snapshots/{b}"}))
+        ran = []
+        self.env.run = lambda argv, env: ran.append(argv) or 0
+        rc, _ = self.run_cli("delete", f"RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@{b}")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(ran, [])
+
     def test_stats_json(self):
         (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "qwen3.8-27b", "port": 18000}))
         self.env.counters = lambda url: {"generation_tokens": 10.0} if ":18000/" in url else None
