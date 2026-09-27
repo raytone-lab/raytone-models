@@ -73,12 +73,15 @@ class RouterTests(unittest.TestCase):
         self.a, self.b = Upstream(), Upstream()
         self.register("qwen3.8-27b", self.a)
         self.register("muse-glimmer-30b", self.b)
-        self.srv = router.make_server("127.0.0.1", 0, registry=self.reg, ports=range(1024, 65536))
+        self.ol = Upstream()                 # a fake Ollama: models it has are routed to its port
+        self.ollama_names = ["qwen3:1.7b"]
+        self.srv = router.make_server("127.0.0.1", 0, registry=self.reg, ports=range(1024, 65536),
+                                      ollama=(lambda: self.ollama_names, self.ol.server_address[1]))
         threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.port = self.srv.server_address[1]
 
     def tearDown(self):
-        for s in (self.srv, self.a, self.b):
+        for s in (self.srv, self.a, self.b, self.ol):
             s.shutdown()
             s.server_close()
         self.tmp.cleanup()
@@ -95,6 +98,7 @@ class RouterTests(unittest.TestCase):
         return r.status, r.getheader("Content-Type"), r.read()
 
     def test_models_lists_every_instance(self):
+        self.ollama_names = []
         status, _, body = self.request("GET", "/v1/models")
         self.assertEqual(status, 200)
         ids = sorted(m["id"] for m in json.loads(body)["data"])
@@ -132,6 +136,46 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(errors, [])          # a client going away is normal, not a server error
 
+    def test_ollama_models_are_routed_to_ollama(self):
+        status, _, body = self.request("GET", "/v1/models")
+        self.assertIn("qwen3:1.7b", [m["id"] for m in json.loads(body)["data"]])
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "qwen3:1.7b"})
+        self.assertEqual((status, json.loads(body)["served_by"]), (200, self.ol.server_address[1]))
+
+    def test_a_namespaced_ollama_model_is_routed(self):
+        self.ollama_names = ["team/model:latest"]
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "team/model:latest"})
+        self.assertEqual((status, json.loads(body)["served_by"]), (200, self.ol.server_address[1]))
+
+    def test_the_ollama_names_are_refreshed_by_one_thread_at_a_time(self):
+        # From Codex's review of PR #9: a slow failed refresh must not overwrite a newer good one
+        calls = []
+
+        def fetch():
+            calls.append(1)
+            time.sleep(0.2)
+            return ["qwen3:1.7b"]
+        cache = router.Cached(fetch, ttl=5)
+        threads = [threading.Thread(target=cache) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual((len(calls), cache()), (1, ["qwen3:1.7b"]))
+
+    def test_an_instance_wins_over_an_ollama_model_of_the_same_name(self):
+        self.ollama_names = ["qwen3.8-27b"]
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "qwen3.8-27b"})
+        self.assertEqual(json.loads(body)["served_by"], self.a.server_address[1])
+
+    def test_without_ollama_the_router_still_serves(self):
+        def gone():
+            raise OSError("connection refused")
+        self.srv.ollama = (gone, 1)
+        status, _, body = self.request("GET", "/v1/models")
+        self.assertEqual(status, 200)
+        self.assertNotIn("qwen3:1.7b", [m["id"] for m in json.loads(body)["data"]])
+
     def test_agent_credentials_are_not_forwarded(self):
         self.request("POST", "/v1/chat/completions", {"model": "qwen3.8-27b"},
                      {"Authorization": "Bearer dummy", "x-api-key": "dummy", "anthropic-version": "2023-06-01"})
@@ -147,6 +191,7 @@ class RouterTests(unittest.TestCase):
         self.assertIn("qwen3.8-27b", json.loads(body)["error"]["message"])
 
     def test_without_a_model_the_only_instance_serves(self):
+        self.ollama_names = []
         (self.reg / "muse-glimmer-30b.json").unlink()
         status, _, body = self.request("POST", "/v1/chat/completions", {"messages": []})
         self.assertEqual(status, 200)

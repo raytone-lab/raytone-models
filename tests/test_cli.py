@@ -8,6 +8,7 @@ import unittest
 from contextlib import redirect_stdout
 
 from raytone_models import cli
+from raytone_models import ollama as ollama_mod
 from tests.test_store import SHA, put
 
 DIGEST = "sha256:" + "c" * 64
@@ -26,7 +27,8 @@ class CliTests(unittest.TestCase):
         self.env = cli.Env(hf_home=self.hf, registry=self.reg, state=t / "state", home=t / "home",
                            engines={"vllm": {"image": f"vllm/vllm-openai@{DIGEST}"}},
                            helper=lambda args, stdin=None: self.helper_calls.append((args, stdin)) or {"ok": True},
-                           probe=lambda url: url.endswith(":18000/v1/models"))
+                           probe=lambda url: url.endswith(":18000/v1/models"),
+                           ollama=ollama_mod.Ollama("http://127.0.0.1:1"))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -146,6 +148,45 @@ class CliTests(unittest.TestCase):
             (self.reg / "x.json").write_text(json.dumps({"id": "x", "served_name": "x", "port": 18000, "engine": engine, "args": args}))
             [i] = json.loads(self.run_cli("instances", "--json")[1])
             self.assertEqual(i["context"], list(v for k, v in args.items() if k != "model-file")[0], engine)
+
+    def ollama(self):
+        from tests.test_ollama import FakeOllama
+        from raytone_models import ollama
+        fake = FakeOllama()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+        self.env.ollama = ollama.Ollama(f"http://127.0.0.1:{fake.server_address[1]}")
+        return fake
+
+    def test_loaded_ollama_models_are_instances(self):
+        self.ollama()
+        rc, out = self.run_cli("instances", "--json")
+        [i] = json.loads(out)
+        self.assertEqual((i["id"], i["served_name"], i["engine"], i["port"], i["ready"], i["chat"], i["context"]),
+                         ("ollama:qwen3:1.7b", "qwen3:1.7b", "ollama", 11434, True, True, 4096))
+
+    def test_ollama_run_stop_and_library(self):
+        fake = self.ollama()
+        rc, out = self.run_cli("ollama", "models", "--json")
+        self.assertEqual([m["name"] for m in json.loads(out)], ["qwen3:1.7b"])
+        self.assertEqual(self.run_cli("ollama", "run", "qwen3:1.7b")[0], 0)
+        self.assertEqual(self.run_cli("stop", "ollama:qwen3:1.7b")[0], 0)
+        self.assertEqual(fake.posts, [("/api/generate", {"model": "qwen3:1.7b", "keep_alive": -1}),
+                                      ("/api/generate", {"model": "qwen3:1.7b", "keep_alive": 0})])
+        self.assertEqual(self.helper_calls, [])       # Ollama is its own service: no helper
+        rc, out = self.run_cli("ollama", "pull", "qwen3:4b")
+        self.assertEqual(json.loads(out.splitlines()[-1]), {"done": True})
+        self.assertNotEqual(self.run_cli("ollama", "run", "../x")[0], 0)
+
+    def test_stopping_an_ollama_model_when_ollama_is_down(self):
+        rc, out = self.run_cli("stop", "ollama:qwen3:1.7b", "--json")
+        self.assertEqual(rc, 1)
+        self.assertIn("error", json.loads(out))
+
+    def test_ollama_in_engines(self):
+        self.ollama()
+        rows = {e["engine"]: e for e in json.loads(self.run_cli("engines", "--json")[1])}
+        self.assertEqual((rows["ollama"]["configured"], rows["ollama"]["tag"]), (True, "0.34.4"))
 
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")

@@ -10,6 +10,8 @@ Item {
     property var recipes: parse(recipesFile.text()).recipes || []
     property var refusedRecipes: []
     property var models: parse(modelsFile.text()) || []
+    property var ollamaModels: [{ name: "qwen3:1.7b", size: 1359293444, family: "qwen3", parameters: "2.0B", quant: "Q4_K_M", context: 40960, loaded: true },
+                                { name: "gemma4:e4b", size: 9608350718, family: "gemma4", parameters: "8.0B", quant: "Q4_K_M", context: 131072, loaded: false }]
     property var instances: parse(instancesFile.text()) || []
     property var agents: (parse(agentsFile.text()) || []).map(function (a) { return Object.assign({ connected: a.id === "opencode" || a.id === "claude" }, a) })
     property var downloads: [{ id: "d1", repo: "unsloth/Qwen3.8-27B-GGUF", revision: "4ca72078", state: "running", done: 8.1e9, expected: 19.3e9, progress: 0.42 }]

@@ -11,6 +11,7 @@ Item {
     property var recipes: []
     property var refusedRecipes: []
     property var models: []
+    property var ollamaModels: []      // Ollama's own library, when its service is up
     property var instances: []
     property var agents: []
     property var downloads: []
@@ -42,6 +43,7 @@ Item {
     function refresh() {
         if (!recipesProc.running) recipesProc.running = true
         if (!modelsProc.running) modelsProc.running = true
+        if (!ollamaProc.running) ollamaProc.running = true
         if (!instancesProc.running) instancesProc.running = true
         if (!agentsProc.running) agentsProc.running = true
         if (!downloadsProc.running) downloadsProc.running = true
@@ -147,6 +149,14 @@ Item {
         }
     }
     Process {
+        id: ollamaProc
+        command: [root.cli, "ollama", "models", "--json"]
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: { var d = root.parse(text, []); root.ollamaModels = Array.isArray(d) ? d : [] }
+        }
+    }
+    Process {
         id: modelsProc
         command: [root.cli, "models", "--json"]
         stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.models = root.parse(text, root.models) }
@@ -208,13 +218,21 @@ Item {
     Process {
         id: actionProc
         property string doneNotice: ""
-        stdout: StdioCollector { waitForEnd: true }
+        // the CLI reports some failures as {"error": ...} on stdout (JSON-lines commands)
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                var d = root.parse(text, null)
+                if (d && !Array.isArray(d) && d.error) root.lastError = String(d.error)
+            }
+        }
         stderr: StdioCollector {
             waitForEnd: true
             onStreamFinished: if (String(text).trim()) root.lastError = String(text).trim().split("\n").pop()
         }
         onExited: function(exitCode) {
             root.busy = ""
+            if (exitCode !== 0 && !root.lastError) root.lastError = "That did not work (exit " + exitCode + ")"
             if (exitCode === 0 && doneNotice) root.notice = doneNotice
             root.refresh()
         }
