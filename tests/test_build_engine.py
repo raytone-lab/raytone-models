@@ -19,7 +19,8 @@ class BuildEngineTests(unittest.TestCase):
         fake = t / "docker"
         fake.write_text(f"""#!/bin/bash
 echo "$@" >> {self.log}
-if [ "$1 $2" = "image inspect" ]; then echo {ID}; fi
+# build --iidfile FILE ...: the ID of this build, as docker writes it
+while [ $# -gt 0 ]; do [ "$1" = --iidfile ] && echo -n {ID} > "$2"; shift; done
 """)
         fake.chmod(0o755)
         self.env = dict(os.environ, RAYTONE_DOCKER=str(fake), RAYTONE_SUDO="", RAYTONE_ENGINES_FILE=str(self.engines))
@@ -34,7 +35,11 @@ if [ "$1 $2" = "image inspect" ]; then echo {ID}; fi
         self.engines.write_text(json.dumps({"llamacpp": {"image": "raytone/llama.cpp@sha256:" + "0" * 64}}))
         r = self.run_script("comfyui")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(f"build -t raytone/comfyui:local {ROOT}/engines/comfyui", self.log.read_text())
+        log = self.log.read_text()
+        self.assertIn(f"-t raytone/comfyui:local {ROOT}/engines/comfyui", log)
+        # From Codex's review of PR #5: the ID comes from this build, not from the shared tag
+        self.assertIn("--iidfile", log)
+        self.assertNotIn("image inspect", log)
         d = json.loads(self.engines.read_text())
         self.assertEqual(d["comfyui"]["image"], f"raytone/comfyui@{ID}")
         self.assertIn("built", d["comfyui"])
