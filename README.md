@@ -7,7 +7,8 @@ given machine).
 
 First target: the NVIDIA Jetson AGX Thor ([Omarchy Thor T5000](https://github.com/raytone-lab/Omarchy-Thor-T5000)).
 What ran there, with its numbers, is in [`docs/evidence/`](docs/evidence). The app's pages were
-rendered there offscreen from the live backend; clicking through them in a desktop session is still to do.
+rendered there offscreen (Video with fixture data, the others from the live backend); clicking
+through them in a desktop session is still to do.
 
 ## What it has
 
@@ -54,6 +55,7 @@ rendered there offscreen from the live backend; clicking through them in a deskt
 ## Install (Arch / Omarchy)
 
 ```
+sudo pacman -S --needed python-huggingface-hub python-hf-xet    # hf, which downloads the models
 cd packaging && makepkg -si
 # once: the store's hub/ and xet/ belong to the user who downloads models
 sudo install -d -o "$USER" -g "$USER" /var/lib/raytone-models/hf/hub /var/lib/raytone-models/hf/xet
@@ -61,6 +63,11 @@ systemctl --user enable --now raytone-models-router
 # engines built on the device (each takes a while the first time)
 raytone-models-build-engine comfyui
 raytone-models-build-engine llamacpp
+# the images the signed recipes pin (engines never pull at start: fetch them while online)
+sudo docker pull vllm/vllm-openai@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90
+sudo docker pull lmsysorg/sglang@sha256:a04d9a1a7ffe371b05230aecab001d4ba2bfa0e5c137bc56409ecc4cbc3ac864
+# and a recipe's models
+raytone-models recipe fetch raytone-studio
 ```
 
 Models live in `/var/lib/raytone-models/hf`, a Hugging Face cache. Engines start through a small
@@ -82,9 +89,9 @@ backend and `logic.js` in Quickshell's own engine.
   user namespaces through AppArmor and Arch ships no profiles.
 - **Ollama** can start before the GPU after a boot and then stay on the CPU; `systemctl restart ollama`
   brings it to the GPU (the Thor edition's unit ordering, to be fixed there).
-- **Laguna S 2.1** (95.6 GiB of weights) needs 90% of memory and a 64K context to start (21 minutes
-  the first time, 24-38 tokens/s), leaving about 6 GiB free, and its reasoning arrives in the answer
-  text: only an unsigned draft, not a signed recipe.
+- **Laguna S 2.1** (95.6 GiB of weights) failed with Mia's settings and started once on vLLM v0.25.1
+  with 90% of memory, a 64K context and an FP8 KV cache (21 minutes the first time, 24-38 tokens/s),
+  leaving about 6 GiB free, its reasoning in the answer text: an unsigned draft with those settings.
 - **Qwen3.8 Flash Next** was not tried: its checkpoint is 123.6 GiB and upstream vLLM keeps its PLE
   table in pinned memory ([details](docs/evidence/p2-vllm-models.md)). **Ling 3.0 Flash** loads but writes stray tokens into code on sm_110.
 
