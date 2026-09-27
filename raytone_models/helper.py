@@ -118,12 +118,29 @@ def parse_args(argv):
     return p.parse_args(argv)
 
 
+def check_store(path, *, owner_of=lambda p: os.stat(p).st_uid, resolve=os.path.realpath):
+    """The store is mounted into root containers, so it must be a user's data directory:
+    /home/USER/SOMETHING or /var/lib/raytone-models/SOMETHING, with no link anywhere on the way
+    (it resolves to itself), and not owned by root."""
+    p = str(path)
+    parts = p.split("/")
+    in_home = len(parts) >= 4 and parts[0] == "" and parts[1] == "home" and all(parts[2:])
+    in_var = p.startswith("/var/lib/raytone-models/") and all(parts[4:]) and len(parts) >= 5
+    if not (in_home or in_var) or ".." in parts or "." in parts:
+        raise HelperError(f"store {p!r} must be below /home/USER/ or /var/lib/raytone-models/")
+    if resolve(p) != p:
+        raise HelperError(f"store {p!r} must not go through a link")
+    if owner_of(p) == 0:
+        raise HelperError(f"store {p!r} must belong to the user, not root")
+    return pathlib.Path(p)
+
+
 def _store_from_config():
     try:
         store = json.loads(CONFIG.read_text())["store"]
     except (OSError, ValueError, KeyError):
         raise HelperError(f"no store configured in {CONFIG}") from None
-    return pathlib.Path(store)
+    return check_store(store)
 
 
 def main(argv=None):

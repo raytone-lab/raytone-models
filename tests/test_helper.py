@@ -86,6 +86,20 @@ class HelperTests(unittest.TestCase):
         with self.assertRaises(helper.HelperError):
             helper.run_argv("qwen38-27b", **self.paths)
 
+    def test_the_configured_store_must_be_a_user_data_directory(self):
+        # the store is mounted into root containers: it must never be a system path
+        for bad in ("/", "/etc", "/root/hf", "relative/hf", "/home/../etc", "/home", "/home/nvidia",
+                    "/home/nvidia/./hf", "/var/lib/raytone-models", "/home/nvidia//hf"):
+            with self.subTest(store=bad), self.assertRaises(helper.HelperError):
+                helper.check_store(bad, owner_of=lambda p: 1000, resolve=lambda p: p)
+        with self.assertRaises(helper.HelperError):
+            helper.check_store("/home/nvidia/.local/share/raytone/hf", owner_of=lambda p: 0, resolve=lambda p: p)
+        with self.assertRaises(helper.HelperError):   # a link somewhere on the path
+            helper.check_store("/home/nvidia/link/hf", owner_of=lambda p: 1000, resolve=lambda p: "/etc/hf")
+        self.assertEqual(helper.check_store("/home/nvidia/.local/share/raytone/hf", owner_of=lambda p: 1000,
+                                            resolve=lambda p: p), pathlib.Path("/home/nvidia/.local/share/raytone/hf"))
+        helper.check_store("/var/lib/raytone-models/hf", owner_of=lambda p: 1000, resolve=lambda p: p)
+
     def test_the_cli_reads_the_spec_from_stdin(self):
         # pkexec passes no environment and arguments are visible in ps: the spec comes on stdin
         self.assertEqual(helper.parse_args(["start"]).command, "start")
