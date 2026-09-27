@@ -217,6 +217,12 @@ def cmd_recipe(a, env):
             specs = recipes.specs(r, env.hf_home, used_ports=used)
         except recipes.RecipeError as e:
             raise SystemExit(str(e)) from None
+        # every component checked before any starts: an id another served name uses is not ours to replace
+        by_id = {d.get("id"): d.get("served_name") for d in _registered(env)}
+        for s in specs:
+            other = by_id.get(s.id)
+            if other is not None and other != s.served_name:
+                raise SystemExit(f"instance {s.id} serves {other}, not {s.served_name}; stop it first")
         return [env.helper(["start"], stdin=s.to_json()) for s in specs]
     if a.action == "stop":
         # only the instances that run as this recipe; another instance with the same name stays
