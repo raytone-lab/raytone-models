@@ -72,6 +72,8 @@ class SpecTests(unittest.TestCase):
         self.refused("insecure serialization", env={"VLLM_ALLOW_INSECURE_SERIALIZATION": "1"})
         self.refused("moving the cache", env={"VLLM_CACHE_ROOT": "/hf"})
         self.refused("a value out of range", env={"VLLM_PLE_MMAP": "yes"})
+        self.assertEqual(spec.load(good(env={"VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"})).env, {"VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"})
+        spec.load(good(args={"no-enable-flashinfer-autotune": True}))
 
     def test_unknown_top_level_keys_are_refused(self):
         with self.assertRaises(spec.SpecError):

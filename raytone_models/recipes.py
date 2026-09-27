@@ -23,7 +23,7 @@ REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 REV_RE = re.compile(r"^[0-9a-f]{40}$")
 PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*?/-]{1,200}$")
 TOP = {"schema", "id", "title", "description", "platforms", "requires", "source", "components", "agents"}
-COMPONENT = {"role", "served_name", "model", "engine", "image", "args", "env"}
+COMPONENT = {"role", "served_name", "model", "draft", "engine", "image", "args", "env"}
 ROLES = {"chat", "coder", "vision", "video", "embedding", "draft"}
 
 
@@ -42,6 +42,8 @@ class Component:
     image: str
     args: dict
     env: dict
+    draft_repo: str = None       # a speculative decoder's own weights (DFlash, DSpark drafts)
+    draft_revision: str = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -74,6 +76,13 @@ def _component(c):
             raise RecipeError(f"model.include: bad pattern {p!r}")
     if c["role"] not in ROLES:
         raise RecipeError(f"role: one of {', '.join(sorted(ROLES))}")
+    draft = c.get("draft")
+    if draft is not None and (not isinstance(draft, dict) or set(draft) != {"repo", "revision"}
+                              or not REPO_RE.match(str(draft["repo"])) or not REV_RE.match(str(draft["revision"]))):
+        raise RecipeError("draft: {repo, revision} with a 40-hex commit")
+    sc = (c.get("args") or {}).get("speculative-config")
+    if isinstance(sc, dict) and "model" in sc:
+        raise RecipeError("speculative-config.model is filled in from draft; a recipe does not name paths")
     # the engine, image, name, arguments and environment get the same checks as an instance spec
     probe = {"id": "recipe-check", "engine": c["engine"], "image": c["image"],
              "model": f"models--x--y/snapshots/{'0' * 40}", "served_name": c["served_name"],
@@ -83,7 +92,8 @@ def _component(c):
     except spec_mod.SpecError as e:
         raise RecipeError(f"component {c.get('served_name')!r}: {e}") from None
     return Component(c["role"], c["served_name"], m["repo"], m["revision"], include, c["engine"], c["image"],
-                     dict(c.get("args", {})), dict(c.get("env", {})))
+                     dict(c.get("args", {})), dict(c.get("env", {})),
+                     draft["repo"] if draft else None, draft["revision"] if draft else None)
 
 
 def load(data):
@@ -133,9 +143,10 @@ def read(path, allowed_signers=ALLOWED_SIGNERS):
         raise RecipeError(f"{path.name}: {e}") from None
 
 
-def _snapshot(c, hf_home):
+def _snapshot(c, hf_home, draft=False):
+    repo, rev = (c.draft_repo, c.draft_revision) if draft else (c.repo, c.revision)
     for m in store.list_models(hf_home):
-        if m.repo == c.repo and m.revision == c.revision:
+        if m.repo == repo and m.revision == rev:
             return m
     return None
 
@@ -160,8 +171,13 @@ def status(recipe, hf_home=None):
     comps = []
     for c in recipe.components:
         m = _snapshot(c, hf_home)
-        comps.append({"served_name": c.served_name, "role": c.role, "repo": c.repo, "state": _component_state(c, m),
-                      "snapshot": m.snapshot if m else None, "size": m.size if m else 0})
+        state = _component_state(c, m)
+        d = _snapshot(c, hf_home, draft=True) if c.draft_repo else None
+        if c.draft_repo and (d is None or d.complete is False or d.missing or d.incomplete):
+            state = "missing"
+        comps.append({"served_name": c.served_name, "role": c.role, "repo": c.repo, "state": state,
+                      "snapshot": m.snapshot if m else None, "draft_snapshot": d.snapshot if d else None,
+                      "size": (m.size if m else 0) + (d.size if d else 0)})
     state = "ready" if all(x["state"] == "ready" for x in comps) else "missing"
     return {"id": recipe.id, "title": recipe.title, "state": state, "memory_gib": recipe.memory_gib,
             "disk_gib": recipe.disk_gib, "source": recipe.source, "components": comps}
@@ -180,9 +196,12 @@ def specs(recipe, hf_home=None, *, used_ports=()):
     for c, s in zip(recipe.components, st["components"]):
         port = next(p for p in spec_mod.INSTANCE_PORTS if p not in used)
         used.add(port)
+        args = dict(c.args)
+        if c.draft_repo:
+            args["speculative-config"] = {**args.get("speculative-config", {}), "model": f"/hf/hub/{s['draft_snapshot']}"}
         out.append(spec_mod.load({"id": instance_id(c.served_name), "engine": c.engine, "image": c.image,
                                   "model": s["snapshot"], "served_name": c.served_name, "port": port,
-                                  "args": c.args, "env": c.env}))
+                                  "args": args, "env": c.env}))
     return out
 
 
@@ -193,6 +212,8 @@ def fetch_commands(recipe):
         for p in c.include:
             cmd += ["--include", p]
         cmds.append(cmd)
+        if c.draft_repo:
+            cmds.append(["hf", "download", c.draft_repo, "--revision", c.draft_revision])
     return cmds
 
 

@@ -138,6 +138,36 @@ class StatusTests(unittest.TestCase):
         [s] = recipes.specs(r, self.hf, used_ports={18000})
         self.assertEqual((s.id, s.port, s.served_name), ("qwen3-8-27b", 18001, "qwen3.8-27b"))
 
+    def draft_recipe(self):
+        c = recipe()["components"][0]
+        draft = {"repo": "poolside/Laguna-S-2.1-DFlash-NVFP4", "revision": "b" * 40}
+        return recipes.load(recipe(components=[{**c, "draft": draft,
+                                                "args": {**c["args"], "speculative-config": {"method": "dflash", "num_speculative_tokens": 7}}}]))
+
+    def test_a_draft_model_is_part_of_the_recipe(self):
+        # DFlash and other speculative decoders load a second repo: it is pinned and fetched too,
+        # and the recipe is ready only when both are here
+        r = self.draft_recipe()
+        put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        self.assertEqual(recipes.status(r, self.hf)["state"], "missing")
+        put(self.hf / "hub", "poolside/Laguna-S-2.1-DFlash-NVFP4", "b" * 40, {"config.json": b"{}"})
+        self.assertEqual(recipes.status(r, self.hf)["state"], "ready")
+        self.assertEqual(len(recipes.fetch_commands(r)), 2)
+
+    def test_the_draft_path_is_filled_into_the_speculative_config(self):
+        r = self.draft_recipe()
+        put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        put(self.hf / "hub", "poolside/Laguna-S-2.1-DFlash-NVFP4", "b" * 40, {"config.json": b"{}"})
+        [s] = recipes.specs(r, self.hf)
+        self.assertEqual(s.args["speculative-config"], {"method": "dflash", "num_speculative_tokens": 7,
+                         "model": "/hf/hub/models--poolside--Laguna-S-2.1-DFlash-NVFP4/snapshots/" + "b" * 40})
+
+    def test_a_recipe_cannot_name_its_own_draft_path(self):
+        c = recipe()["components"][0]
+        with self.assertRaises(recipes.RecipeError):
+            recipes.load(recipe(components=[{**c, "args": {**c["args"],
+                         "speculative-config": {"method": "dflash", "model": "/cache/../etc"}}}]))
+
     def test_fetch_commands_pin_the_revision(self):
         c = recipe()["components"][0]
         r = recipes.load(recipe(components=[{**c, "model": {"repo": REPO, "revision": SHA, "include": ["a/*"]}}]))
