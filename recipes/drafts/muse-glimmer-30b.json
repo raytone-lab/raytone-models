@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "id": "muse-glimmer-30b",
+  "title": "Muse Glimmer 30B (NVFP4) with DFlash",
+  "description": "Meta's Muse Glimmer, NVFP4 (W4A4), DFlash drafter (16 tokens), FP8 KV cache, 128K context (the trained length).",
+  "platforms": ["thor-t5000"],
+  "requires": {"memory_gib": 55, "disk_gib": 27},
+  "source": "Parameters from Mia's AI Lab (github.com/MiaAI-Lab/Muse-Glimmer-30B-DGX-Spark-RTX-5090-6000-PRO); context kept at 131072, without her RoPE patches",
+  "components": [
+    {
+      "role": "chat",
+      "served_name": "muse-glimmer-30b",
+      "model": {"repo": "RedHatAI/Muse-Glimmer-30B-NVFP4", "revision": "e83ead547c81973aaa09c0072c0dbc916e0d8190"},
+      "draft": {"repo": "meta-models/Muse-Glimmer-30B-assistant", "revision": "e8192f3a8f617f74be2ce220360c89ef4789f39f"},
+      "engine": "vllm",
+      "image": "vllm/vllm-openai@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90",
+      "args": {
+        "gpu-memory-utilization": 0.42,
+        "kv-cache-dtype": "fp8_e4m3",
+        "max-model-len": 131072,
+        "enable-auto-tool-choice": true,
+        "tool-call-parser": "muse_glimmer",
+        "reasoning-parser": "muse_glimmer",
+        "trust-remote-code": true,
+        "no-enable-flashinfer-autotune": true,
+        "speculative-config": {"method": "dflash", "num_speculative_tokens": 16}
+      },
+      "env": {}
+    }
+  ],
+  "agents": {"default_model": "muse-glimmer-30b"}
+}

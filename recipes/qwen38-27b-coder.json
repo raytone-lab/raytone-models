@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "id": "qwen38-27b-coder",
+  "title": "Qwen3.8 27B (NVFP4) for coding agents",
+  "description": "Dense 27B vision-language model, NVFP4 with a BF16 head, MTP speculative decoding, 256K context, tool calling. Checked on the Jetson AGX Thor 2026-09-27: 17-28 tok/s, needle recall to 170K tokens.",
+  "platforms": ["thor-t5000"],
+  "requires": {"memory_gib": 75, "disk_gib": 25},
+  "source": "Model and parser choices from Mia's AI Lab (github.com/MiaAI-Lab/Qwen3.8-27B-SGLang-DGX-Spark), served here on upstream vLLM with its built-in MTP head",
+  "components": [
+    {
+      "role": "coder",
+      "served_name": "qwen3.8-27b",
+      "model": {"repo": "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "revision": "009632fef96dd349150baa780c984e62e70e91fe"},
+      "engine": "vllm",
+      "image": "vllm/vllm-openai@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90",
+      "args": {
+        "gpu-memory-utilization": 0.6,
+        "max-model-len": 262144,
+        "enable-prefix-caching": true,
+        "enable-auto-tool-choice": true,
+        "tool-call-parser": "qwen3_coder",
+        "reasoning-parser": "qwen3",
+        "speculative-config": {"method": "mtp", "num_speculative_tokens": 3}
+      },
+      "env": {}
+    }
+  ],
+  "agents": {"default_model": "qwen3.8-27b"}
+}
