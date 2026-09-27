@@ -6,31 +6,35 @@ video, and apply Raytone AI Lab's recipes (models, engines and parameters checke
 given machine).
 
 First target: the NVIDIA Jetson AGX Thor ([Omarchy Thor T5000](https://github.com/raytone-lab/Omarchy-Thor-T5000)).
-Everything below was checked there; the evidence is in [`docs/evidence/`](docs/evidence).
+What ran there, with its numbers, is in [`docs/evidence/`](docs/evidence). The app's pages were
+rendered there offscreen from the live backend; clicking through them in a desktop session is still to do.
 
 ## What it has
 
 - **The app** (`raytone-models-app`, one Quickshell window in Raytone's navy and gold, dark or
   light with the Omarchy theme): Recipes, Local models, Discover (search Hugging Face, pick a
-  GGUF variant that fits the memory), Running (memory, tokens/s), Chat, Video, Agents, Engines.
-- **The CLI** (`raytone-models`): everything the app does, with `--json` output. The app keeps no
-  state of its own; it runs the CLI.
-- **Engines**, each in a container that runs as an unprivileged user with no capabilities, the
-  model store read-only and its port on loopback only; images are pinned by digest (or, when built
-  on the device, by image ID) and never pulled at start:
+  GGUF variant, with an estimate of whether it fits the memory), Running (memory, tokens/s), Chat,
+  Video, Agents, Engines.
+- **The CLI** (`raytone-models`): everything the app does; listings take `--json`, chat and video
+  stream JSON lines. The app keeps no state of its own; it runs the CLI.
+- **Engines**: vLLM, SGLang, llama.cpp and ComfyUI each run in a container as an unprivileged user
+  with no capabilities, the model store read-only and the port on loopback only; their images are
+  pinned by digest (or, when built on the device, by image ID) and never pulled at start. Ollama is
+  the system's own service, used as it is:
 
   | Engine | Image | On the Thor |
   |---|---|---|
   | vLLM | `vllm/vllm-openai` v0.30.0 (and v0.25.1) | Qwen3.8 27B, Muse Glimmer 30B |
   | SGLang | NVIDIA's 26.05, or LMSYS's model images | Nemotron 3.5 Lightning (LMSYS image) |
-  | llama.cpp | built on the device, CUDA 13.0 for sm_110 | any GGUF from Discover |
+  | llama.cpp | built on the device, CUDA 13.0 for sm_110 | GGUF (checked with Qwen3-0.6B Q4_K_M, 185-190 tokens/s) |
   | ComfyUI | built on the device on NVIDIA PyTorch 26.05 | MiniMax H3 text to video |
   | Ollama | the system's own service (its own library) | qwen3:1.7b, about 100 tokens/s |
 
 - **A router** on `http://127.0.0.1:8090/v1`, OpenAI- and Anthropic-compatible (chat, completions,
   embeddings, messages, responses), that sends each request to the instance serving its model.
 - **Agents**: OpenCode, Claude Code, Crush, Pi and Codex connect to the local models in one click
-  (their own config files, restored byte for byte by Revert); GitHub Copilot CLI, which reads its
+  (their own config files, restored byte for byte by Revert; in Pi, pick the model with `/model` or
+  `--model raytone/<name>`); GitHub Copilot CLI, which reads its
   endpoint from the environment only, starts on them with `raytone-models agent-exec copilot` (the
   Agents page's Launch). Gemini, Cursor and Muse Code cannot use a local endpoint, nor could Grok's
   CLI as installed; Oh My Pi, Hermes and OpenClaw are not connected yet.
@@ -41,10 +45,11 @@ Everything below was checked there; the evidence is in [`docs/evidence/`](docs/e
   | `nemotron-35-lightning` | Nemotron 3.5 Lightning 30B-A3B NVFP4, DSpark, SGLang | about 130 tokens/s |
   | `raytone-studio` | Nemotron 3.5 Lightning + MiniMax H3 video | 480p 5 s video in 209 s while chat answers at 50-58 tokens/s |
   | `muse-glimmer-30b` | Muse Glimmer 30B NVFP4, DFlash, vLLM | about 32 tokens/s |
-  | `qwen38-27b-coder` | Qwen3.8 27B NVFP4, MTP, 256K context, vLLM | 17-28 tokens/s, needle recall to 170K |
+  | `qwen38-27b-coder` | Qwen3.8 27B NVFP4, MTP, 256K context, vLLM | 17-28 tokens/s on short prompts, 13 at a 170K prompt; needle recall to 170K |
 
-  Model choices and parameters follow [Mia's AI Lab](https://mia-ai.net)'s single DGX Spark recipes,
-  on engines that support the Thor's sm_110.
+  The language models' choices and parameters follow [Mia's AI Lab](https://mia-ai.net)'s single DGX
+  Spark recipes, on engines that support the Thor's sm_110 (each recipe's `source` says what changed);
+  MiniMax H3's files and graph follow Comfy-Org's text-to-video template.
 
 ## Install (Arch / Omarchy)
 
@@ -64,8 +69,10 @@ where polkit does not let a remote session in, use `RAYTONE_MODELS_ELEVATE=sudo 
 
 After an upgrade, restart the router: `systemctl --user restart raytone-models-router`.
 
-Tests: `python3 -m unittest discover -s tests`. The app's pages render offscreen with
-`tests/ui/render` (Quickshell).
+Tests: `python3 -m unittest discover -s tests`. On a machine with Quickshell,
+`tests/ui/render DATA_DIR SHOTS_DIR` renders every page offscreen (fixture data from `DATA_DIR`, or
+the machine's own with `RAYTONE_UI_REAL=1`), and `tests/ui/probe` and `tests/ui/logic-probe` check the
+backend and `logic.js` in Quickshell's own engine.
 
 ## Known limits on the Thor
 
@@ -77,13 +84,13 @@ Tests: `python3 -m unittest discover -s tests`. The app's pages render offscreen
   brings it to the GPU (the Thor edition's unit ordering, to be fixed there).
 - **Laguna S 2.1** (95.6 GiB of weights) needs 90% of memory and a 64K context to start (21 minutes
   the first time, 24-38 tokens/s), leaving about 6 GiB free, and its reasoning arrives in the answer
-  text: no recipe yet.
-- **Qwen3.8 Flash Next** does not fit with upstream vLLM (its PLE table is pinned in memory next to
-  a 123.6 GiB checkpoint). **Ling 3.0 Flash** loads but writes stray tokens into code on sm_110.
+  text: only an unsigned draft, not a signed recipe.
+- **Qwen3.8 Flash Next** was not tried: its checkpoint is 123.6 GiB and upstream vLLM keeps its PLE
+  table in pinned memory ([details](docs/evidence/p2-vllm-models.md)). **Ling 3.0 Flash** loads but writes stray tokens into code on sm_110.
 
 ## Models' own terms
 
-Models keep their licences: Muse Glimmer follows Meta's licence, Qwen models the Qwen licence, and
-videos made with MiniMax H3 carry MiniMax H3's attribution (the Video page shows it).
+Each model keeps its own licence: read its model card before you use it beyond a demo. The Video
+page names MiniMax H3 as the model; the video files themselves carry no attribution.
 
 MIT, © Raytone AI Lab and contributors.
