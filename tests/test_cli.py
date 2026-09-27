@@ -97,6 +97,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual(got["vllm"]["image"], "v@x")
         self.assertEqual(got["comfyui"], {"note": "built locally", "image": "raytone/comfyui@sha256:" + "c" * 64, "tag": "v0.37.0"})
 
+    def test_video_runs_on_the_comfyui_instance(self):
+        from tests.test_video import FakeComfy
+        fake = FakeComfy()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+        (self.reg / "h3.json").write_text(json.dumps({"id": "minimax-h3", "served_name": "minimax-h3",
+                                                     "port": fake.server_address[1], "engine": "comfyui"}))
+        self.env.videos_dir = pathlib.Path(self.tmp.name) / "Videos"
+        self.env.video_poll = 0.01
+        rc, out = self.run_cli("video", "--prompt", "a red fox in snow", "--seconds", "3", "--size", "480p", "--seed", "5")
+        self.assertEqual(rc, 0, out)
+        lines = [json.loads(l) for l in out.splitlines()]
+        self.assertTrue(pathlib.Path(lines[-1]["done"]).exists())
+        wf = fake.prompts[0]["prompt"]
+        h3 = next(n for n in wf.values() if n["class_type"] == "MiniMaxH3ImageToVideo")
+        self.assertEqual((h3["inputs"]["length"], h3["inputs"]["width"]), (73, 864))
+
+    def test_video_without_a_video_engine_running(self):
+        rc, out = self.run_cli("video", "--prompt", "a fox")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("error", json.loads(out.splitlines()[-1]))
+
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")
         self.assertEqual(self.helper_calls, [(["stop", "qwen"], None)])

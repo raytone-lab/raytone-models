@@ -12,6 +12,7 @@
     raytone-models downloads [--json]      raytone-models download-cancel ID
     raytone-models delete REPO[@COMMIT]    raytone-models hf-token set|clear   (token on stdin)
     raytone-models stats|engines [--json]  raytone-models chat   (request JSON on stdin, JSON lines out)
+    raytone-models video --prompt TEXT [--size 480p|768p] [--seconds N] [--seed N] [--no-turbo]  (JSON lines out)
     raytone-models recipes [--json]
     raytone-models recipe apply|stop|fetch ID [--json]
     raytone-models router [--port 8090]
@@ -29,7 +30,7 @@ import subprocess
 import sys
 import urllib.request
 
-from . import agents, downloads, engines, hf, live, recipes, router, spec as spec_mod, store
+from . import agents, downloads, engines, hf, live, recipes, router, spec as spec_mod, store, video
 
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
@@ -99,6 +100,8 @@ class Env:
     config_dir: pathlib.Path = CONFIG_DIR
     counters: object = live.counters
     meminfo: object = live.memory
+    videos_dir: pathlib.Path = video.OUT_DIR
+    video_poll: float = 1.0
 
     def __post_init__(self):
         self.hf_home = pathlib.Path(self.hf_home or store.home())
@@ -332,6 +335,25 @@ def cmd_token(a, env):
     return {"token": True}
 
 
+def cmd_video(a, env):
+    """JSON lines, like chat: {"state"}..., then {"done": PATH, "seconds"} or {"error"}."""
+    def emit(obj):
+        print(json.dumps(obj), flush=True)
+    found = [d for d in _registered(env) if d.get("engine") == "comfyui" and isinstance(d.get("port"), int)
+             and (a.model is None or d.get("served_name") == a.model)]
+    if len(found) != 1:
+        emit({"error": "no video model is running; start one on Recipes" if not found
+              else "several video models are running; name one with --model"})
+        return 1
+    try:
+        wf = video.workflow(a.prompt, size=a.size, seconds=a.seconds, seed=a.seed, turbo=not a.no_turbo)
+        video.generate(f"http://127.0.0.1:{found[0]['port']}", wf, env.videos_dir, poll=env.video_poll, emit=emit)
+    except video.VideoError as e:
+        emit({"error": str(e)})
+        return 1
+    return 0
+
+
 def cmd_stats(env):
     import time
     out = []
@@ -396,6 +418,13 @@ def parse(argv):
     for name in ("stats", "engines"):
         sub.add_parser(name).add_argument("--json", action="store_true")
     sub.add_parser("chat")
+    v = sub.add_parser("video")
+    v.add_argument("--prompt", required=True)
+    v.add_argument("--model", help="the served name of a ComfyUI instance (the only one when omitted)")
+    v.add_argument("--size", default="480p", choices=sorted(video.SIZES))
+    v.add_argument("--seconds", type=float, default=5)
+    v.add_argument("--seed", type=int, default=0)
+    v.add_argument("--no-turbo", action="store_true")
     sub.add_parser("recipes").add_argument("--json", action="store_true")
     rc = sub.add_parser("recipe")
     rc.add_argument("action", choices=["apply", "stop", "fetch"])
@@ -474,6 +503,8 @@ def main(argv=None, env=None):
             _print(cmd_engines(env), a.json)
         elif a.command == "chat":
             return live.chat(f"http://127.0.0.1:{router.DEFAULT_PORT}", live.read_request())
+        elif a.command == "video":
+            return cmd_video(a, env)
         elif a.command == "recipes":
             _print(cmd_recipes(env), a.json)
         elif a.command == "recipe":
