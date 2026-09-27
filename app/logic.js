@@ -82,3 +82,19 @@ function clock(seconds) {
 function chatModels(instances) {
     return (instances || []).filter(function (i) { return i.ready && i.chat !== false })
 }
+
+// The GGUF files llama.cpp runs for a model: the main file (a split model's first part) and the
+// vision projector if there is one; the downloaded variant first, else the usual 4-bit one.
+function ggufFiles(m) {
+    var files = (m.files || []).filter(function (f) { return /\.gguf$/i.test(f) })
+    var asked = m.download && m.download.include && m.download.include.length ? m.download.include : null
+    if (asked) {
+        var mine = files.filter(function (f) { return asked.indexOf(f) >= 0 })
+        if (mine.length) files = mine
+    }
+    var mmproj = files.filter(function (f) { return /mmproj/i.test(f) })[0] || null
+    var models = files.filter(function (f) { return !/mmproj/i.test(f) && !/-0000[2-9]-of-|-000[1-9][0-9]-of-/.test(f) }).sort()
+    if (!models.length) return null
+    var preferred = models.filter(function (f) { return /Q4_K_M/.test(f) })[0]
+    return { model: preferred || models[0], mmproj: mmproj }
+}

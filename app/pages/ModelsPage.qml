@@ -14,6 +14,14 @@ ColumnLayout {
     function runArgs(m) {
         // conservative settings until a recipe carries the model's own
         var name = Logic.repoName(m.repo).toLowerCase().replace(/[^a-z0-9.:_-]+/g, "-")
+        if (m.format === "gguf") {
+            var g = Logic.ggufFiles(m)
+            var gargs = ["start", m.repo + "@" + m.revision, "--engine", "llamacpp", "--name", name.replace(/-gguf$/, ""),
+                         "--arg", "model-file=" + g.model, "--arg", "ctx-size=32768", "--arg", "n-gpu-layers=999",
+                         "--arg", "flash-attn=on", "--arg", "jinja", "--json"]
+            if (g.mmproj) gargs.splice(gargs.length - 1, 0, "--arg", "mmproj-file=" + g.mmproj)
+            return gargs
+        }
         var args = ["start", m.repo + "@" + m.revision, "--engine", "vllm", "--name", name,
                     "--arg", "gpu-memory-utilization=0.6", "--arg", "max-model-len=65536", "--arg", "enable-prefix-caching", "--json"]
         if (/qwen3\.?8/i.test(m.repo))
@@ -55,7 +63,8 @@ ColumnLayout {
                 required property int index
                 readonly property string state: Logic.modelState(modelData)
                 readonly property bool draft: modelData.role === "draft"
-                readonly property bool runnable: modelData.format === "safetensors" && state === "ready" && !draft
+                readonly property bool runnable: state === "ready" && !draft
+                                                 && (modelData.format === "safetensors" || (modelData.format === "gguf" && Logic.ggufFiles(modelData) !== null))
                 width: list.width
                 implicitHeight: 64
                 color: index % 2 ? "transparent" : Qt.rgba(0, 0, 0, 0)
@@ -89,7 +98,7 @@ ColumnLayout {
                         enabled: row.runnable && page.backend.busy === ""
                         ToolTip.visible: hovered && !row.runnable
                         ToolTip.text: row.draft ? "A speculative-decoding draft: it runs inside a recipe, next to its model"
-                                    : row.modelData.format === "gguf" ? "GGUF runs on llama.cpp or Ollama (coming next)"
+                                    : row.modelData.format === "gguf" ? "No GGUF model file in this download"
                                     : row.modelData.format === "diffusion" ? "Video models run through a recipe" : "Not downloaded completely"
                         onClicked: page.backend.act("run:" + row.modelData.repo, page.runArgs(row.modelData), "Starting " + Logic.repoName(row.modelData.repo))
                     }

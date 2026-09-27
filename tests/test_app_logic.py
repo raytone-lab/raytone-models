@@ -74,6 +74,19 @@ class AppLogicTests(unittest.TestCase):
                 {"served_name": "m", "ready": False, "chat": True}]
         self.assertEqual([i["served_name"] for i in call("chatModels", inst)], ["q"])
 
+    def test_gguf_files_to_run(self):
+        m = {"files": ["README.md", "Qwen3-0.6B-Q4_K_M.gguf", "mmproj-F16.gguf"]}
+        self.assertEqual(call("ggufFiles", m), {"model": "Qwen3-0.6B-Q4_K_M.gguf", "mmproj": "mmproj-F16.gguf"})
+        # a split model starts at its first part
+        m = {"files": ["Q8_0/x-Q8_0-00002-of-00002.gguf", "Q8_0/x-Q8_0-00001-of-00002.gguf"]}
+        self.assertEqual(call("ggufFiles", m), {"model": "Q8_0/x-Q8_0-00001-of-00002.gguf", "mmproj": None})
+        # the variant that was downloaded wins over others in the same snapshot
+        m = {"files": ["x-Q8_0.gguf", "x-Q4_K_M.gguf"], "download": {"state": "done", "include": ["x-Q8_0.gguf"]}}
+        self.assertEqual(call("ggufFiles", m)["model"], "x-Q8_0.gguf")
+        # otherwise the usual 4-bit one
+        self.assertEqual(call("ggufFiles", {"files": ["x-Q8_0.gguf", "x-Q4_K_M.gguf"]})["model"], "x-Q4_K_M.gguf")
+        self.assertIsNone(call("ggufFiles", {"files": ["model.safetensors"]}))
+
     def test_clock(self):
         self.assertEqual(call("clock", 0), "0:00")
         self.assertEqual(call("clock", 83.6), "1:23")
