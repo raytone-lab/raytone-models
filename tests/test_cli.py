@@ -280,6 +280,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(ran, [["hf", "cache", "rm", "model/RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "-y"]])
 
+    def test_stats_json(self):
+        (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "qwen3.8-27b", "port": 18000}))
+        self.env.counters = lambda url: {"generation_tokens": 10.0} if ":18000/" in url else None
+        self.env.meminfo = lambda: {"total": 100, "available": 40}
+        rc, out = self.run_cli("stats", "--json")
+        d = json.loads(out)
+        self.assertEqual(d["memory"], {"total": 100, "available": 40})
+        self.assertEqual(d["instances"], [{"id": "q", "served_name": "qwen3.8-27b", "counters": {"generation_tokens": 10.0}}])
+        self.assertIn("time", d)
+
+    def test_engines_json(self):
+        rc, out = self.run_cli("engines", "--json")
+        e = {x["engine"]: x for x in json.loads(out)}
+        self.assertEqual(e["vllm"]["image"], f"vllm/vllm-openai@{DIGEST}")
+        self.assertTrue(e["vllm"]["configured"])
+
     def test_agents_json_lists_the_catalog(self):
         rc, out = self.run_cli("agents", "--json")
         ids = [a["id"] for a in json.loads(out)]

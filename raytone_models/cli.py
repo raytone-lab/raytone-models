@@ -11,6 +11,7 @@
     raytone-models download REPO[@COMMIT] [--variant NAME | --include PATTERN...] [--json]
     raytone-models downloads [--json]      raytone-models download-cancel ID
     raytone-models delete REPO             raytone-models hf-token set|clear   (token on stdin)
+    raytone-models stats|engines [--json]  raytone-models chat   (request JSON on stdin, JSON lines out)
     raytone-models recipes [--json]
     raytone-models recipe apply|stop|fetch ID [--json]
     raytone-models router [--port 8090]
@@ -28,7 +29,7 @@ import subprocess
 import sys
 import urllib.request
 
-from . import agents, downloads, hf, recipes, router, spec as spec_mod, store
+from . import agents, downloads, hf, live, recipes, router, spec as spec_mod, store
 
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
@@ -88,6 +89,8 @@ class Env:
     spawn: object = downloads._spawn
     downloads_dir: pathlib.Path = downloads.STATE
     config_dir: pathlib.Path = CONFIG_DIR
+    counters: object = live.counters
+    meminfo: object = live.memory
 
     def __post_init__(self):
         self.hf_home = pathlib.Path(self.hf_home or store.home())
@@ -312,6 +315,26 @@ def cmd_token(a, env):
     return {"token": True}
 
 
+def cmd_stats(env):
+    import time
+    out = []
+    for d in _registered(env):
+        if isinstance(d.get("port"), int):
+            out.append({"id": d.get("id"), "served_name": d.get("served_name"),
+                        "counters": env.counters(f"http://127.0.0.1:{d['port']}/metrics")})
+    return {"time": time.time(), "memory": env.meminfo(), "instances": out}
+
+
+def cmd_engines(env):
+    names = sorted(set(spec_mod.ENGINES) | {"sglang", "llamacpp", "ollama", "comfyui"})
+    rows = []
+    for name in names:
+        e = env.engines.get(name) or {}
+        rows.append({"engine": name, "image": e.get("image"), "tag": e.get("tag"), "checked": e.get("checked"),
+                     "configured": bool(e.get("image")) and name in spec_mod.ENGINES})
+    return rows
+
+
 def parse(argv):
     p = argparse.ArgumentParser(prog="raytone-models")
     sub = p.add_subparsers(dest="command", required=True)
@@ -353,6 +376,9 @@ def parse(argv):
     tk = sub.add_parser("hf-token")
     tk.add_argument("action", choices=["set", "clear"])
     tk.add_argument("--json", action="store_true")
+    for name in ("stats", "engines"):
+        sub.add_parser(name).add_argument("--json", action="store_true")
+    sub.add_parser("chat")
     sub.add_parser("recipes").add_argument("--json", action="store_true")
     rc = sub.add_parser("recipe")
     rc.add_argument("action", choices=["apply", "stop", "fetch"])
@@ -405,6 +431,12 @@ def main(argv=None, env=None):
             _print(cmd_delete(a, env), a.json)
         elif a.command == "hf-token":
             _print(cmd_token(a, env), a.json)
+        elif a.command == "stats":
+            _print(cmd_stats(env), a.json)
+        elif a.command == "engines":
+            _print(cmd_engines(env), a.json)
+        elif a.command == "chat":
+            return live.chat(f"http://127.0.0.1:{router.DEFAULT_PORT}", live.read_request())
         elif a.command == "recipes":
             _print(cmd_recipes(env), a.json)
         elif a.command == "recipe":
