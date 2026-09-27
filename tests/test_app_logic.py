@@ -61,6 +61,11 @@ class AppLogicTests(unittest.TestCase):
         self.assertEqual(call("modelState", {"complete": False, "progress": 0.362, "incomplete": 0, "missing": ["a"]}),
                          "incomplete 36%")
         self.assertEqual(call("modelState", {"complete": None, "incomplete": 0, "missing": []}), "unverified")
+        # the variant that was downloaded is what counts, not the whole repo
+        self.assertEqual(call("modelState", {"complete": False, "progress": 0.03, "incomplete": 0, "missing": ["x"],
+                                             "download": {"state": "done"}}), "ready")
+        self.assertEqual(call("modelState", {"complete": False, "progress": 0.03, "incomplete": 1, "missing": ["x"],
+                                             "download": {"state": "running", "progress": 0.4}}), "downloading 40%")
 
     def test_agent_command(self):
         self.assertEqual(call("agentCommand", "claude"), "claude")

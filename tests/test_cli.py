@@ -242,6 +242,21 @@ class CliTests(unittest.TestCase):
         [row] = json.loads(out)
         self.assertEqual((row["repo"], row["expected"]), ("unsloth/Qwen3.8-27B-GGUF", 16_900))
 
+    def test_a_finished_variant_download_makes_the_model_ready(self):
+        # a partial download is incomplete against the revision's full manifest, but complete for
+        # what was asked (the Q4_K_M variant): models --json says so (seen on the Thor)
+        self.hub()
+        self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q4_K_M")
+        root = put(self.hf / "hub", "unsloth/Qwen3.8-27B-GGUF", "a" * 40,
+                   {"Qwen3.8-27B-Q4_K_M.gguf": b"q" * 16_000, "mmproj-F16.gguf": b"p" * 900})
+        (root / "trees").mkdir()
+        (root / "trees" / f"{'a' * 40}.json").write_text(json.dumps({"files": {
+            "Qwen3.8-27B-Q4_K_M.gguf": {"size": 16_000}, "mmproj-F16.gguf": {"size": 900}, "big-Q8_0.gguf": {"size": 10**9}}}))
+        self.env.spawn = None
+        m = [x for x in json.loads(self.run_cli("models", "--json")[1]) if x["repo"] == "unsloth/Qwen3.8-27B-GGUF"][0]
+        self.assertEqual(m["download"]["state"], "done")
+        self.assertEqual(m["download"]["include"], ["Qwen3.8-27B-Q4_K_M.gguf", "mmproj-F16.gguf"])
+
     def test_an_unknown_variant_is_refused(self):
         self.hub()
         rc, _ = self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q2_K")

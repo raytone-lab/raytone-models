@@ -399,12 +399,28 @@ def _print(obj, as_json):
         print(obj)
 
 
+def _models(env):
+    """Local models; each carries the download that brought it in, if any. A variant download is
+    complete for what was asked even while the revision's full manifest is not."""
+    rank = {"running": 0, "done": 1}
+    rows = downloads.listing(hf_home=env.hf_home, state_dir=env.downloads_dir)
+    out = []
+    for m in store.list_models(env.hf_home):
+        d = m.to_dict()
+        mine = [r for r in rows if r["repo"] == m.repo and r["revision"] == m.revision]
+        mine.sort(key=lambda r: rank.get(r["state"], 2))
+        if mine:
+            d["download"] = mine[0]
+        out.append(d)
+    return out
+
+
 def main(argv=None, env=None):
     a = parse(sys.argv[1:] if argv is None else argv)
     env = env or Env()
     try:
         if a.command == "models":
-            _print([m.to_dict() for m in store.list_models(env.hf_home)], a.json)
+            _print(_models(env), a.json)
         elif a.command == "instances":
             _print(_instances(env), a.json)
         elif a.command == "agents":
