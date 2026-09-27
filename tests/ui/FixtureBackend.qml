@@ -32,6 +32,9 @@ Item {
     signal chatDone(var summary)
     signal chatError(string message)
     signal chatEnded()
+    signal videoDone(string path, real seconds)
+    signal videoError(string message)
+    signal videoEnded()
 
     function parse(t) { try { return JSON.parse(String(t || "")) } catch (e) { return null } }
     function refresh() {}
@@ -43,6 +46,9 @@ Item {
     function stopChat() {}
     function copy(t) {}
     function launchAgent(c) {}
+    function video(p, s, n, t) {}
+    function stopVideo() {}
+    function open(p) {}
 
     FileView { id: recipesFile; path: root.dataDir + "/recipes.json"; blockLoading: true }
     FileView { id: modelsFile; path: root.dataDir + "/models.json"; blockLoading: true }
