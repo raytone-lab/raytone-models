@@ -18,6 +18,7 @@ PS = {"models": [{"name": "qwen3:1.7b", "size_vram": 1500000000, "context_length
 class FakeOllama(http.server.ThreadingHTTPServer):
     def __init__(self):
         self.posts = []
+        self.gets = []
         self.redirect = None
         outer = self
 
@@ -34,6 +35,7 @@ class FakeOllama(http.server.ThreadingHTTPServer):
                 self.wfile.write(data)
 
             def do_GET(self):
+                outer.gets.append(self.path)
                 if self.path == "/api/tags" and outer.redirect:
                     self.send_response(302)
                     self.send_header("Location", outer.redirect)
@@ -116,7 +118,7 @@ class OllamaTests(unittest.TestCase):
         self.srv.redirect = f"http://127.0.0.1:{other.server_address[1]}/api/tags"
         with self.assertRaises(ollama.OllamaError):
             self.o.models()
-        self.assertEqual(other.posts, [])
+        self.assertEqual((other.gets, other.posts), ([], []))
         self.assertEqual(self.o.version(), "0.34.4")        # the other calls still work
 
     def test_names_are_checked(self):
