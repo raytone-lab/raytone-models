@@ -6,6 +6,11 @@
     raytone-models stop ID
     raytone-models agents [--json]
     raytone-models agent connect|revert AGENT [--default SERVED] [--json]
+    raytone-models hub search QUERY [--kind video|image|speech] [--json]
+    raytone-models hub files REPO [--revision COMMIT] [--json]
+    raytone-models download REPO[@COMMIT] [--variant NAME | --include PATTERN...] [--json]
+    raytone-models downloads [--json]      raytone-models download-cancel ID
+    raytone-models delete REPO             raytone-models hf-token set|clear   (token on stdin)
     raytone-models recipes [--json]
     raytone-models recipe apply|stop|fetch ID [--json]
     raytone-models router [--port 8090]
@@ -23,10 +28,11 @@ import subprocess
 import sys
 import urllib.request
 
-from . import agents, recipes, router, spec as spec_mod, store
+from . import agents, downloads, hf, recipes, router, spec as spec_mod, store
 
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
+CONFIG_DIR = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", pathlib.Path.home() / ".config")) / "raytone-models"
 USER_RECIPES = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local/share")) / "raytone-models/recipes"
 
 
@@ -78,6 +84,10 @@ class Env:
     recipe_dirs: list = None
     allowed_signers: pathlib.Path = recipes.ALLOWED_SIGNERS
     run: object = _run
+    hf_endpoint: str = None
+    spawn: object = downloads._spawn
+    downloads_dir: pathlib.Path = downloads.STATE
+    config_dir: pathlib.Path = CONFIG_DIR
 
     def __post_init__(self):
         self.hf_home = pathlib.Path(self.hf_home or store.home())
@@ -86,6 +96,17 @@ class Env:
             self.engines = _engines()
         if self.recipe_dirs is None:
             self.recipe_dirs = [recipes.SYSTEM_DIR, USER_RECIPES]
+        if self.hf_endpoint is None:
+            self.hf_endpoint = os.environ.get("HF_ENDPOINT") or hf.DEFAULT_ENDPOINT
+
+    def token(self):
+        try:
+            return (pathlib.Path(self.config_dir) / "hf-token").read_text().strip() or None
+        except OSError:
+            return None
+
+    def hub(self):
+        return hf.Hub(endpoint=self.hf_endpoint, token=self.token())
 
 
 def _value(text):
@@ -235,6 +256,62 @@ def cmd_recipe(a, env):
     return recipes.status(r, env.hf_home)
 
 
+def cmd_hub(a, env):
+    try:
+        if a.action == "search":
+            return env.hub().search(a.query, kind=a.kind)
+        sha, files = env.hub().files(a.query, a.revision)
+        return {"repo": a.query, "revision": sha, "files": files, "variants": hf.variants(files)}
+    except hf.HubError as e:
+        raise SystemExit(str(e)) from None
+
+
+def cmd_download(a, env):
+    repo, _, rev = a.repo.partition("@")
+    try:
+        sha, files = env.hub().files(repo, rev or None)
+    except hf.HubError as e:
+        raise SystemExit(str(e)) from None
+    include = list(a.include or [])
+    if a.variant:
+        v = next((v for v in hf.variants(files) if v["name"] == a.variant), None)
+        if v is None:
+            raise SystemExit(f"{repo} has no variant {a.variant}")
+        include = v["include"]
+    try:
+        return downloads.start(repo, sha, files, include=include, hf_home=env.hf_home, token=env.token(),
+                               state_dir=env.downloads_dir, spawn=env.spawn)
+    except downloads.DownloadError as e:
+        raise SystemExit(str(e)) from None
+
+
+def cmd_delete(a, env):
+    root = "models--" + a.repo.replace("/", "--")
+    users = [d.get("served_name") for d in _registered(env) if str(d.get("model", "")).startswith(root + "/")]
+    if users:
+        raise SystemExit(f"{a.repo} is in use by {', '.join(users)}; stop it first")
+    hf_env = dict(os.environ, HF_HOME=str(env.hf_home))
+    if env.run(["hf", "cache", "rm", f"model/{a.repo}", "-y"], hf_env):
+        raise SystemExit(f"could not delete {a.repo}")
+    return {"deleted": a.repo}
+
+
+def cmd_token(a, env):
+    path = pathlib.Path(env.config_dir) / "hf-token"
+    if a.action == "clear":
+        path.unlink(missing_ok=True)
+        return {"token": False}
+    token = sys.stdin.readline().strip()
+    if not token:
+        raise SystemExit("no token on stdin")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token + "\n")
+    os.chmod(path, 0o600)
+    return {"token": True}
+
+
 def parse(argv):
     p = argparse.ArgumentParser(prog="raytone-models")
     sub = p.add_subparsers(dest="command", required=True)
@@ -255,6 +332,27 @@ def parse(argv):
     ag.add_argument("agent")
     ag.add_argument("--default")
     ag.add_argument("--json", action="store_true")
+    hb = sub.add_parser("hub")
+    hb.add_argument("action", choices=["search", "files"])
+    hb.add_argument("query")
+    hb.add_argument("--kind", choices=sorted(hf.KINDS))
+    hb.add_argument("--revision")
+    hb.add_argument("--json", action="store_true")
+    dl = sub.add_parser("download")
+    dl.add_argument("repo")
+    dl.add_argument("--variant")
+    dl.add_argument("--include", action="append")
+    dl.add_argument("--json", action="store_true")
+    sub.add_parser("downloads").add_argument("--json", action="store_true")
+    dc = sub.add_parser("download-cancel")
+    dc.add_argument("id")
+    dc.add_argument("--json", action="store_true")
+    de = sub.add_parser("delete")
+    de.add_argument("repo")
+    de.add_argument("--json", action="store_true")
+    tk = sub.add_parser("hf-token")
+    tk.add_argument("action", choices=["set", "clear"])
+    tk.add_argument("--json", action="store_true")
     sub.add_parser("recipes").add_argument("--json", action="store_true")
     rc = sub.add_parser("recipe")
     rc.add_argument("action", choices=["apply", "stop", "fetch"])
@@ -291,6 +389,22 @@ def main(argv=None, env=None):
             _print(env.helper(["stop", a.id]), a.json)
         elif a.command == "agent":
             _print(cmd_agent(a, env), a.json)
+        elif a.command == "hub":
+            _print(cmd_hub(a, env), a.json)
+        elif a.command == "download":
+            _print(cmd_download(a, env), a.json)
+        elif a.command == "downloads":
+            _print(downloads.listing(hf_home=env.hf_home, state_dir=env.downloads_dir), a.json)
+        elif a.command == "download-cancel":
+            try:
+                downloads.cancel(a.id, state_dir=env.downloads_dir)
+            except downloads.DownloadError as e:
+                raise SystemExit(str(e)) from None
+            _print({"cancelled": a.id}, a.json)
+        elif a.command == "delete":
+            _print(cmd_delete(a, env), a.json)
+        elif a.command == "hf-token":
+            _print(cmd_token(a, env), a.json)
         elif a.command == "recipes":
             _print(cmd_recipes(env), a.json)
         elif a.command == "recipe":

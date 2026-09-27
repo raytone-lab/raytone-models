@@ -208,6 +208,78 @@ class CliTests(unittest.TestCase):
         self.assertEqual(argv[:3], ["hf", "download", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead"])
         self.assertEqual(hf_home, str(self.hf))
 
+    def hub(self):
+        from tests.test_hf import FakeHub
+        self.fake = FakeHub()
+        self.addCleanup(self.fake.server_close)
+        self.addCleanup(self.fake.shutdown)
+        self.env.hf_endpoint = f"http://127.0.0.1:{self.fake.server_address[1]}"
+        self.spawned = []
+
+        class P:
+            pid = 777
+        self.env.spawn = lambda argv, env, log: self.spawned.append((argv, env)) or P()
+        self.env.downloads_dir = pathlib.Path(self.tmp.name) / "downloads"
+        self.env.config_dir = pathlib.Path(self.tmp.name) / "config"
+
+    def test_hub_search_and_files(self):
+        self.hub()
+        rc, out = self.run_cli("hub", "search", "qwen3.8", "--json")
+        self.assertEqual([r["id"] for r in json.loads(out)], ["unsloth/Qwen3.8-27B-GGUF", "meta/secret"])
+        rc, out = self.run_cli("hub", "files", "unsloth/Qwen3.8-27B-GGUF", "--json")
+        d = json.loads(out)
+        self.assertEqual(d["revision"], "a" * 40)
+        self.assertEqual([v["name"] for v in d["variants"]], ["Q4_K_M", "Q8_0"])
+
+    def test_download_a_variant_pins_the_commit(self):
+        self.hub()
+        rc, out = self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q4_K_M", "--json")
+        self.assertEqual(rc, 0, out)
+        [(argv, env)] = self.spawned
+        self.assertEqual(argv, ["hf", "download", "unsloth/Qwen3.8-27B-GGUF", "--revision", "a" * 40,
+                                "--include", "Qwen3.8-27B-Q4_K_M.gguf", "--include", "mmproj-F16.gguf"])
+        rc, out = self.run_cli("downloads", "--json")
+        [row] = json.loads(out)
+        self.assertEqual((row["repo"], row["expected"]), ("unsloth/Qwen3.8-27B-GGUF", 16_900))
+
+    def test_an_unknown_variant_is_refused(self):
+        self.hub()
+        rc, _ = self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q2_K")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(self.spawned, [])
+
+    def test_the_token_is_read_from_stdin_and_kept_private(self):
+        self.hub()
+        import sys, io, stat as st
+        old = sys.stdin
+        sys.stdin = io.StringIO("hf_secret\n")
+        try:
+            rc, out = self.run_cli("hf-token", "set")
+        finally:
+            sys.stdin = old
+        tok = self.env.config_dir / "hf-token"
+        self.assertEqual(tok.read_text().strip(), "hf_secret")
+        self.assertEqual(st.S_IMODE(tok.stat().st_mode), 0o600)
+        self.assertNotIn("hf_secret", out)
+        self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q4_K_M")
+        self.assertEqual(self.spawned[-1][1]["HF_TOKEN"], "hf_secret")
+        self.assertIn("Bearer hf_secret", [a for _, a in self.fake.seen if a])
+        self.run_cli("hf-token", "clear")
+        self.assertFalse(tok.exists())
+
+    def test_delete_refuses_a_model_in_use(self):
+        self.hub()
+        (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "q", "port": 18000,
+            "model": f"models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead/snapshots/{SHA}"}))
+        ran = []
+        self.env.run = lambda argv, env: ran.append(argv) or 0
+        rc, _ = self.run_cli("delete", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead")
+        self.assertNotEqual(rc, 0)
+        (self.reg / "q.json").unlink()
+        rc, _ = self.run_cli("delete", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead")
+        self.assertEqual(rc, 0)
+        self.assertEqual(ran, [["hf", "cache", "rm", "model/RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "-y"]])
+
     def test_agents_json_lists_the_catalog(self):
         rc, out = self.run_cli("agents", "--json")
         ids = [a["id"] for a in json.loads(out)]
