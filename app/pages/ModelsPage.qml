@@ -120,7 +120,9 @@ ColumnLayout {
                                      : ""
             color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; wrapMode: Text.Wrap; padding: 20
         }
+        // this revision only, as the dialog says; other revisions of the repo stay
         onAccepted: if (page.pendingDelete) page.backend.act("delete:" + page.pendingDelete.repo,
-                                                           ["delete", page.pendingDelete.repo, "--json"], "Deleted " + Logic.repoName(page.pendingDelete.repo))
+                                                           ["delete", page.pendingDelete.repo + "@" + page.pendingDelete.revision, "--json"],
+                                                           "Deleted " + Logic.repoName(page.pendingDelete.repo))
     }
 }
