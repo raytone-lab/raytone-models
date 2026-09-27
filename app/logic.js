@@ -93,8 +93,8 @@ function includeMatch(path, pattern) {
     var re = "", i = 0, n = p.length
     while (i < n) {
         var c = p[i++]
-        if (c === "*") { re += ".*"; continue }
-        if (c === "?") { re += "."; continue }
+        if (c === "*") { re += "[\\s\\S]*"; continue }
+        if (c === "?") { re += "[\\s\\S]"; continue }
         if (c !== "[") { re += esc(c); continue }
         var j = i
         if (j < n && p[j] === "!") j++
@@ -127,14 +127,15 @@ function includeMatch(path, pattern) {
         stuff = stuff.replace(/([&~|])/g, "\\$1")
         i = j + 1
         if (!stuff) re += "(?!)"                     // an empty set never matches
-        else if (stuff === "!") re += "."            // a negated empty set matches any character
+        else if (stuff === "!") re += "[\\s\\S]"   // a negated empty set matches any character
         else {
             if (stuff[0] === "!") stuff = "^" + stuff.slice(1)
             else if (stuff[0] === "^" || stuff[0] === "[") stuff = "\\" + stuff
             re += "[" + stuff.replace(/\]/g, "\\]") + "]"
         }
     }
-    return new RegExp("^(?:" + re + ")$", "s").test(path)
+    // no "s" flag: QML's JavaScript engine does not have it, so any character is [\s\S]
+    return new RegExp("^(?:" + re + ")$").test(path)
 }
 
 function ggufFiles(m) {
