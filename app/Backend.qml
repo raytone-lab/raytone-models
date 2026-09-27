@@ -31,6 +31,9 @@ Item {
     signal chatDone(var summary)
     signal chatError(string message)
     signal chatEnded()                 // the chat process exited, finished or stopped
+    signal videoDone(string path, real seconds)
+    signal videoError(string message)
+    signal videoEnded()
 
     function parse(text, fallback) {
         try { return JSON.parse(String(text || "")) } catch (e) { return fallback }
@@ -93,6 +96,23 @@ Item {
 
     function stopChat() {
         if (chatProc.running) chatProc.signal(15)
+    }
+
+    function video(prompt, size, seconds, turbo) {
+        if (videoProc.running) return
+        var args = [cli, "video", "--prompt", prompt, "--size", size, "--seconds", String(seconds)]
+        if (!turbo) args.push("--no-turbo")
+        videoProc.command = args
+        videoProc.running = true
+    }
+
+    function stopVideo() {
+        if (videoProc.running) videoProc.signal(15)
+    }
+
+    function open(path) {
+        openProc.command = ["xdg-open", path]
+        openProc.running = true
     }
 
     function copy(text) {
@@ -217,6 +237,24 @@ Item {
         }
         onExited: { stdinEnabled = true; root.chatEnded() }
     }
+    Process {
+        id: videoProc
+        property bool reported: false
+        onStarted: reported = false
+        stdout: SplitParser {
+            onRead: function(line) {
+                var d = root.parse(line, null)
+                if (!d) return
+                if (d.done !== undefined) { videoProc.reported = true; root.videoDone(d.done, d.seconds || 0) }
+                else if (d.error !== undefined) { videoProc.reported = true; root.videoError(d.error) }
+            }
+        }
+        onExited: function(exitCode) {
+            if (!reported && exitCode !== 0) root.videoError("the video command ended without a result (exit " + exitCode + ")")
+            root.videoEnded()
+        }
+    }
+    Process { id: openProc }
     Process { id: copyProc; onExited: function(code) { if (code === 0) root.notice = "Endpoint copied" } }
     Process { id: launchProc }
 

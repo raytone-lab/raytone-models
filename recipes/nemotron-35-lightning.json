@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "id": "nemotron-35-lightning",
+  "title": "Nemotron 3.5 Lightning 30B-A3B (NVFP4) with DSpark",
+  "description": "NVIDIA's hybrid Mamba-Transformer MoE (30B, 3B active), NVFP4, DSpark speculative decoding (block 3), tool calling and reasoning. Checked on the Jetson AGX Thor 2026-09-28: 17*23 answered 391, an iterative fib(n) written correctly, about 130 tokens/s, ready 8 minutes after a first start (FlashInfer autotune).",
+  "platforms": ["thor-t5000"],
+  "requires": {"memory_gib": 75, "disk_gib": 23},
+  "source": "Parameters from Mia's AI Lab (github.com/MiaAI-Lab/Nemotron3.5-Lightning-DGX-Spark-RTX-5090-6000-PRO), on LMSYS's SGLang image for this model, which includes sm_110",
+  "components": [
+    {
+      "role": "chat",
+      "served_name": "nemotron-3.5-lightning",
+      "model": {"repo": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4", "revision": "bee7596271d1495f6992ae224aefde4410e816b8"},
+      "draft": {"repo": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark", "revision": "8a0177116d138011e63103110f136ec0ca09ebbf"},
+      "engine": "sglang",
+      "image": "lmsysorg/sglang@sha256:a04d9a1a7ffe371b05230aecab001d4ba2bfa0e5c137bc56409ecc4cbc3ac864",
+      "args": {
+        "mem-fraction-static": 0.6,
+        "mamba-ssm-dtype": "float16",
+        "cuda-graph-max-bs-decode": 4,
+        "reasoning-parser": "nemotron_3",
+        "tool-call-parser": "qwen3_coder",
+        "speculative-algorithm": "DSPARK",
+        "speculative-dspark-block-size": 3
+      },
+      "env": {}
+    }
+  ],
+  "agents": {"default_model": "nemotron-3.5-lightning"}
+}

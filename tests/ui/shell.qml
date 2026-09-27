@@ -26,11 +26,11 @@ ShellRoot {
         running: true
         repeat: true
         onTriggered: {
-            var mode = modes[Math.floor(step / 7)]
+            var mode = modes[Math.floor(step / 8)]
             if (mode === undefined) { Qt.quit(); return }
             App.Theme.mode = mode
-            main.current = step % 7
-            var name = mode + "-" + (step % 7)
+            main.current = step % 8
+            var name = mode + "-" + (step % 8)
             running = false
             interval = real ? 2500 : 900
             Qt.callLater(function () {

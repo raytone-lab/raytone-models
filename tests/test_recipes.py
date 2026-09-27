@@ -209,6 +209,59 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(s.args["speculative-config"], {"method": "dflash", "num_speculative_tokens": 7,
                          "model": "/hf/hub/models--poolside--Laguna-S-2.1-DFlash-NVFP4/snapshots/" + "b" * 40})
 
+    def test_an_sglang_draft_path_is_filled_into_its_argument(self):
+        c = recipe()["components"][0]
+        draft = {"repo": "inclusionAI/Ling-3.0-flash-dspark", "revision": "b" * 40}
+        r = recipes.load(recipe(components=[{**c, "engine": "sglang", "image": f"nvcr.io/nvidia/sglang@{DIGEST}",
+                                             "draft": draft, "args": {"mem-fraction-static": 0.6,
+                                                                      "speculative-algorithm": "DSPARK"}}]))
+        put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        put(self.hf / "hub", draft["repo"], "b" * 40, {"config.json": b"{}"})
+        self.tree(REPO, SHA, ["config.json"])
+        self.tree(draft["repo"], "b" * 40, ["config.json"])
+        [s] = recipes.specs(r, self.hf)
+        path = "/hf/hub/models--inclusionAI--Ling-3.0-flash-dspark/snapshots/" + "b" * 40
+        self.assertEqual(s.args["speculative-draft-model-path"], path)
+        self.assertNotIn("speculative-config", s.args)
+        self.assertEqual(recipes.expected(r, self.hf)[c["served_name"]][2]["speculative-draft-model-path"], path)
+
+    def test_an_sglang_recipe_cannot_name_its_draft_path(self):
+        c = recipe()["components"][0]
+        path = "/hf/hub/models--inclusionAI--Ling-3.0-flash-dspark/snapshots/" + "b" * 40
+        with self.assertRaises(recipes.RecipeError):
+            recipes.load(recipe(components=[{**c, "engine": "sglang", "image": f"nvcr.io/nvidia/sglang@{DIGEST}",
+                                             "args": {"speculative-draft-model-path": path}}]))
+
+    def h3_recipe(self):
+        c = recipe()["components"][0]
+        h3 = {"role": "video", "served_name": "minimax-h3", "engine": "comfyui", "image": "raytone/comfyui@local",
+              "model": {"repo": "Comfy-Org/MiniMax-H3", "revision": "c" * 40, "include": ["vae/*"]},
+              "args": {"gpu-only": True}}
+        return recipes.load(recipe(components=[c, h3]))
+
+    def test_a_locally_built_engine_is_named_not_pinned(self):
+        # its image ID differs from machine to machine: the recipe names it, the machine's own
+        # engines file (scripts/build-engine) pins it
+        r = self.h3_recipe()
+        self.assertEqual(r.components[1].image, "raytone/comfyui@local")
+        with self.assertRaises(recipes.RecipeError):
+            c = recipe()["components"][0]
+            recipes.load(recipe(components=[{**c, "image": "vllm/vllm-openai@local"}]))
+
+    def test_the_local_image_resolves_from_this_machine(self):
+        r = self.h3_recipe()
+        put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        self.tree(REPO, SHA, ["config.json"])
+        put(self.hf / "hub", "Comfy-Org/MiniMax-H3", "c" * 40, {"vae/v.safetensors": b"v"})
+        self.tree("Comfy-Org/MiniMax-H3", "c" * 40, ["vae/v.safetensors", "diffusion_models/big.safetensors"])
+        built = {"comfyui": {"image": "raytone/comfyui@sha256:" + "d" * 64}}
+        specs = recipes.specs(r, self.hf, images=built)
+        self.assertEqual(specs[1].image, "raytone/comfyui@sha256:" + "d" * 64)
+        self.assertEqual(recipes.expected(r, self.hf, images=built)["minimax-h3"][0], "raytone/comfyui@sha256:" + "d" * 64)
+        with self.assertRaises(recipes.RecipeError) as e:
+            recipes.specs(r, self.hf, images={})
+        self.assertIn("build-engine comfyui", str(e.exception))
+
     def test_a_recipe_cannot_name_its_own_draft_path(self):
         c = recipe()["components"][0]
         with self.assertRaises(recipes.RecipeError):

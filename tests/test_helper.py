@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from raytone_models import helper
-from tests.test_spec import SNAPSHOT, good
+from tests.test_spec import DIGEST, H3, SNAPSHOT, comfyui, good
 
 
 class HelperTests(unittest.TestCase):
@@ -18,10 +18,12 @@ class HelperTests(unittest.TestCase):
         t = pathlib.Path(self.tmp.name)
         self.store, self.run, self.cache = t / "hf", t / "run", t / "cache"
         (self.store / "hub" / SNAPSHOT).mkdir(parents=True)
+        (self.store / "hub" / H3).mkdir(parents=True)
+        self.built = {"comfyui": f"raytone/comfyui@{DIGEST}"}
         self.calls = []
         self.chowned = []
         self.paths = dict(store=self.store, run_dir=self.run, cache=self.cache, systemctl=self.calls.append,
-                          engine_user=lambda: ((961, 961), (983, 987)),
+                          engine_user=lambda: ((961, 961), (983, 987)), local_images=lambda: self.built,
                           chown=lambda p, uid, gid: self.chowned.append((pathlib.Path(p).name, uid, gid)))
 
     def tearDown(self):
@@ -96,6 +98,31 @@ class HelperTests(unittest.TestCase):
         helper.stop("qwen38-27b", **self.paths)
         self.assertEqual(self.calls[-1], ["stop", "raytone-engine@qwen38-27b.service"])
         self.assertFalse((self.run / "instances" / "qwen38-27b.json").exists())
+
+    def test_a_local_image_must_be_the_one_built_here(self):
+        # From Codex's review of PR #5: docker runs a local engine by its bare image ID, so any
+        # image on the machine could be named raytone/comfyui@<its id>; only the ID build-engine
+        # recorded in root's engines file may run
+        helper.start(json.dumps(comfyui(model=H3)), **self.paths)
+        self.assertIn(DIGEST, helper.run_argv("qwen38-27b", **self.paths))
+        other = "raytone/comfyui@sha256:" + "f" * 64
+        with self.assertRaises(helper.HelperError):
+            helper.start(json.dumps(comfyui(model=H3, image=other, id="other", port=18002, served_name="other")), **self.paths)
+        self.built = {}
+        with self.assertRaises(helper.HelperError):
+            helper.run_argv("qwen38-27b", **self.paths)
+
+    def test_the_local_engines_file_is_root_s(self):
+        t = pathlib.Path(self.tmp.name)
+        f = t / "engines.json"
+        f.write_text(json.dumps({"comfyui": {"image": f"raytone/comfyui@{DIGEST}"}, "vllm": {"image": "x"}}))
+        root = lambda p: os.stat_result((stat.S_IFREG | 0o644, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        self.assertEqual(helper.local_images(f, lstat=root), {"comfyui": f"raytone/comfyui@{DIGEST}"})
+        user = lambda p: os.stat_result((stat.S_IFREG | 0o644, 0, 0, 0, 1000, 0, 0, 0, 0, 0))
+        writable = lambda p: os.stat_result((stat.S_IFREG | 0o666, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        for lstat in (user, writable):
+            self.assertEqual(helper.local_images(f, lstat=lstat), {})
+        self.assertEqual(helper.local_images(t / "missing.json", lstat=root), {})
 
     def test_stop_refuses_a_bad_id(self):
         with self.assertRaises(helper.HelperError):

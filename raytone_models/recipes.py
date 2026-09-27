@@ -89,10 +89,17 @@ def _component(c):
             sc = args["speculative-config"] = json.loads(sc)
         except ValueError:
             raise RecipeError("speculative-config is not JSON") from None
-    if isinstance(sc, dict) and "model" in sc:
-        raise RecipeError("speculative-config.model is filled in from draft; a recipe does not name paths")
+    if (isinstance(sc, dict) and "model" in sc) or "speculative-draft-model-path" in args:
+        raise RecipeError("the draft model's path is filled in from draft; a recipe does not name paths")
+    # an engine built on the device is named REPO@local: its image ID is this machine's own
+    image = c["image"]
+    if isinstance(image, str) and image.endswith("@local"):
+        engine = spec_mod.ENGINES.get(c["engine"]) or {}
+        if not engine.get("local") or image[:-len("@local")] not in engine["images"]:
+            raise RecipeError(f"{image}: only an engine built on the device is named @local")
+        image = image[:-len("@local")] + "@sha256:" + "0" * 64
     # the engine, image, name, arguments and environment get the same checks as an instance spec
-    probe = {"id": "recipe-check", "engine": c["engine"], "image": c["image"],
+    probe = {"id": "recipe-check", "engine": c["engine"], "image": image,
              "model": f"models--x--y/snapshots/{'0' * 40}", "served_name": c["served_name"],
              "port": spec_mod.INSTANCE_PORTS.start, "args": args, "env": c.get("env", {})}
     try:
@@ -205,7 +212,27 @@ def instance_id(served_name):
     return re.sub(r"[^a-z0-9-]+", "-", served_name.lower()).strip("-")[:64]
 
 
-def specs(recipe, hf_home=None, *, used_ports=()):
+def _fill_draft(engine, args, path):
+    if engine == "sglang":
+        args["speculative-draft-model-path"] = path
+    else:
+        args["speculative-config"] = {**args.get("speculative-config", {}), "model": path}
+
+
+def _image(c, images, strict):
+    """The image a component runs: its pinned digest, or for an engine built on the device the image
+    ID this machine recorded (scripts/build-engine)."""
+    if not c.image.endswith("@local"):
+        return c.image
+    built = ((images or {}).get(c.engine) or {}).get("image")
+    if isinstance(built, str) and built.startswith(c.image[:-len("@local")] + "@sha256:"):
+        return built
+    if strict:
+        raise RecipeError(f"{c.image} is not built on this machine yet: raytone-models-build-engine {c.engine}")
+    return c.image
+
+
+def specs(recipe, hf_home=None, *, used_ports=(), images=None):
     st = status(recipe, hf_home)
     if st["state"] != "ready":
         missing = [c["repo"] for c in st["components"] if c["state"] != "ready"]
@@ -216,14 +243,14 @@ def specs(recipe, hf_home=None, *, used_ports=()):
         used.add(port)
         args = dict(c.args)
         if c.draft_repo:
-            args["speculative-config"] = {**args.get("speculative-config", {}), "model": f"/hf/hub/{s['draft_snapshot']}"}
-        out.append(spec_mod.load({"id": instance_id(c.served_name), "engine": c.engine, "image": c.image,
+            _fill_draft(c.engine, args, f"/hf/hub/{s['draft_snapshot']}")
+        out.append(spec_mod.load({"id": instance_id(c.served_name), "engine": c.engine, "image": _image(c, images, True),
                                   "model": s["snapshot"], "served_name": c.served_name, "port": port,
                                   "args": args, "env": c.env}))
     return out
 
 
-def expected(recipe, hf_home=None):
+def expected(recipe, hf_home=None, *, images=None):
     """What each downloaded component runs as: {served_name: (image, model, args, env)}."""
     st = status(recipe, hf_home)
     out = {}
@@ -232,8 +259,8 @@ def expected(recipe, hf_home=None):
             continue
         args = dict(c.args)
         if c.draft_repo:
-            args["speculative-config"] = {**args.get("speculative-config", {}), "model": f"/hf/hub/{s['draft_snapshot']}"}
-        out[c.served_name] = (c.image, s["snapshot"], args, c.env)
+            _fill_draft(c.engine, args, f"/hf/hub/{s['draft_snapshot']}")
+        out[c.served_name] = (_image(c, images, False), s["snapshot"], args, c.env)
     return out
 
 

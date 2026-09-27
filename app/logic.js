@@ -71,3 +71,14 @@ function agentCommand(id) {
     var commands = { "opencode": "opencode", "claude": "claude", "crush": "crush", "pi": "pi" }
     return commands[id] || null
 }
+
+// Elapsed time as m:ss (video generation takes minutes).
+function clock(seconds) {
+    var s = Math.floor(Number(seconds) || 0)
+    return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2)
+}
+
+// Instances an agent or the Chat page can talk to: ready, and not a video engine.
+function chatModels(instances) {
+    return (instances || []).filter(function (i) { return i.ready && i.chat !== false })
+}

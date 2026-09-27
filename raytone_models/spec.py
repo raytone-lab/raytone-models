@@ -50,6 +50,13 @@ def _json_object(v):
     return isinstance(v, dict) and all(isinstance(k, str) for k in v)
 
 
+def _draft_path(v):
+    # the one path an engine takes: a snapshot inside the store the container mounts at /hf
+    return isinstance(v, str) and v.startswith("/hf/hub/") and bool(SNAPSHOT_RE.match(v[len("/hf/hub/"):]))
+
+
+_BIT = re.compile(r"^[01]$")
+
 # Per engine: the image repositories it may come from, its arguments with their checks, and the
 # environment variables it may receive.
 ENGINES = {
@@ -75,6 +82,54 @@ ENGINES = {
         # each variable by name, with the values it may take (Qwen3.8 Flash Next's PLE table options)
         "env": {"VLLM_PLE_MMAP": re.compile(r"^[01]$"), "VLLM_PLE_SSD": re.compile(r"^[01]$"),
                 "VLLM_ALLOW_LONG_MAX_MODEL_LEN": re.compile(r"^[01]$")},
+    },
+    "sglang": {
+        "images": ("nvcr.io/nvidia/sglang", "lmsysorg/sglang"),
+        "args": {
+            "mem-fraction-static": _float(0.05, 0.95),
+            "context-length": _int(512, 4_194_304),
+            "max-running-requests": _int(1, 1024),
+            "chunked-prefill-size": _int(256, 1_048_576),
+            "cuda-graph-max-bs": _int(1, 1024),
+            "cuda-graph-max-bs-decode": _int(1, 1024),
+            "kv-cache-dtype": _choice("auto", "fp8_e4m3", "fp8_e5m2", "bf16", "bfloat16"),
+            "mamba-ssm-dtype": _choice("float16", "bfloat16", "float32"),
+            "max-mamba-cache-size": _int(1, 1024),
+            "quantization": _word,
+            "reasoning-parser": _word,
+            "tool-call-parser": _word,
+            "random-seed": _int(0, 2**31 - 1),
+            "trust-remote-code": _flag,
+            "allow-auto-truncate": _flag,
+            "enable-fp32-lm-head": _flag,
+            "disable-shared-experts-fusion": _flag,
+            "disable-radix-cache": _flag,
+            "disable-cuda-graph": _flag,
+            "enable-linear-replayssm-spec": _flag,
+            "linear-replayssm-cache-len": _int(1, 1024),
+            "speculative-algorithm": _choice("DSPARK", "NEXTN", "EAGLE", "EAGLE3", "DFLASH"),
+            "speculative-draft-model-path": _draft_path,
+            "speculative-dspark-block-size": _int(1, 64),
+            "speculative-num-steps": _int(1, 64),
+            "speculative-eagle-topk": _int(1, 64),
+            "speculative-num-draft-tokens": _int(1, 64),
+        },
+        "env": {"SGLANG_ENABLE_SPEC_V2": _BIT, "SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN": _BIT,
+                "SGLANG_JIT_DEEPGEMM_PRECOMPILE": _BIT, "FLASHINFER_DISABLE_VERSION_CHECK": _BIT},
+    },
+    # video and image generation; the image is built on this machine (engines/comfyui), so it is
+    # pinned by its image ID rather than a registry digest
+    "comfyui": {
+        "images": ("raytone/comfyui",),
+        "local": True,
+        "args": {
+            "gpu-only": _flag,
+            "highvram": _flag,
+            "lowvram": _flag,
+            "disable-smart-memory": _flag,
+            "reserve-vram": _float(0.0, 64.0),
+        },
+        "env": {},
     },
 }
 

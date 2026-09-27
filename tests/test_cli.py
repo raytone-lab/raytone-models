@@ -67,6 +67,17 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertEqual(self.helper_calls, [])
 
+    def test_start_with_another_pinned_image(self):
+        other = "vllm/vllm-openai@sha256:" + "e" * 64
+        rc, _ = self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm", "--name", "q", "--image", other)
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(self.helper_calls[0][1])["image"], other)
+        self.helper_calls.clear()
+        rc, _ = self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm", "--name", "q",
+                             "--image", "vllm/vllm-openai:latest")
+        self.assertNotEqual(rc, 0)            # a tag is not a pin: the spec refuses it
+        self.assertEqual(self.helper_calls, [])
+
     def test_a_model_not_in_the_store_is_refused(self):
         rc, _ = self.run_cli("start", "nobody/nothing", "--engine", "vllm", "--name", "q")
         self.assertNotEqual(rc, 0)
@@ -79,6 +90,55 @@ class CliTests(unittest.TestCase):
         rc, out = self.run_cli("instances", "--json")
         got = {i["served_name"]: i["ready"] for i in json.loads(out)}
         self.assertEqual(got, {"qwen3.8-27b": True, "muse": False})
+
+    def test_a_video_engine_is_ready_by_its_own_health_check(self):
+        (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3", "port": 18002, "engine": "comfyui"}))
+        self.env.probe = lambda url: url == "http://127.0.0.1:18002/system_stats"
+        rc, out = self.run_cli("instances", "--json")
+        [i] = json.loads(out)
+        self.assertEqual((i["served_name"], i["engine"], i["ready"]), ("minimax-h3", "comfyui", True))
+
+    def test_locally_built_engine_images_come_from_etc(self):
+        # scripts/build-engine records the image ID it built in /etc/raytone-models/engines.json
+        t = pathlib.Path(self.tmp.name)
+        shipped, local = t / "shipped.json", t / "local.json"
+        shipped.write_text(json.dumps({"vllm": {"image": "v@x"}, "comfyui": {"note": "built locally"}}))
+        local.write_text(json.dumps({"comfyui": {"image": "raytone/comfyui@sha256:" + "c" * 64, "tag": "v0.37.0"}}))
+        got = cli._engines((shipped, local, t / "missing.json"))
+        self.assertEqual(got["vllm"]["image"], "v@x")
+        self.assertEqual(got["comfyui"], {"note": "built locally", "image": "raytone/comfyui@sha256:" + "c" * 64, "tag": "v0.37.0"})
+
+    def test_video_runs_on_the_comfyui_instance(self):
+        from tests.test_video import FakeComfy
+        fake = FakeComfy()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+        (self.reg / "h3.json").write_text(json.dumps({"id": "minimax-h3", "served_name": "minimax-h3",
+                                                     "port": fake.server_address[1], "engine": "comfyui"}))
+        self.env.videos_dir = pathlib.Path(self.tmp.name) / "Videos"
+        self.env.video_poll = 0.01
+        rc, out = self.run_cli("video", "--prompt", "a red fox in snow", "--seconds", "3", "--size", "480p", "--seed", "5")
+        self.assertEqual(rc, 0, out)
+        lines = [json.loads(l) for l in out.splitlines()]
+        self.assertTrue(pathlib.Path(lines[-1]["done"]).exists())
+        wf = fake.prompts[0]["prompt"]
+        h3 = next(n for n in wf.values() if n["class_type"] == "MiniMaxH3ImageToVideo")
+        self.assertEqual((h3["inputs"]["length"], h3["inputs"]["width"]), (73, 864))
+
+    def test_video_without_a_video_engine_running(self):
+        rc, out = self.run_cli("video", "--prompt", "a fox")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("error", json.loads(out.splitlines()[-1]))
+
+    def test_a_video_engine_is_not_offered_to_agents(self):
+        # From Codex's review of PR #5: a ready ComfyUI is not a chat model
+        (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3", "port": 18000, "engine": "comfyui"}))
+        self.env.probe = lambda url: True
+        [i] = json.loads(self.run_cli("instances", "--json")[1])
+        self.assertEqual((i["ready"], i["chat"]), (True, False))
+        rc, _ = self.run_cli("agent", "connect", "opencode", "--json")
+        self.assertNotEqual(rc, 0)
+        self.assertFalse((self.env.home / ".config/opencode/opencode.json").exists())
 
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")

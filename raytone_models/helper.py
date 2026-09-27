@@ -24,6 +24,7 @@ import tempfile
 from . import engines, spec as spec_mod
 
 CONFIG = pathlib.Path("/etc/raytone-models/helper.json")   # {"store": "/home/USER/.local/share/raytone/hf"}
+LOCAL_ENGINES = pathlib.Path("/etc/raytone-models/engines.json")   # written by build-engine, as root
 RUN_DIR = pathlib.Path("/run/raytone-models")
 CACHE = pathlib.Path("/var/cache/raytone-models")
 ENGINE_USER = "raytone-engine"                 # created by the package (sysusers.d)
@@ -43,6 +44,25 @@ def _engine_user():
     pw = pwd.getpwnam(ENGINE_USER)
     groups = tuple(g.gr_gid for g in (grp.getgrnam(n) for n in ENGINE_GROUPS))
     return (pw.pw_uid, pw.pw_gid), groups
+
+
+def local_images(path=LOCAL_ENGINES, *, lstat=os.lstat):
+    """engine -> the image build-engine recorded, from a root-owned file nobody else can write."""
+    try:
+        st = lstat(path)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+            return {}
+        data = json.loads(pathlib.Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+    return {name: e["image"] for name, e in data.items() if isinstance(e, dict) and isinstance(e.get("image"), str)
+            and (spec_mod.ENGINES.get(name) or {}).get("local")}
+
+
+def _check_image(s, local_images):
+    # a local engine runs by its bare image ID: only the ID built and recorded here may run
+    if spec_mod.ENGINES[s.engine].get("local") and local_images().get(s.engine) != s.image:
+        raise HelperError(f"{s.image} is not the {s.engine} image built on this machine (raytone-models-build-engine {s.engine})")
 
 
 def _registry(run_dir):
@@ -82,9 +102,11 @@ def _write(path, text):
     os.replace(tmp, path)
 
 
-def start(text, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=_systemctl, engine_user=_engine_user, chown=os.chown):
+def start(text, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=_systemctl, engine_user=_engine_user, chown=os.chown,
+          local_images=local_images):
     s = _load(text)
     _check_model(s, store)
+    _check_image(s, local_images)
     registered = _registered(run_dir)
     for other_id, other in registered.items():
         if other_id == s.id:
@@ -130,7 +152,8 @@ def unregister(instance_id, *, run_dir=RUN_DIR, **_):
     (_registry(run_dir) / f"{instance_id}.json").unlink(missing_ok=True)
 
 
-def run_argv(instance_id, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=None, engine_user=_engine_user, **_):
+def run_argv(instance_id, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=None, engine_user=_engine_user,
+             local_images=local_images, **_):
     _check_id(instance_id)
     try:
         text = (_registry(run_dir) / f"{instance_id}.json").read_text()
@@ -140,6 +163,7 @@ def run_argv(instance_id, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=None
     if s.id != instance_id:
         raise HelperError("registry entry does not match its name")
     _check_model(s, store)
+    _check_image(s, local_images)
     user, groups = engine_user()
     return engines.docker_argv(s, store=str(store), cache=str(pathlib.Path(cache) / s.id), user=user, groups=groups)
 

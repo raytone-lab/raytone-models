@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Start ComfyUI on one model snapshot from the Raytone Models store, mounted read-only at /hf.
+
+ComfyUI finds the snapshot's diffusion_models/, text_encoders/, vae/, loras/ and embeddings/
+through an extra model paths file; everything it writes (outputs, temp files, its database)
+goes to the instance cache at /cache. Other arguments go to ComfyUI unchanged.
+"""
+import argparse
+import os
+import re
+import sys
+
+SNAPSHOT_RE = re.compile(r"^/hf/hub/models--[A-Za-z0-9_.-]+--[A-Za-z0-9_.-]+/snapshots/[0-9a-f]{40}$")
+FOLDERS = ("diffusion_models", "text_encoders", "vae", "loras", "embeddings", "model_patches", "checkpoints")
+
+p = argparse.ArgumentParser()
+p.add_argument("--models", required=True)
+p.add_argument("--port", default="8000")
+a, rest = p.parse_known_args()
+if not SNAPSHOT_RE.match(a.models):
+    sys.exit(f"--models: a snapshot in the store, not {a.models!r}")
+
+cache = os.environ.get("HOME", "/cache")
+dirs = {k: os.path.join(cache, "comfyui", k) for k in ("output", "temp", "input", "user")}
+for d in dirs.values():
+    os.makedirs(d, exist_ok=True)
+paths = os.path.join(cache, "comfyui", "extra_model_paths.yaml")
+with open(paths, "w") as f:
+    f.write(f"raytone:\n  base_path: {a.models}\n" + "".join(f"  {k}: {k}\n" for k in FOLDERS))
+
+os.chdir("/opt/ComfyUI")
+os.execv(sys.executable, [sys.executable, "main.py", "--listen", "0.0.0.0", "--port", a.port,
+                          "--extra-model-paths-config", paths, "--disable-auto-launch",
+                          "--output-directory", dirs["output"], "--temp-directory", dirs["temp"],
+                          "--input-directory", dirs["input"], "--user-directory", dirs["user"],
+                          "--database-url", f"sqlite:///{dirs['user']}/comfyui.db", *rest])

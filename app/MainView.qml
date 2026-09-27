@@ -13,8 +13,8 @@ Rectangle {
     color: Theme.background
     readonly property var pages: [
         { label: "Recipes", icon: "recipes" }, { label: "Local models", icon: "models" }, { label: "Discover", icon: "discover" },
-        { label: "Running", icon: "running" }, { label: "Chat", icon: "chat" }, { label: "Agents", icon: "agents" },
-        { label: "Engines", icon: "engines" }]
+        { label: "Running", icon: "running" }, { label: "Chat", icon: "chat" }, { label: "Video", icon: "video" },
+        { label: "Agents", icon: "agents" }, { label: "Engines", icon: "engines" }]
 
     RowLayout {
         anchors.fill: parent
@@ -70,6 +70,7 @@ Rectangle {
             DiscoverPage { backend: view.backend }
             RunningPage { backend: view.backend }
             ChatPage { backend: view.backend }
+            VideoPage { backend: view.backend }
             AgentsPage { backend: view.backend }
             EnginesPage { backend: view.backend }
         }

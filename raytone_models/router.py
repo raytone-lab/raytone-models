@@ -13,6 +13,7 @@ import json
 import pathlib
 import threading
 
+from . import engines
 from . import spec as spec_mod
 
 DEFAULT_REGISTRY = pathlib.Path("/run/raytone-models/instances")
@@ -54,6 +55,8 @@ def instances(registry, ports):
         except (OSError, ValueError):
             continue
         name, port = d.get("served_name"), d.get("port")
+        if d.get("engine") in engines.NOT_CHAT:
+            continue
         if (isinstance(name, str) and spec_mod.NAME_RE.match(name) and isinstance(port, int)
                 and not isinstance(port, bool) and port in ports):
             out[name] = port

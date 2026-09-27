@@ -188,6 +188,15 @@ class RouterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             router.make_server("0.0.0.0", 0, registry=self.reg)
 
+    def test_a_video_engine_is_not_a_chat_model(self):
+        # ComfyUI serves no OpenAI API: agents must not see it in /v1/models or be routed to it
+        spec = {"id": "minimax-h3", "served_name": "minimax-h3", "port": self.a.server_address[1], "engine": "comfyui"}
+        (self.reg / "minimax-h3.json").write_text(json.dumps(spec))
+        status, _, body = self.request("GET", "/v1/models")
+        self.assertNotIn("minimax-h3", [m["id"] for m in json.loads(body)["data"]])
+        status, _, _ = self.request("POST", "/v1/chat/completions", {"model": "minimax-h3", "messages": []})
+        self.assertEqual(status, 404)
+
     def test_a_registry_entry_on_a_foreign_port_is_ignored(self):
         (self.reg / "bad.json").write_text(json.dumps({"id": "bad", "served_name": "bad", "port": 22}))
         _, _, body = self.request("GET", "/v1/models")

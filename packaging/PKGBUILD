@@ -19,6 +19,10 @@ package() {
   install -m 0755 "$src/bin/raytone-models" "$src/bin/raytone-models-helper" "$lib/"
   install -d "$pkgdir/usr/bin"
   ln -s /usr/lib/raytone-models/raytone-models "$pkgdir/usr/bin/raytone-models"
+  # engines built on the device (scripts/build-engine NAME finds them next to itself)
+  install -Dm0755 "$src/scripts/build-engine" "$lib/scripts/build-engine"
+  cp -r --no-preserve=ownership "$src/engines" "$lib/engines"
+  ln -s /usr/lib/raytone-models/scripts/build-engine "$pkgdir/usr/bin/raytone-models-build-engine"
   install -Dm0644 "$src/systemd/raytone-engine@.service" "$pkgdir/usr/lib/systemd/system/raytone-engine@.service"
   install -Dm0644 "$src/systemd/raytone-models-router.service" "$pkgdir/usr/lib/systemd/user/raytone-models-router.service"
   install -Dm0644 "$src/polkit/org.raytone.models.policy" "$pkgdir/usr/share/polkit-1/actions/org.raytone.models.policy"

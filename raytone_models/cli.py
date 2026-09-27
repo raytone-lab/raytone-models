@@ -2,7 +2,7 @@
 
     raytone-models models [--json]
     raytone-models instances [--json]
-    raytone-models start REPO[@REVISION] --engine vllm --name SERVED [--arg KEY[=VALUE]]... [--json]
+    raytone-models start REPO[@REVISION] --engine vllm --name SERVED [--image REPO@sha256:D] [--arg KEY[=VALUE]]... [--json]
     raytone-models stop ID
     raytone-models agents [--json]
     raytone-models agent connect|revert AGENT [--default SERVED] [--json]
@@ -12,6 +12,7 @@
     raytone-models downloads [--json]      raytone-models download-cancel ID
     raytone-models delete REPO[@COMMIT]    raytone-models hf-token set|clear   (token on stdin)
     raytone-models stats|engines [--json]  raytone-models chat   (request JSON on stdin, JSON lines out)
+    raytone-models video --prompt TEXT [--size 480p|768p] [--seconds N] [--seed N] [--no-turbo]  (JSON lines out)
     raytone-models recipes [--json]
     raytone-models recipe apply|stop|fetch ID [--json]
     raytone-models router [--port 8090]
@@ -25,14 +26,16 @@ import json
 import os
 import pathlib
 import re
+import signal
 import subprocess
 import sys
 import urllib.request
 
-from . import agents, downloads, hf, live, recipes, router, spec as spec_mod, store
+from . import agents, downloads, engines, hf, live, recipes, router, spec as spec_mod, store, video
 
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
+LOCAL_ENGINES_FILE = pathlib.Path("/etc/raytone-models/engines.json")
 CONFIG_DIR = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", pathlib.Path.home() / ".config")) / "raytone-models"
 USER_RECIPES = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local/share")) / "raytone-models/recipes"
 
@@ -66,11 +69,18 @@ def _probe(url):
         return False
 
 
-def _engines():
-    try:
-        return json.loads(ENGINES_FILE.read_text())
-    except (OSError, ValueError):
-        return {}
+def _engines(files=None):
+    """The shipped engine images, with what scripts/build-engine built on this machine over them."""
+    out = {}
+    for f in files or (ENGINES_FILE, LOCAL_ENGINES_FILE):
+        try:
+            data = json.loads(pathlib.Path(f).read_text())
+        except (OSError, ValueError):
+            continue
+        for name, e in data.items():
+            if isinstance(e, dict):
+                out[name] = {**out.get(name, {}), **e}
+    return out
 
 
 @dataclasses.dataclass
@@ -91,6 +101,8 @@ class Env:
     config_dir: pathlib.Path = CONFIG_DIR
     counters: object = live.counters
     meminfo: object = live.memory
+    videos_dir: pathlib.Path = video.OUT_DIR
+    video_poll: float = 1.0
 
     def __post_init__(self):
         self.hf_home = pathlib.Path(self.hf_home or store.home())
@@ -139,8 +151,9 @@ def _instances(env):
     for d in _registered(env):
         port = d.get("port")
         out.append({"id": d.get("id"), "served_name": d.get("served_name"), "engine": d.get("engine"), "port": port,
+                    "chat": d.get("engine") not in engines.NOT_CHAT,
                     "context": (d.get("args") or {}).get("max-model-len"),
-                    "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}/v1/models")})
+                    "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}{engines.health_path(d.get('engine'))}")})
     return out
 
 
@@ -161,7 +174,7 @@ def _free_port(env):
 
 def cmd_start(a, env):
     m = _find_model(env, a.model)
-    image = (env.engines.get(a.engine) or {}).get("image")
+    image = a.image or (env.engines.get(a.engine) or {}).get("image")
     if not image:
         raise SystemExit(f"no image configured for {a.engine}")
     args = {}
@@ -182,7 +195,7 @@ def cmd_agent(a, env):
     if a.action == "revert":
         ad.revert()
         return ad.status()
-    ready = [i for i in _instances(env) if i["ready"]]
+    ready = [i for i in _instances(env) if i["ready"] and i["chat"]]
     if not ready:
         raise SystemExit("no model is running and ready")
     models = [{"id": i["served_name"], "context": i["context"] or 32768, "output": min(32768, (i["context"] or 32768) // 4)}
@@ -207,7 +220,7 @@ def _recipe(env, rid):
 def _matching(r, env):
     """The recipe's components that run exactly as the recipe says, and those whose name another
     instance serves: {served_name: instance id}, [served_name]."""
-    want = recipes.expected(r, env.hf_home)
+    want = recipes.expected(r, env.hf_home, images=env.engines)
     matching, conflicts = {}, []
     for d in _registered(env):
         name = d.get("served_name")
@@ -238,7 +251,7 @@ def cmd_recipe(a, env):
     if a.action == "apply":
         used = {d.get("port") for d in _registered(env)}
         try:
-            specs = recipes.specs(r, env.hf_home, used_ports=used)
+            specs = recipes.specs(r, env.hf_home, used_ports=used, images=env.engines)
         except recipes.RecipeError as e:
             raise SystemExit(str(e)) from None
         # every component checked before any starts: an id another served name uses is not ours to replace
@@ -324,6 +337,31 @@ def cmd_token(a, env):
     return {"token": True}
 
 
+def cmd_video(a, env):
+    """JSON lines, like chat: {"state"}..., then {"done": PATH, "seconds"} or {"error"}."""
+    def emit(obj):
+        print(json.dumps(obj), flush=True)
+    found = [d for d in _registered(env) if d.get("engine") == "comfyui" and isinstance(d.get("port"), int)
+             and (a.model is None or d.get("served_name") == a.model)]
+    if len(found) != 1:
+        emit({"error": "no video model is running; start one on Recipes" if not found
+              else "several video models are running; name one with --model"})
+        return 1
+    # the app's Stop sends SIGTERM: the job is then taken off ComfyUI as well
+    stopped = []
+    previous = signal.signal(signal.SIGTERM, lambda *_: stopped.append(True))
+    try:
+        wf = video.workflow(a.prompt, size=a.size, seconds=a.seconds, seed=a.seed, turbo=not a.no_turbo)
+        video.generate(f"http://127.0.0.1:{found[0]['port']}", wf, env.videos_dir, poll=env.video_poll, emit=emit,
+                       stop=lambda: bool(stopped))
+    except video.VideoError as e:
+        emit({"error": str(e)})
+        return 1
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    return 0
+
+
 def cmd_stats(env):
     import time
     out = []
@@ -354,6 +392,7 @@ def parse(argv):
     s.add_argument("--engine", required=True, choices=sorted(spec_mod.ENGINES))
     s.add_argument("--name", required=True)
     s.add_argument("--port", type=int)
+    s.add_argument("--image", help="another image of the engine, pinned by digest (default: the configured one)")
     s.add_argument("--arg", action="append")
     s.add_argument("--json", action="store_true")
     st = sub.add_parser("stop")
@@ -388,6 +427,13 @@ def parse(argv):
     for name in ("stats", "engines"):
         sub.add_parser(name).add_argument("--json", action="store_true")
     sub.add_parser("chat")
+    v = sub.add_parser("video")
+    v.add_argument("--prompt", required=True)
+    v.add_argument("--model", help="the served name of a ComfyUI instance (the only one when omitted)")
+    v.add_argument("--size", default="480p", choices=sorted(video.SIZES))
+    v.add_argument("--seconds", type=float, default=5)
+    v.add_argument("--seed", type=int, default=0)
+    v.add_argument("--no-turbo", action="store_true")
     sub.add_parser("recipes").add_argument("--json", action="store_true")
     rc = sub.add_parser("recipe")
     rc.add_argument("action", choices=["apply", "stop", "fetch"])
@@ -466,6 +512,8 @@ def main(argv=None, env=None):
             _print(cmd_engines(env), a.json)
         elif a.command == "chat":
             return live.chat(f"http://127.0.0.1:{router.DEFAULT_PORT}", live.read_request())
+        elif a.command == "video":
+            return cmd_video(a, env)
         elif a.command == "recipes":
             _print(cmd_recipes(env), a.json)
         elif a.command == "recipe":

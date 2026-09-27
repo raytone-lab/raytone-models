@@ -1,0 +1,32 @@
+#!/bin/bash
+# Build an engine image on this machine and record its image ID for Raytone Models:
+#   scripts/build-engine comfyui      (engines/comfyui/Dockerfile -> raytone/comfyui:local)
+# The engine then runs that exact image by ID (the spec pins raytone/NAME@<image ID>).
+set -euo pipefail
+name=${1:?usage: build-engine NAME}
+here=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)   # also through /usr/bin/raytone-models-build-engine
+[[ $name =~ ^[a-z0-9.-]+$ && -f $here/engines/$name/Dockerfile ]] || { echo "no engine $name in $here/engines" >&2; exit 1; }
+docker=${RAYTONE_DOCKER:-docker} sudo=${RAYTONE_SUDO-sudo}
+file=${RAYTONE_ENGINES_FILE:-/etc/raytone-models/engines.json}
+# a directory of ours: root's docker writes the iidfile, and we can still remove it from here
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+tmp=$work/engines.json iid=$work/iid
+# the ID of this build (the tag may be moved by another build in the meantime)
+$sudo "$docker" build --iidfile "$iid" -t "raytone/$name:local" "$here/engines/$name"
+id=$(cat "$iid")
+[[ $id =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "unexpected image ID: $id" >&2; exit 1; }
+# one writer of the engines file at a time
+if command -v flock > /dev/null; then exec 9> "${RAYTONE_LOCK:-/tmp/raytone-models-build-engine.lock}"; flock 9; fi
+python3 - "$file" "$name" "$id" > "$tmp" <<'PY'
+import json, sys, time
+path, name, image_id = sys.argv[1:]
+try:
+    data = json.load(open(path))
+except (OSError, ValueError):
+    data = {}
+data[name] = {"image": f"raytone/{name}@{image_id}", "tag": "local", "built": time.strftime("%Y-%m-%d")}
+print(json.dumps(data, indent=2))
+PY
+$sudo install -Dm0644 "$tmp" "$file"
+echo "raytone/$name@$id recorded in $file"

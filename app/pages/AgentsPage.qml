@@ -11,7 +11,8 @@ ColumnLayout {
     readonly property var connectable: page.backend.agents.filter(function (a) { return a.connectable })
     readonly property var later: page.backend.agents.filter(function (a) { return a.supported && !a.connectable })
     readonly property var unsupported: page.backend.agents.filter(function (a) { return !a.supported })
-    readonly property bool modelReady: page.backend.instances.some(function (i) { return i.ready })
+    readonly property var chatModels: Logic.chatModels(page.backend.instances)
+    readonly property bool modelReady: chatModels.length > 0
     spacing: 14
 
     PageHeader {
@@ -25,7 +26,7 @@ ColumnLayout {
         padding: 16
         Text { text: "One local endpoint for every agent"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
         Text {
-            text: "http://127.0.0.1:8090/v1 · " + (page.modelReady ? page.backend.instances.filter(function (i) { return i.ready }).map(function (i) { return i.served_name }).join(", ")
+            text: "http://127.0.0.1:8090/v1 · " + (page.modelReady ? page.chatModels.map(function (i) { return i.served_name }).join(", ")
                                                  : "start a model first")
             color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl
         }
