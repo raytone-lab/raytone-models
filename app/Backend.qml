@@ -63,20 +63,25 @@ Item {
         p.running = true
     }
 
+    // Each Hub request is its own process; only the answer to the latest one is kept, so a slow
+    // earlier answer never mixes with what is selected now.
+    property int searchSeq: 0
+    property int repoSeq: 0
+
     function search(query, kind) {
         searching = true
         searchResults = []
         var args = [cli, "hub", "search", query, "--json"]
         if (kind) args.splice(4, 0, "--kind", kind)
-        searchProc.command = args
-        searchProc.running = true
+        searchSeq++
+        hubComponent.createObject(root, { kind: "search", seq: searchSeq, command: args }).running = true
     }
 
     function openRepo(repo) {
         loadingRepo = true
         repoDetail = null
-        repoProc.command = [cli, "hub", "files", repo, "--json"]
-        repoProc.running = true
+        repoSeq++
+        hubComponent.createObject(root, { kind: "repo", seq: repoSeq, command: [cli, "hub", "files", repo, "--json"] }).running = true
     }
 
     function chat(model, messages) {
@@ -157,17 +162,28 @@ Item {
             }
         }
     }
-    Process {
-        id: searchProc
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.searchResults = root.parse(text, []) }
-        stderr: StdioCollector { waitForEnd: true; onStreamFinished: if (String(text).trim()) root.lastError = String(text).trim() }
-        onExited: root.searching = false
-    }
-    Process {
-        id: repoProc
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.repoDetail = root.parse(text, null) }
-        stderr: StdioCollector { waitForEnd: true; onStreamFinished: if (String(text).trim()) root.lastError = String(text).trim() }
-        onExited: root.loadingRepo = false
+    Component {
+        id: hubComponent
+        Process {
+            id: hubProc
+            property string kind: ""
+            property int seq: 0
+            readonly property bool latest: seq === (kind === "search" ? root.searchSeq : root.repoSeq)
+            stdout: StdioCollector {
+                waitForEnd: true
+                onStreamFinished: {
+                    if (!hubProc.latest) return
+                    if (hubProc.kind === "search") root.searchResults = root.parse(text, [])
+                    else root.repoDetail = root.parse(text, null)
+                }
+            }
+            stderr: StdioCollector { waitForEnd: true; onStreamFinished: if (hubProc.latest && String(text).trim()) root.lastError = String(text).trim() }
+            onExited: {
+                if (latest && kind === "search") root.searching = false
+                if (latest && kind === "repo") root.loadingRepo = false
+                destroy(1000)       // after the collectors have delivered
+            }
+        }
     }
     Process {
         id: actionProc

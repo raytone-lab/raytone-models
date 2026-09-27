@@ -31,6 +31,7 @@ ColumnLayout {
         target: page.backend
         function onChatDelta(text) {
             var last = messages.count - 1
+            if (last < 0) return
             messages.setProperty(last, "content", messages.get(last).content + text)
             list.positionViewAtEnd()
         }
@@ -45,6 +46,7 @@ ColumnLayout {
         function onChatError(message) {
             page.streaming = false
             var last = messages.count - 1
+            if (last < 0) return
             messages.setProperty(last, "content", "! " + message)
         }
     }
@@ -59,7 +61,8 @@ ColumnLayout {
             enabled: page.ready.length > 0
             displayText: page.ready.length ? currentText : "No model running"
         }
-        RButton { text: "New chat"; onClicked: { messages.clear(); page.lastStats = "" } }
+        // not while a reply streams in: its deltas belong to the conversation on screen
+        RButton { text: "New chat"; enabled: !page.streaming; onClicked: { messages.clear(); page.lastStats = "" } }
     }
 
     Rectangle {
