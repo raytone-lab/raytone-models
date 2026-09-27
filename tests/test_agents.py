@@ -69,6 +69,71 @@ class OpencodeTests(unittest.TestCase):
         self.assertFalse(self.cfg.exists())
 
 
+class JsonAdapterTests(unittest.TestCase):
+    """Claude Code, Crush and Pi keep their settings in JSON: merged in, restored exactly."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = pathlib.Path(self.tmp.name)
+        self.home, self.state = t / "home", t / "state"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def roundtrip(self, agent_id, rel, original):
+        path = self.home / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(original)
+        a = agents.get(agent_id, home=self.home, state=self.state)
+        a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+        cfg = json.loads(path.read_text())
+        a.revert()
+        self.assertEqual(path.read_bytes(), original)
+        return cfg
+
+    def test_claude_code_uses_the_anthropic_endpoint(self):
+        cfg = self.roundtrip("claude", ".claude/settings.json", b'{"theme": "dark", "env": {"FOO": "1"}}\n')
+        env = cfg["env"]
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:8090")      # no /v1: Claude Code adds it
+        self.assertTrue(env["ANTHROPIC_AUTH_TOKEN"])
+        for tier in ("OPUS", "SONNET", "HAIKU"):
+            self.assertEqual(env[f"ANTHROPIC_DEFAULT_{tier}_MODEL"], "qwen3.8-27b")
+        self.assertEqual(env["CLAUDE_CODE_ATTRIBUTION_HEADER"], "0")               # keeps prefix caching working
+        # Claude Code asks for effort "high"; Qwen3.8's template knows xhigh, medium and low (seen on the Thor)
+        self.assertEqual(env["CLAUDE_CODE_EFFORT_LEVEL"], "medium")
+        self.assertEqual(env["FOO"], "1")
+        self.assertEqual(cfg["theme"], "dark")
+
+    def test_claude_code_model_choice_follows_the_connect(self):
+        # a full model name in settings would bypass the aliases and ask the router for it (Codex)
+        cfg = self.roundtrip("claude", ".claude/settings.json",
+                             b'{"model": "claude-opus-4-7", "env": {"ANTHROPIC_MODEL": "claude-opus-4-7"}}\n')
+        self.assertEqual(cfg["model"], "qwen3.8-27b")
+        self.assertEqual(cfg["env"]["ANTHROPIC_MODEL"], "qwen3.8-27b")
+
+    def test_crush_gets_an_openai_compatible_provider(self):
+        cfg = self.roundtrip("crush", ".config/crush/crush.json", b'{"options": {"debug": false}}\n')
+        p = cfg["providers"]["raytone"]
+        self.assertEqual((p["type"], p["base_url"]), ("openai-compat", BASE))
+        self.assertEqual(p["models"][0]["id"], "qwen3.8-27b")
+        self.assertEqual(p["models"][0]["context_window"], 131072)
+        self.assertEqual(cfg["models"]["large"], {"model": "qwen3.8-27b", "provider": "raytone"})
+        self.assertIn("options", cfg)
+
+    def test_pi_gets_a_provider(self):
+        cfg = self.roundtrip("pi", ".pi/agent/models.json", b'{"providers": {"other": {}}}\n')
+        p = cfg["providers"]["raytone"]
+        self.assertEqual((p["baseUrl"], p["api"]), (BASE, "openai-completions"))
+        self.assertEqual(p["models"][0], {"id": "qwen3.8-27b", "contextWindow": 131072, "maxTokens": 32768})
+        self.assertIn("other", cfg["providers"])
+
+    def test_catalog_marks_the_agents_with_adapters(self):
+        info = {a["id"]: a for a in agents.catalog()}
+        for name in ("opencode", "claude", "crush", "pi"):
+            self.assertTrue(info[name]["connectable"], name)
+        self.assertFalse(info["gemini"]["connectable"])
+
+
 class CatalogTests(unittest.TestCase):
     def test_unsupported_agents_say_why(self):
         info = {a["id"]: a for a in agents.catalog()}

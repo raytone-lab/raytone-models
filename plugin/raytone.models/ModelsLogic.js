@@ -31,3 +31,20 @@ function modelState(m) {
 function runnable(m) {
     return (m.format === "safetensors") && modelState(m) === "ready"
 }
+
+// Recipes: one button that does the next useful thing.
+function recipeArgv(r) {
+    var action = r.running ? "stop" : (r.state === "ready" ? "apply" : "fetch")
+    return ["raytone-models", "recipe", action, r.id, "--json"]
+}
+
+function recipeAction(r, busy) {
+    if (r.running) return busy ? "Stopping…" : "Stop"
+    if (r.state === "ready") return busy ? "Starting…" : "Apply"
+    return busy ? "Downloading…" : "Download"
+}
+
+function recipeDetail(r) {
+    var models = (r.components || []).map(function (c) { return c.served_name }).join(" + ")
+    return models + " · needs " + r.memory_gib + " GiB memory, " + r.disk_gib + " GiB disk"
+}

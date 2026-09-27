@@ -31,6 +31,20 @@ class PanelLogicTests(unittest.TestCase):
         self.assertFalse([a for a in argv if "parser" in a])
         self.assertIn("gpu-memory-utilization=0.6", argv)
 
+    def test_recipe_button_does_the_next_useful_thing(self):
+        r = {"id": "qwen38-27b-coder", "state": "missing", "running": False}
+        self.assertEqual(call("recipeArgv", r)[2:4], ["fetch", "qwen38-27b-coder"])
+        self.assertEqual(call("recipeAction", r, False), "Download")
+        r["state"] = "ready"
+        self.assertEqual(call("recipeArgv", r)[2], "apply")
+        r["running"] = True
+        self.assertEqual(call("recipeArgv", r)[2], "stop")
+        self.assertEqual(call("recipeAction", r, True), "Stopping…")
+
+    def test_recipe_detail(self):
+        r = {"components": [{"served_name": "qwen3.8-27b"}, {"served_name": "minimax-h3"}], "memory_gib": 100, "disk_gib": 60}
+        self.assertEqual(call("recipeDetail", r), "qwen3.8-27b + minimax-h3 · needs 100 GiB memory, 60 GiB disk")
+
     def test_sizes(self):
         self.assertEqual(call("gib", 23770000000), "22.1 GiB")
         self.assertEqual(call("gib", 0), "0 GiB")

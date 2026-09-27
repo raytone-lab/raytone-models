@@ -19,7 +19,9 @@ class CliTests(unittest.TestCase):
         t = pathlib.Path(self.tmp.name)
         self.hf, self.reg = t / "hf", t / "reg"
         self.reg.mkdir()
-        put(self.hf / "hub", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", SHA, {"config.json": b"{}", "m.safetensors": b"w"})
+        root = put(self.hf / "hub", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", SHA, {"config.json": b"{}", "m.safetensors": b"w"})
+        (root / "trees").mkdir()
+        (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {"config.json": {"size": 2}, "m.safetensors": {"size": 1}}}))
         self.helper_calls = []
         self.env = cli.Env(hf_home=self.hf, registry=self.reg, state=t / "state", home=t / "home",
                            engines={"vllm": {"image": f"vllm/vllm-openai@{DIGEST}"}},
@@ -102,6 +104,109 @@ class CliTests(unittest.TestCase):
         self.assertEqual(cli.elevate_argv({"RAYTONE_MODELS_ELEVATE": "sudo"}), ["sudo", "-n", cli.HELPER])
         with self.assertRaises(SystemExit):
             cli.elevate_argv({"RAYTONE_MODELS_ELEVATE": "sh -c"})
+
+    def signed_recipe(self):
+        import shutil, subprocess
+        from tests.test_recipes import recipe
+        if not shutil.which("ssh-keygen"):
+            self.skipTest("no ssh-keygen")
+        t = pathlib.Path(self.tmp.name)
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(t / "k")], check=True)
+        pub = (t / "k.pub").read_text().split()
+        (t / "allowed").write_text(f"recipes@raytone.ai {pub[0]} {pub[1]}\n")
+        d = t / "recipes"
+        d.mkdir()
+        c = recipe()["components"][0]
+        data = recipe(components=[{**c, "image": f"vllm/vllm-openai@{DIGEST}"}])
+        (d / "qwen38-27b-coder.json").write_text(json.dumps(data))
+        subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(t / "k"), "-n", "raytone-recipe",
+                        str(d / "qwen38-27b-coder.json")], check=True, capture_output=True)
+        (d / "tampered.json").write_text(json.dumps({**data, "id": "tampered"}))
+        self.env.recipe_dirs = [d]
+        self.env.allowed_signers = t / "allowed"
+
+    def test_recipes_json_lists_signed_recipes_with_their_state(self):
+        self.signed_recipe()
+        rc, out = self.run_cli("recipes", "--json")
+        self.assertEqual(rc, 0, out)
+        got = json.loads(out)
+        [r] = got["recipes"]
+        self.assertEqual((r["id"], r["state"], r["running"]), ("qwen38-27b-coder", "ready", False))
+        self.assertEqual([b["file"].rsplit("/", 1)[-1] for b in got["refused"]], ["tampered.json"])
+
+    def test_recipe_apply_starts_each_component_through_the_helper(self):
+        self.signed_recipe()
+        rc, out = self.run_cli("recipe", "apply", "qwen38-27b-coder", "--json")
+        self.assertEqual(rc, 0, out)
+        [(args, stdin)] = self.helper_calls
+        self.assertEqual(args, ["start"])
+        s = json.loads(stdin)
+        self.assertEqual((s["id"], s["served_name"], s["port"]), ("qwen3-8-27b", "qwen3.8-27b", 18000))
+        self.assertEqual(s["args"]["max-model-len"], 262144)
+
+    def register(self, served_name, **over):
+        from tests.test_recipes import recipe
+        c = recipe()["components"][0]
+        d = {"id": "qwen3-8-27b", "served_name": served_name, "engine": "vllm", "port": 18000,
+             "image": f"vllm/vllm-openai@{DIGEST}", "model": f"models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead/snapshots/{SHA}",
+             "args": c["args"], "env": {}}
+        d.update(over)
+        (self.reg / f"{d['id']}.json").write_text(json.dumps(d))
+
+    def test_a_recipe_runs_only_when_its_exact_spec_runs(self):
+        # From Codex's review: the name alone said "running" for any instance serving it
+        self.signed_recipe()
+        self.register("qwen3.8-27b")
+        [r] = json.loads(self.run_cli("recipes", "--json")[1])["recipes"]
+        self.assertTrue(r["running"])
+        self.register("qwen3.8-27b", args={"gpu-memory-utilization": 0.3})
+        [r] = json.loads(self.run_cli("recipes", "--json")[1])["recipes"]
+        self.assertFalse(r["running"])
+        self.assertEqual(r["conflicts"], ["qwen3.8-27b"])
+
+    def test_apply_refuses_to_replace_an_unrelated_instance(self):
+        # "qwen3-8-27b" is the instance id of served name "qwen3.8-27b" and of "qwen3-8-27b" (Codex)
+        self.signed_recipe()
+        self.register("qwen3-8-27b", id="qwen3-8-27b")
+        rc, _ = self.run_cli("recipe", "apply", "qwen38-27b-coder")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(self.helper_calls, [])
+
+    def test_apply_may_restart_its_own_component(self):
+        self.signed_recipe()
+        self.register("qwen3.8-27b", args={"gpu-memory-utilization": 0.3})
+        rc, _ = self.run_cli("recipe", "apply", "qwen38-27b-coder")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.helper_calls[0][0], ["start"])
+
+    def test_recipe_stop_leaves_other_instances_alone(self):
+        self.signed_recipe()
+        self.register("qwen3.8-27b", id="someone-else", args={"gpu-memory-utilization": 0.3})
+        self.run_cli("recipe", "stop", "qwen38-27b-coder")
+        self.assertEqual(self.helper_calls, [])
+
+    def test_recipe_stop_stops_its_instances(self):
+        self.signed_recipe()
+        self.register("qwen3.8-27b")
+        self.run_cli("recipe", "stop", "qwen38-27b-coder")
+        self.assertEqual(self.helper_calls, [(["stop", "qwen3-8-27b"], None)])
+
+    def test_an_unknown_or_unsigned_recipe_is_refused(self):
+        self.signed_recipe()
+        for rid in ("nothing", "tampered"):
+            rc, _ = self.run_cli("recipe", "apply", rid)
+            self.assertNotEqual(rc, 0)
+        self.assertEqual(self.helper_calls, [])
+
+    def test_recipe_fetch_downloads_into_the_store(self):
+        self.signed_recipe()
+        ran = []
+        self.env.run = lambda argv, env: ran.append((argv, env["HF_HOME"])) or 0
+        rc, _ = self.run_cli("recipe", "fetch", "qwen38-27b-coder")
+        self.assertEqual(rc, 0)
+        [(argv, hf_home)] = ran
+        self.assertEqual(argv[:3], ["hf", "download", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead"])
+        self.assertEqual(hf_home, str(self.hf))
 
     def test_agents_json_lists_the_catalog(self):
         rc, out = self.run_cli("agents", "--json")

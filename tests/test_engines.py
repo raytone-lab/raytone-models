@@ -22,6 +22,8 @@ class VllmTests(unittest.TestCase):
         for bad in ("--privileged", "--network=host", "--ipc=host", "--pid=host"):
             self.assertNotIn(bad, a)
         self.assertIn("--env=HF_HUB_OFFLINE=1", a)
+        # nothing is ever pulled at start: offline at a show, and no surprise downloads
+        self.assertIn("--pull=never", a)
 
     def test_the_engine_runs_unprivileged(self):
         # From Codex's review: a root container with a writable host cache could leave a root-owned

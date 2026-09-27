@@ -36,8 +36,8 @@ class AgentError(RuntimeError):
 
 
 def catalog():
-    return [{"id": i, "name": n, "supported": s, "reason": r if not s else "", "note": r if s else ""}
-            for i, n, s, r in CATALOG]
+    return [{"id": i, "name": n, "supported": s, "connectable": i in ADAPTERS,
+             "reason": r if not s else "", "note": r if s else ""} for i, n, s, r in CATALOG]
 
 
 def _atomic_write(path, data, mode):
@@ -87,13 +87,16 @@ class Adapter:
         return {"id": self.id, "connected": (self.state / "original.json").exists(), "config": str(self.path)}
 
 
-class Opencode(Adapter):
-    """~/.config/opencode/opencode.json: a provider through @ai-sdk/openai-compatible (chat completions)."""
-    id = "opencode"
+class JsonAdapter(Adapter):
+    """An agent whose settings are one JSON file: parse it (or refuse), keep the original, merge."""
+    rel = ""
 
     @property
     def path(self):
-        return self.home / ".config" / "opencode" / "opencode.json"
+        return self.home / self.rel
+
+    def merge(self, cfg, models, default, base_url):
+        raise NotImplementedError
 
     def connect(self, models, *, default, base_url=ROUTER):
         if default not in {m["id"] for m in models}:
@@ -108,6 +111,15 @@ class Opencode(Adapter):
                 raise AgentError(f"{self.path} is not a JSON object; left as it is")
         mode = self.path.stat().st_mode & 0o7777 if self.path.exists() else 0o600
         self._save_original()
+        self.merge(cfg, models, default, base_url)
+        _atomic_write(self.path, (json.dumps(cfg, indent=2) + "\n").encode(), mode)
+
+
+class Opencode(JsonAdapter):
+    """~/.config/opencode/opencode.json: a provider through @ai-sdk/openai-compatible (chat completions)."""
+    id, rel = "opencode", ".config/opencode/opencode.json"
+
+    def merge(self, cfg, models, default, base_url):
         cfg.setdefault("$schema", "https://opencode.ai/config.json")
         cfg.setdefault("provider", {})["raytone"] = {
             "npm": "@ai-sdk/openai-compatible",
@@ -117,10 +129,59 @@ class Opencode(Adapter):
                        for m in models},
         }
         cfg["model"] = f"raytone/{default}"
-        _atomic_write(self.path, (json.dumps(cfg, indent=2) + "\n").encode(), mode)
 
 
-ADAPTERS = {"opencode": Opencode}
+class Claude(JsonAdapter):
+    """~/.claude/settings.json env: the Anthropic Messages API, which the engines serve natively."""
+    id, rel = "claude", ".claude/settings.json"
+
+    def merge(self, cfg, models, default, base_url):
+        # an explicit model (settings or ANTHROPIC_MODEL) wins over the aliases: point it here too
+        cfg["model"] = default
+        env = cfg.setdefault("env", {})
+        env.update({
+            "ANTHROPIC_MODEL": default,
+            "ANTHROPIC_BASE_URL": base_url.removesuffix("/v1"),
+            "ANTHROPIC_AUTH_TOKEN": "raytone-local",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": default,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": default,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": default,
+            # a per-request hash in the system prompt would defeat the engine's prefix cache
+            "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+            "API_TIMEOUT_MS": "3000000",
+            # Claude Code's default effort ("high") is not one every template knows; "medium" is common
+            "CLAUDE_CODE_EFFORT_LEVEL": "medium",
+        })
+
+
+class Crush(JsonAdapter):
+    """~/.config/crush/crush.json: an openai-compat provider, used for the large and small models."""
+    id, rel = "crush", ".config/crush/crush.json"
+
+    def merge(self, cfg, models, default, base_url):
+        cfg.setdefault("$schema", "https://charm.land/crush.json")
+        cfg.setdefault("providers", {})["raytone"] = {
+            "type": "openai-compat", "name": "Raytone Models (local)", "base_url": base_url, "api_key": "raytone-local",
+            "models": [{"id": m["id"], "name": m["id"], "context_window": m["context"], "default_max_tokens": m["output"]}
+                       for m in models],
+        }
+        cfg.setdefault("models", {})
+        for size in ("large", "small"):
+            cfg["models"][size] = {"model": default, "provider": "raytone"}
+
+
+class Pi(JsonAdapter):
+    """~/.pi/agent/models.json: a provider with the openai-completions API; pick it in /model."""
+    id, rel = "pi", ".pi/agent/models.json"
+
+    def merge(self, cfg, models, default, base_url):
+        cfg.setdefault("providers", {})["raytone"] = {
+            "baseUrl": base_url, "api": "openai-completions", "apiKey": "raytone-local",
+            "models": [{"id": m["id"], "contextWindow": m["context"], "maxTokens": m["output"]} for m in models],
+        }
+
+
+ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi)}
 
 
 def get(agent_id, **kw):

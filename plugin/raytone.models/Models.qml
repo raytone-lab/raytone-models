@@ -21,6 +21,7 @@ Item {
     property var models: []
     property var instances: []
     property var agentList: []
+    property var recipeList: []
     property string busyKey: ""
     property string message: ""
 
@@ -57,6 +58,7 @@ Item {
         if (!modelsProc.running) modelsProc.running = true
         if (!instancesProc.running) instancesProc.running = true
         if (!agentsProc.running) agentsProc.running = true
+        if (!recipesProc.running) recipesProc.running = true
     }
 
     function act(key, argv) {
@@ -94,6 +96,11 @@ Item {
         id: agentsProc
         command: ["raytone-models", "agents", "--json"]
         stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.agentList = root.parse(text, []) }
+    }
+    Process {
+        id: recipesProc
+        command: ["raytone-models", "recipes", "--json"]
+        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.recipeList = (root.parse(text, {}).recipes || []) }
     }
     Process {
         id: actionProc
@@ -165,6 +172,21 @@ Item {
                         }
                     }
 
+                    SectionTitle { text: "Recipes · Raytone AI Lab" }
+                    Repeater {
+                        model: root.recipeList
+                        delegate: Row3 {
+                            required property var modelData
+                            title: modelData.title
+                            detail: Logic.recipeDetail(modelData)
+                            status: modelData.running ? "running" : (modelData.state === "ready" ? "ready" : "not downloaded")
+                            statusColor: modelData.running ? Theme.success : (modelData.state === "ready" ? Theme.textMuted : Theme.warning)
+                            actionText: Logic.recipeAction(modelData, root.busyKey === "recipe:" + modelData.id)
+                            actionEnabled: root.busyKey === ""
+                            onAction: root.act("recipe:" + modelData.id, Logic.recipeArgv(modelData))
+                        }
+                    }
+
                     SectionTitle { text: "Running" }
                     Text {
                         visible: root.instances.length === 0
@@ -214,7 +236,7 @@ Item {
                                                         : "Not available: " + modelData.reason
                             status: ""
                             actionText: "Connect"
-                            actionVisible: modelData.supported && modelData.id === "opencode"
+                            actionVisible: modelData.connectable
                             actionEnabled: root.busyKey === "" && root.readyModels() > 0
                             secondaryText: "Revert"
                             secondaryVisible: actionVisible

@@ -67,12 +67,14 @@ ENGINES = {
             "enable-auto-tool-choice": _flag,
             "enable-prefix-caching": _flag,
             "enforce-eager": _flag,
+            "no-enable-flashinfer-autotune": _flag,
             "trust-remote-code": _flag,
             "speculative-config": _json_object,
             "limit-mm-per-prompt": _json_object,
         },
         # each variable by name, with the values it may take (Qwen3.8 Flash Next's PLE table options)
-        "env": {"VLLM_PLE_MMAP": re.compile(r"^[01]$"), "VLLM_PLE_SSD": re.compile(r"^[01]$")},
+        "env": {"VLLM_PLE_MMAP": re.compile(r"^[01]$"), "VLLM_PLE_SSD": re.compile(r"^[01]$"),
+                "VLLM_ALLOW_LONG_MAX_MODEL_LEN": re.compile(r"^[01]$")},
     },
 }
 
