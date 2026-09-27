@@ -193,14 +193,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_header(k, v)
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
-        while True:
-            chunk = resp.read1(65536)
-            if not chunk:
-                break
-            self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
-            self.wfile.flush()
-        self.wfile.write(b"0\r\n\r\n")
-        up.close()
+        try:
+            while True:
+                chunk = resp.read1(65536)
+                if not chunk:
+                    break
+                self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+                self.wfile.flush()
+            self.wfile.write(b"0\r\n\r\n")
+        except (BrokenPipeError, ConnectionResetError):
+            # the agent went away (stopped, killed): closing the engine's connection makes it stop
+            # generating, and nothing is left to answer
+            self.close_connection = True
+        finally:
+            up.close()
 
 
 def make_server(host="127.0.0.1", port=DEFAULT_PORT, *, registry=DEFAULT_REGISTRY, ports=spec_mod.INSTANCE_PORTS):
