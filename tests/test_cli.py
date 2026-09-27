@@ -164,6 +164,21 @@ class CliTests(unittest.TestCase):
         self.assertFalse(r["running"])
         self.assertEqual(r["conflicts"], ["qwen3.8-27b"])
 
+    def test_apply_refuses_to_replace_an_unrelated_instance(self):
+        # "qwen3-8-27b" is the instance id of served name "qwen3.8-27b" and of "qwen3-8-27b" (Codex)
+        self.signed_recipe()
+        self.register("qwen3-8-27b", id="qwen3-8-27b")
+        rc, _ = self.run_cli("recipe", "apply", "qwen38-27b-coder")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(self.helper_calls, [])
+
+    def test_apply_may_restart_its_own_component(self):
+        self.signed_recipe()
+        self.register("qwen3.8-27b", args={"gpu-memory-utilization": 0.3})
+        rc, _ = self.run_cli("recipe", "apply", "qwen38-27b-coder")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.helper_calls[0][0], ["start"])
+
     def test_recipe_stop_leaves_other_instances_alone(self):
         self.signed_recipe()
         self.register("qwen3.8-27b", id="someone-else", args={"gpu-memory-utilization": 0.3})
