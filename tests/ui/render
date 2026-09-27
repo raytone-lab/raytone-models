@@ -9,6 +9,6 @@ cfg=$(mktemp -d)
 trap 'rm -rf "$cfg"' EXIT
 cp "$here/shell.qml" "$here/FixtureBackend.qml" "$cfg/"
 cp -r "$here/../../app" "$cfg/app"
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software RAYTONE_UI_DATA="$data" RAYTONE_UI_SHOTS="$shots" \
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software RAYTONE_UI_DATA="$data" RAYTONE_UI_SHOTS="$shots" RAYTONE_UI_REAL="${RAYTONE_UI_REAL:-}" \
   timeout 120 qs -p "$cfg" 2>&1 | grep -vE "^\s*$" || true
 ls "$shots"

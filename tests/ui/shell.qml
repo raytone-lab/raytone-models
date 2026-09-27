@@ -5,20 +5,24 @@ import "app" as App
 // Renders every page of the app, dark then light, to $RAYTONE_UI_SHOTS/<mode>-<n>.png and quits.
 // Run it with tests/ui/render (Quickshell loads modules from inside its config folder only).
 ShellRoot {
-    FixtureBackend { id: fixture }
+    // RAYTONE_UI_REAL=1: the app's own Backend, on the installed CLI and the machine's real state
+    readonly property bool real: Quickshell.env("RAYTONE_UI_REAL") === "1"
+    Component { id: fixtureBackend; FixtureBackend {} }
+    Component { id: realBackend; App.Backend {} }
+    Loader { id: backendLoader; sourceComponent: real ? realBackend : fixtureBackend }
     FloatingWindow {
         id: window
         implicitWidth: 1200
         implicitHeight: 760
         visible: true
         color: App.Theme.background
-        App.MainView { id: main; anchors.fill: parent; backend: fixture }
+        App.MainView { id: main; anchors.fill: parent; backend: backendLoader.item }
     }
     Timer {
         id: shooter
         property int step: 0
         readonly property var modes: ["dark", "light"]
-        interval: 900
+        interval: real ? 6000 : 900
         running: true
         repeat: true
         onTriggered: {
@@ -28,6 +32,7 @@ ShellRoot {
             main.current = step % 7
             var name = mode + "-" + (step % 7)
             running = false
+            interval = real ? 2500 : 900
             Qt.callLater(function () {
                 main.grabToImage(function (result) {
                     result.saveToFile(Quickshell.env("RAYTONE_UI_SHOTS") + "/" + name + ".png")
