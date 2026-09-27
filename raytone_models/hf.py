@@ -103,7 +103,7 @@ class Hub:
         path = f"/api/models/{repo}" + (f"/revision/{revision}" if revision else "")
         info = self._get(path, {"expand[]": ["sha", "gated"]})
         sha = info.get("sha") if isinstance(info, dict) else None
-        if not isinstance(sha, str) or not SHA_RE.match(sha):
+        if not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
             raise HubError(f"{repo}: the Hub did not name a full commit for {revision or 'the main branch'}")
         repo = info.get("id") or repo     # a renamed repo answers under its new name
         tree = self._get_all(f"/api/models/{repo}/tree/{sha}", {"recursive": "1"})

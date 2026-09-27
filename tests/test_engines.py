@@ -2,7 +2,7 @@
 import unittest
 
 from raytone_models import engines, spec
-from tests.test_spec import DIGEST, DRAFT, H3, SNAPSHOT, comfyui, good, sglang
+from tests.test_spec import DIGEST, DRAFT, GGUF, H3, SNAPSHOT, comfyui, good, llamacpp, sglang
 
 
 class VllmTests(unittest.TestCase):
@@ -130,6 +130,35 @@ class ComfyuiTests(unittest.TestCase):
 
     def test_health_is_comfyui_own(self):
         self.assertEqual(engines.health_url(spec.load(comfyui())), "http://127.0.0.1:18001/system_stats")
+
+
+
+class LlamacppTests(unittest.TestCase):
+    def argv(self, **over):
+        return engines.docker_argv(spec.load(llamacpp(**over)), store="/srv/hf", cache="/var/cache/raytone-models/q",
+                                   user=(961, 961), groups=(983, 987))
+
+    def test_same_confinement_and_local_image(self):
+        a = self.argv()
+        for flag in ("--pull=never", "--cap-drop=ALL", "--user=961:961", "--device=nvidia.com/gpu=all",
+                     "--publish=127.0.0.1:18001:8000", "--volume=/srv/hf:/hf:ro", "--env=HF_HUB_OFFLINE=1"):
+            self.assertIn(flag, a)
+        self.assertIn(DIGEST, a)
+        self.assertNotIn(f"raytone/llamacpp@{DIGEST}", a)
+
+    def test_llama_server_gets_the_files_and_flags(self):
+        a = self.argv(args={"model-file": "Qwen3-0.6B-Q4_K_M.gguf", "mmproj-file": "mmproj-F16.gguf", "ctx-size": 32768,
+                            "n-gpu-layers": 999, "flash-attn": "on", "jinja": True})
+        rest = a[a.index(DIGEST) + 1:]
+        self.assertEqual(rest[:3], ["llama-server", "-m", f"/hf/hub/{GGUF}/Qwen3-0.6B-Q4_K_M.gguf"])
+        self.assertEqual(rest[rest.index("--mmproj") + 1], f"/hf/hub/{GGUF}/mmproj-F16.gguf")
+        self.assertEqual(rest[rest.index("--alias") + 1], "qwen3-0.6b")
+        self.assertEqual(rest[rest.index("--port") + 1], "8000")
+        self.assertIn("--metrics", rest)
+        self.assertIn("--jinja", rest)
+        self.assertEqual(rest[rest.index("--ctx-size") + 1], "32768")
+        self.assertNotIn("--model-file", rest)
+        self.assertNotIn("--mmproj-file", rest)
 
 
 if __name__ == "__main__":

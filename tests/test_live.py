@@ -74,6 +74,17 @@ class LiveTests(unittest.TestCase):
         m = live.memory(self.meminfo)
         self.assertEqual((m["total"], m["available"]), (127535088 * 1024, 86523904 * 1024))
 
+    def test_llama_cpp_counters(self):
+        text = ("# HELP llamacpp:tokens_predicted_total Number of generation tokens processed.\n"
+                "llamacpp:prompt_tokens_total 120\nllamacpp:tokens_predicted_total 345\nllamacpp:requests_processing 1\n")
+        global METRICS
+        old, METRICS = METRICS, text          # what the fake engine serves at /metrics
+        try:
+            c = live.counters(f"http://127.0.0.1:{self.port}/metrics")
+        finally:
+            METRICS = old
+        self.assertEqual(c, {"prompt_tokens": 120.0, "generation_tokens": 345.0, "running": 1.0})
+
     def test_counters_from_prometheus_metrics(self):
         c = live.counters(f"http://127.0.0.1:{self.port}/metrics")
         self.assertEqual(c, {"generation_tokens": 12345.0, "prompt_tokens": 67890.0, "running": 2.0})

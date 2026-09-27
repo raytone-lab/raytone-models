@@ -74,6 +74,55 @@ class AppLogicTests(unittest.TestCase):
                 {"served_name": "m", "ready": False, "chat": True}]
         self.assertEqual([i["served_name"] for i in call("chatModels", inst)], ["q"])
 
+    def test_include_patterns_match_like_fnmatch(self):
+        import fnmatch
+        cases = [("x-Q8_0.gguf", "x-Q[8]_0.gguf"), ("x-Q8_0.gguf", "x-Q[!4]_0.gguf"), ("x-Q4_0.gguf", "x-Q[!4]_0.gguf"),
+                 ("dir/x.gguf", "*.gguf"), ("x-Q8_0.gguf", "x-Q?_0.gguf"), ("a[b.gguf", "a[b.gguf"), ("x+y.gguf", "x+y.gguf"),
+                 ("x-Q8_0.gguf", "x-Q[0-9]_0.gguf"), ("x].gguf", "x[]].gguf"), ("xa.gguf", "x[!]].gguf"),
+                 # From Codex's review: reversed ranges are dropped, as Python does, not an error
+                 ("x-Q8_0.gguf", "x-Q[!9-0]_0.gguf"), ("x-Q8_0.gguf", "x-Q[9-0]_0.gguf"), ("x-Q8_0.gguf", "x-Q[a-z8]_0.gguf"),
+                 ("x-.gguf", "x[-].gguf"), ("x-.gguf", "x[a-].gguf"), ("x^.gguf", "x[^].gguf"), ("x&.gguf", "x[&&].gguf")]
+        for path, pattern in cases:
+            self.assertEqual(call("includeMatch", path, pattern), fnmatch.fnmatchcase(path, pattern), (path, pattern))
+
+    def test_include_patterns_agree_with_fnmatch_on_random_patterns(self):
+        import random
+        from raytone_models import downloads
+        rng = random.Random(7)
+        alphabet = "ab9-]![*?^\\/."
+        cases = [("".join(rng.choice("ab9-]^/.") for _ in range(rng.randint(0, 4))),
+                  "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 6)))) for _ in range(400)]
+        src = JS.read_text().replace(".pragma library", "")
+        prog = src + f"\nprocess.stdout.write(JSON.stringify({json.dumps(cases)}.map(function (c) {{" \
+                     "try { return includeMatch(c[0], c[1]) } catch (e) { return 'error: ' + e.message } })));"
+        got = json.loads(subprocess.run(["node", "-e", prog], capture_output=True, text=True, check=True).stdout)
+        for (path, pattern), g in zip(cases, got):
+            # the reference is the downloader's own rule (fnmatch, with "dir/" meaning all below)
+            self.assertEqual(g, downloads._matches(path, [pattern]), (path, pattern))
+
+    def test_gguf_files_to_run(self):
+        m = {"files": ["README.md", "Qwen3-0.6B-Q4_K_M.gguf", "mmproj-F16.gguf"]}
+        self.assertEqual(call("ggufFiles", m), {"model": "Qwen3-0.6B-Q4_K_M.gguf", "mmproj": "mmproj-F16.gguf"})
+        # a split model starts at its first part
+        m = {"files": ["Q8_0/x-Q8_0-00002-of-00002.gguf", "Q8_0/x-Q8_0-00001-of-00002.gguf"]}
+        self.assertEqual(call("ggufFiles", m), {"model": "Q8_0/x-Q8_0-00001-of-00002.gguf", "mmproj": None})
+        # the variant that was downloaded wins over others in the same snapshot
+        m = {"files": ["x-Q8_0.gguf", "x-Q4_K_M.gguf"], "download": {"state": "done", "include": ["x-Q8_0.gguf"]}}
+        self.assertEqual(call("ggufFiles", m)["model"], "x-Q8_0.gguf")
+        # otherwise the usual 4-bit one
+        self.assertEqual(call("ggufFiles", {"files": ["x-Q8_0.gguf", "x-Q4_K_M.gguf"]})["model"], "x-Q4_K_M.gguf")
+        self.assertIsNone(call("ggufFiles", {"files": ["model.safetensors"]}))
+        # From Codex's review of PR #7: include patterns match like the downloader's (* crosses
+        # directories), and the projector is chosen on its own
+        m = {"files": ["x-Q4_K_M.gguf", "x-Q8_0.gguf", "mmproj-F16.gguf"],
+             "download": {"state": "done", "include": ["*Q8_0*", "mmproj-F16.gguf"]}}
+        self.assertEqual(call("ggufFiles", m), {"model": "x-Q8_0.gguf", "mmproj": "mmproj-F16.gguf"})
+        m = {"files": ["x-Q8_0.gguf", "mmproj-F16.gguf"], "download": {"state": "done", "include": ["x-Q8_0.gguf"]}}
+        self.assertEqual(call("ggufFiles", m), {"model": "x-Q8_0.gguf", "mmproj": "mmproj-F16.gguf"})
+        m = {"files": ["Q8_0/a-Q8_0-00001-of-00002.gguf", "Q8_0/a-Q8_0-00002-of-00002.gguf", "a-Q4_K_M.gguf"],
+             "download": {"state": "done", "include": ["Q8_0/"]}}
+        self.assertEqual(call("ggufFiles", m)["model"], "Q8_0/a-Q8_0-00001-of-00002.gguf")
+
     def test_clock(self):
         self.assertEqual(call("clock", 0), "0:00")
         self.assertEqual(call("clock", 83.6), "1:23")

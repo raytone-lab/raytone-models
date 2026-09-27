@@ -1,0 +1,10 @@
+#!/bin/bash
+# app/logic.js in Quickshell's JavaScript engine:  tests/ui/logic-probe
+# Expect: PROBE [true,true,true,true,true] and PROBE {"model":"x-Q8_0.gguf","mmproj":"mmproj-F16.gguf"}
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+cfg=$(mktemp -d)
+trap 'rm -rf "$cfg"' EXIT
+cp "$here/logic.qml" "$cfg/shell.qml"
+mkdir "$cfg/app" && cp "$here/../../app/logic.js" "$cfg/app/"
+QT_QPA_PLATFORM=offscreen timeout 30 qs -p "$cfg" 2>&1 | grep -E "PROBE|rror" || true

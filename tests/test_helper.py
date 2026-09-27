@@ -127,6 +127,8 @@ class HelperTests(unittest.TestCase):
     def test_stop_refuses_a_bad_id(self):
         with self.assertRaises(helper.HelperError):
             helper.stop("../../etc/passwd", **self.paths)
+        with self.assertRaises(helper.HelperError):
+            helper.stop("qwen\n", **self.paths)
 
     def test_run_builds_the_argv_from_the_registered_spec_only(self):
         self.start()

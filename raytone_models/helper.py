@@ -136,7 +136,7 @@ def start(text, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=_systemctl, en
 
 
 def _check_id(instance_id):
-    if not spec_mod.ID_RE.match(instance_id or ""):
+    if not spec_mod.ID_RE.fullmatch(instance_id or ""):
         raise HelperError("bad instance id")
 
 
