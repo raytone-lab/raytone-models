@@ -121,6 +121,61 @@ class RouterTests(unittest.TestCase):
         status, _, _ = self.request("GET", "/v1/models", headers={"Host": "evil.example"})
         self.assertEqual(status, 403)
 
+    def raw(self, data):
+        """Send bytes as they are and read until the router closes the connection."""
+        import socket
+        sock = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        sock.sendall(data)
+        out = b""
+        try:
+            while chunk := sock.recv(65536):
+                out += chunk
+        except socket.timeout:
+            out += b"<timeout: connection left open>"
+        sock.close()
+        return out
+
+    def test_a_refused_request_closes_the_connection(self):
+        # From Codex's review: a second request smuggled in the body of a refused one was served
+        inner = json.dumps({"model": "qwen3.8-27b"}).encode()
+        smuggled = (b"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n"
+                    b"Content-Length: " + str(len(inner)).encode() + b"\r\n\r\n" + inner)
+        outer = (b"POST /v1/chat/completions HTTP/1.1\r\nHost: evil.example\r\nContent-Length: "
+                 + str(len(smuggled)).encode() + b"\r\n\r\n" + smuggled)
+        out = self.raw(outer)
+        self.assertIn(b" 403 ", out.split(b"\r\n")[0])
+        self.assertNotIn(b"served_by", out)
+        self.assertEqual(self.a.seen, [])
+
+    def test_ambiguous_framing_is_refused(self):
+        body = json.dumps({"model": "qwen3.8-27b"}).encode()
+        cases = {
+            "chunked": b"Transfer-Encoding: chunked\r\n",
+            "two lengths": b"Content-Length: 5\r\n",
+            "two hosts": b"Host: localhost\r\n",
+        }
+        for name, extra in cases.items():
+            with self.subTest(name):
+                out = self.raw(b"POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\n" + extra +
+                               b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+                self.assertIn(b" 400 ", out.split(b"\r\n")[0])
+        self.assertEqual(self.a.seen, [])
+
+    def test_only_known_headers_go_upstream(self):
+        self.request("POST", "/v1/chat/completions", {"model": "qwen3.8-27b"},
+                     {"Cookie": "session=1", "Proxy-Authorization": "Basic x", "X-Custom": "1", "Accept": "text/event-stream"})
+        _, headers, _ = self.a.seen[-1]
+        lower = {k.lower() for k in headers}
+        for h in ("cookie", "proxy-authorization", "x-custom"):
+            self.assertNotIn(h, lower)
+        self.assertIn("accept", lower)
+
+    def test_a_slow_client_is_cut_off(self):
+        # a request that never finishes its body must not hold a thread forever
+        self.srv.request_timeout = 1
+        out = self.raw(b"POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\n{")
+        self.assertNotIn(b"<timeout", out)
+
     def test_only_loopback_binds(self):
         with self.assertRaises(ValueError):
             router.make_server("0.0.0.0", 0, registry=self.reg)

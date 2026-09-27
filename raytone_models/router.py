@@ -11,6 +11,7 @@ import http.server
 import ipaddress
 import json
 import pathlib
+import threading
 
 from . import spec as spec_mod
 
@@ -19,9 +20,12 @@ DEFAULT_PORT = 8090
 MAX_BODY = 64 << 20
 FORWARDED_PATHS = ("/v1/chat/completions", "/v1/completions", "/v1/embeddings", "/v1/messages",
                    "/v1/messages/count_tokens", "/v1/responses")
-DROP_HEADERS = {"host", "authorization", "x-api-key", "content-length", "connection", "keep-alive",
-                "transfer-encoding", "accept-encoding"}
-HOP_HEADERS = {"connection", "keep-alive", "transfer-encoding", "content-length"}
+# Only what the engines use goes upstream; credentials, cookies and proxy headers stay here.
+FORWARD_HEADERS = {"content-type", "accept", "user-agent", "anthropic-version", "anthropic-beta", "openai-beta"}
+HOP_HEADERS = {"connection", "keep-alive", "transfer-encoding", "content-length", "te", "trailer", "upgrade",
+               "proxy-authenticate", "proxy-authorization", "set-cookie"}
+MAX_CONCURRENT = 32
+REQUEST_TIMEOUT = 60      # seconds to send a request, headers and body
 
 
 def _loopback(host):
@@ -61,6 +65,8 @@ class Server(http.server.ThreadingHTTPServer):
 
     def __init__(self, addr, handler, registry, ports):
         self.registry, self.ports = registry, ports
+        self.request_timeout = REQUEST_TIMEOUT
+        self.slots = threading.BoundedSemaphore(MAX_CONCURRENT)
         super().__init__(addr, handler)
 
 
@@ -71,6 +77,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def setup(self):
+        self.timeout = self.server.request_timeout
+        super().setup()
+
     def _json(self, status, obj):
         body = json.dumps(obj).encode()
         self.send_response(status)
@@ -80,16 +90,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _error(self, status, message, kind="invalid_request_error"):
-        self._json(status, {"error": {"message": message, "type": kind}})
+        # Every refusal closes the connection: an unread body must never be parsed as a request.
+        self.close_connection = True
+        body = json.dumps({"error": {"message": message, "type": kind}}).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
 
-    def _guard(self):
-        if not _host_header_ok(self.headers.get("Host", "")):
+    def _guard(self, body_expected):
+        hosts = self.headers.get_all("Host") or []
+        if len(hosts) != 1:
+            self._error(400, "exactly one Host header")
+            return False
+        if not _host_header_ok(hosts[0]):
             self._error(403, "the router answers loopback hosts only")
+            return False
+        lengths = self.headers.get_all("Content-Length") or []
+        if self.headers.get("Transfer-Encoding") is not None or len(lengths) > 1 or (body_expected and len(lengths) != 1):
+            self._error(400, "requests carry one Content-Length and no Transfer-Encoding")
             return False
         return True
 
     def do_GET(self):
-        if not self._guard():
+        if not self._guard(body_expected=False):
             return
         if self.path.split("?")[0] in ("/v1/models", "/models"):
             names = instances(self.server.registry, self.server.ports)
@@ -101,18 +127,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._error(404, f"no route {self.path}")
 
     def do_POST(self):
-        if not self._guard():
+        if not self._guard(body_expected=True):
             return
         path = self.path.split("?")[0]
         if path not in FORWARDED_PATHS:
             return self._error(404, f"no route {path}")
         try:
-            length = int(self.headers.get("Content-Length", "0"))
+            length = int(self.headers["Content-Length"])
         except ValueError:
             return self._error(400, "bad Content-Length")
         if length <= 0 or length > MAX_BODY:
             return self._error(413 if length > MAX_BODY else 400, "a JSON body up to 64 MiB is required")
-        body = self.rfile.read(length)
+        if not self.server.slots.acquire(blocking=False):
+            return self._error(503, "too many requests in flight", "overloaded")
+        try:
+            self._post(path, length)
+        finally:
+            self.server.slots.release()
+
+    def _post(self, path, length):
+        try:
+            body = self.rfile.read(length)
+        except OSError:          # the client stopped sending (timeout)
+            self.close_connection = True
+            return
+        if len(body) != length:
+            self.close_connection = True
+            return
         try:
             model = json.loads(body).get("model")
         except (ValueError, AttributeError):
@@ -126,7 +167,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._relay(served[model], body)
 
     def _relay(self, port, body):
-        headers = {k: v for k, v in self.headers.items() if k.lower() not in DROP_HEADERS}
+        headers = {k: v for k, v in self.headers.items() if k.lower() in FORWARD_HEADERS}
         headers["Content-Length"] = str(len(body))
         up = http.client.HTTPConnection("127.0.0.1", port, timeout=3600)
         try:
@@ -135,8 +176,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except OSError as e:
             return self._error(502, f"the engine did not answer: {e}", "upstream_error")
         self.send_response(resp.status)
+        listed = {h.strip().lower() for h in (resp.getheader("Connection") or "").split(",")}
         for k, v in resp.getheaders():
-            if k.lower() not in HOP_HEADERS:
+            if k.lower() not in HOP_HEADERS and k.lower() not in listed:
                 self.send_header(k, v)
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
