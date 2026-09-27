@@ -67,6 +67,17 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertEqual(self.helper_calls, [])
 
+    def test_start_with_another_pinned_image(self):
+        other = "vllm/vllm-openai@sha256:" + "e" * 64
+        rc, _ = self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm", "--name", "q", "--image", other)
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(self.helper_calls[0][1])["image"], other)
+        self.helper_calls.clear()
+        rc, _ = self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm", "--name", "q",
+                             "--image", "vllm/vllm-openai:latest")
+        self.assertNotEqual(rc, 0)            # a tag is not a pin: the spec refuses it
+        self.assertEqual(self.helper_calls, [])
+
     def test_a_model_not_in_the_store_is_refused(self):
         rc, _ = self.run_cli("start", "nobody/nothing", "--engine", "vllm", "--name", "q")
         self.assertNotEqual(rc, 0)

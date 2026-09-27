@@ -2,7 +2,7 @@
 
     raytone-models models [--json]
     raytone-models instances [--json]
-    raytone-models start REPO[@REVISION] --engine vllm --name SERVED [--arg KEY[=VALUE]]... [--json]
+    raytone-models start REPO[@REVISION] --engine vllm --name SERVED [--image REPO@sha256:D] [--arg KEY[=VALUE]]... [--json]
     raytone-models stop ID
     raytone-models agents [--json]
     raytone-models agent connect|revert AGENT [--default SERVED] [--json]
@@ -172,7 +172,7 @@ def _free_port(env):
 
 def cmd_start(a, env):
     m = _find_model(env, a.model)
-    image = (env.engines.get(a.engine) or {}).get("image")
+    image = a.image or (env.engines.get(a.engine) or {}).get("image")
     if not image:
         raise SystemExit(f"no image configured for {a.engine}")
     args = {}
@@ -384,6 +384,7 @@ def parse(argv):
     s.add_argument("--engine", required=True, choices=sorted(spec_mod.ENGINES))
     s.add_argument("--name", required=True)
     s.add_argument("--port", type=int)
+    s.add_argument("--image", help="another image of the engine, pinned by digest (default: the configured one)")
     s.add_argument("--arg", action="append")
     s.add_argument("--json", action="store_true")
     st = sub.add_parser("stop")
