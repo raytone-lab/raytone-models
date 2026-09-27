@@ -57,7 +57,7 @@ def instances(registry, ports):
         name, port = d.get("served_name"), d.get("port")
         if d.get("engine") in engines.NOT_CHAT:
             continue
-        if (isinstance(name, str) and spec_mod.NAME_RE.match(name) and isinstance(port, int)
+        if (isinstance(name, str) and spec_mod.NAME_RE.fullmatch(name) and isinstance(port, int)
                 and not isinstance(port, bool) and port in ports):
             out[name] = port
     return out

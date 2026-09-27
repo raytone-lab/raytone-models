@@ -70,17 +70,17 @@ def _component(c):
         raise RecipeError("model: {repo, revision, include?}")
     if not isinstance(m.get("include", []), list):
         raise RecipeError("model.include is a list of patterns")
-    if not REPO_RE.match(str(m.get("repo"))) or not REV_RE.match(str(m.get("revision"))):
+    if not REPO_RE.fullmatch(str(m.get("repo"))) or not REV_RE.fullmatch(str(m.get("revision"))):
         raise RecipeError("model: a repo id and a 40-hex commit")
     include = tuple(m.get("include") or ())
     for p in include:
-        if not isinstance(p, str) or not PATTERN_RE.match(p) or ".." in p.split("/") or p.startswith("/"):
+        if not isinstance(p, str) or not PATTERN_RE.fullmatch(p) or ".." in p.split("/") or p.startswith("/"):
             raise RecipeError(f"model.include: bad pattern {p!r}")
     if c["role"] not in ROLES:
         raise RecipeError(f"role: one of {', '.join(sorted(ROLES))}")
     draft = c.get("draft")
     if draft is not None and (not isinstance(draft, dict) or set(draft) != {"repo", "revision"}
-                              or not REPO_RE.match(str(draft["repo"])) or not REV_RE.match(str(draft["revision"]))):
+                              or not REPO_RE.fullmatch(str(draft["repo"])) or not REV_RE.fullmatch(str(draft["revision"]))):
         raise RecipeError("draft: {repo, revision} with a 40-hex commit")
     args = dict(c.get("args") or {})
     sc = args.get("speculative-config")
@@ -125,7 +125,7 @@ def load(data):
         raise RecipeError("platforms are strings")
     if not all(isinstance(v, int) and not isinstance(v, bool) for v in data["requires"].values()):
         raise RecipeError("requires holds whole numbers")
-    if not ID_RE.match(str(data["id"])):
+    if not ID_RE.fullmatch(str(data["id"])):
         raise RecipeError("id: lowercase letters, digits and dashes")
     comps = tuple(_component(c) for c in data.get("components") or [])
     if not comps:

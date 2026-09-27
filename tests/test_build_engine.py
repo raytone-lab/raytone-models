@@ -32,7 +32,7 @@ while [ $# -gt 0 ]; do [ "$1" = --iidfile ] && echo -n {ID} > "$2"; shift; done
         return subprocess.run([str(ROOT / "scripts" / "build-engine"), *args], env=self.env, capture_output=True, text=True)
 
     def test_builds_and_records_the_image_id(self):
-        self.engines.write_text(json.dumps({"llamacpp": {"image": "raytone/llama.cpp@sha256:" + "0" * 64}}))
+        self.engines.write_text(json.dumps({"llamacpp": {"image": "raytone/llamacpp@sha256:" + "0" * 64}}))
         r = self.run_script("comfyui")
         self.assertEqual(r.returncode, 0, r.stderr)
         log = self.log.read_text()

@@ -65,6 +65,45 @@ class ComfyuiSpecTests(unittest.TestCase):
         self.refused("reserve out of range", args={"reserve-vram": 500.0})
 
 
+GGUF = "models--unsloth--Qwen3-0.6B-GGUF/snapshots/" + "9" * 40
+
+
+def llamacpp(**over):
+    s = good(engine="llamacpp", image=f"raytone/llamacpp@{DIGEST}", model=GGUF, served_name="qwen3-0.6b",
+             args={"model-file": "Qwen3-0.6B-Q4_K_M.gguf", "ctx-size": 32768, "n-gpu-layers": 999, "flash-attn": "on",
+                   "jinja": True},
+             env={})
+    s.update(over)
+    return s
+
+
+class LlamacppSpecTests(unittest.TestCase):
+    def test_a_good_llamacpp_spec_loads(self):
+        self.assertEqual(spec.load(llamacpp()).engine, "llamacpp")
+        spec.load(llamacpp(args={"model-file": "Q8_0/x-Q8_0-00001-of-00002.gguf", "mmproj-file": "mmproj-F16.gguf"}))
+
+    def refused(self, why, **over):
+        with self.assertRaises(spec.SpecError, msg=why):
+            spec.load(llamacpp(**over))
+
+    def test_the_gguf_files_stay_inside_the_snapshot(self):
+        for bad in ("../../x.gguf", "/etc/passwd.gguf", "a/../../b.gguf", "x.bin", "", "-m.gguf", "x.gguf --lora y"):
+            self.refused(f"model-file {bad!r}", args={"model-file": bad})
+            self.refused(f"mmproj-file {bad!r}", args={"model-file": "a.gguf", "mmproj-file": bad})
+
+    def test_a_trailing_newline_is_not_a_match(self):
+        # From Codex's review of PR #7: "$" also matches before a final newline
+        self.refused("model-file", args={"model-file": "a.gguf\n"})
+
+    def test_a_model_file_is_required(self):
+        self.refused("no model-file", args={"ctx-size": 4096})
+
+    def test_only_its_own_arguments(self):
+        self.refused("a registry image", image=f"ghcr.io/ggml-org/llama.cpp@{DIGEST}")
+        self.refused("a vllm argument", args={"model-file": "a.gguf", "max-model-len": 4096})
+        self.refused("a bad cache type", args={"model-file": "a.gguf", "cache-type-k": "evil"})
+
+
 class SglangSpecTests(unittest.TestCase):
     def test_a_good_sglang_spec_loads(self):
         s = spec.load(sglang())
@@ -99,6 +138,10 @@ class SpecTests(unittest.TestCase):
             spec.load(good(**over))
 
     def test_identity_fields(self):
+        for field, value in (("id", "qwen\n"), ("served_name", "q\n"), ("model", SNAPSHOT + "\n"),
+                             ("image", f"vllm/vllm-openai@{DIGEST}\n")):
+            self.refused(f"{field} with a trailing newline", **{field: value})
+        self.refused("a word argument with a trailing newline", args={"tool-call-parser": "qwen3\n"})
         self.refused("id with a slash", id="../x")
         self.refused("id too long", id="a" * 65)
         self.refused("unknown engine", engine="bash")

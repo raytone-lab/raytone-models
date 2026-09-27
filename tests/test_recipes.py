@@ -48,6 +48,11 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(recipes.RecipeError, msg=why):
             recipes.load(recipe(**over))
 
+    def test_a_trailing_newline_is_not_a_match(self):
+        c = recipe()["components"][0]
+        self.refused("revision", components=[{**c, "model": {"repo": REPO, "revision": SHA + "\n"}}])
+        self.refused("id", id="qwen38-27b-coder\n")
+
     def test_refusals(self):
         c = recipe()["components"][0]
         self.refused("unknown schema", schema=2)
