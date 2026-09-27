@@ -114,6 +114,36 @@ ColumnLayout {
         }
     }
 
+    // Ollama keeps its own library and loads a model on first use; Run keeps one in memory
+    Card {
+        Layout.fillWidth: true
+        visible: page.backend.ollamaModels.length > 0
+        spacing: 6
+        Text { text: "OLLAMA LIBRARY"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
+        Repeater {
+            model: page.backend.ollamaModels
+            delegate: RowLayout {
+                id: orow
+                required property var modelData
+                Layout.fillWidth: true
+                spacing: 14
+                Text { text: orow.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                Text { text: Logic.gib(orow.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight }
+                Text { text: (orow.modelData.parameters || "") + " " + (orow.modelData.quant || ""); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 118 }
+                Pill { text: orow.modelData.loaded ? "running" : "on disk"; kind: orow.modelData.loaded ? "ready" : "neutral"; Layout.preferredWidth: 110 }
+                RButton {
+                    dense: true
+                    variant: orow.modelData.loaded ? "danger" : "primary"
+                    text: page.backend.busy === "ollama:" + orow.modelData.name ? "…" : (orow.modelData.loaded ? "Stop" : "Run")
+                    enabled: page.backend.busy === ""
+                    onClicked: page.backend.act("ollama:" + orow.modelData.name,
+                                                ["ollama", orow.modelData.loaded ? "stop" : "run", orow.modelData.name, "--json"],
+                                                (orow.modelData.loaded ? "Stopped " : "Running ") + orow.modelData.name)
+                }
+            }
+        }
+    }
+
     Dialog {
         id: confirm
         modal: true

@@ -11,6 +11,7 @@ Item {
     property var recipes: []
     property var refusedRecipes: []
     property var models: []
+    property var ollamaModels: []      // Ollama's own library, when its service is up
     property var instances: []
     property var agents: []
     property var downloads: []
@@ -42,6 +43,7 @@ Item {
     function refresh() {
         if (!recipesProc.running) recipesProc.running = true
         if (!modelsProc.running) modelsProc.running = true
+        if (!ollamaProc.running) ollamaProc.running = true
         if (!instancesProc.running) instancesProc.running = true
         if (!agentsProc.running) agentsProc.running = true
         if (!downloadsProc.running) downloadsProc.running = true
@@ -144,6 +146,14 @@ Item {
                 var d = root.parse(text, null)
                 if (d) { root.recipes = d.recipes || []; root.refusedRecipes = d.refused || [] }
             }
+        }
+    }
+    Process {
+        id: ollamaProc
+        command: [root.cli, "ollama", "models", "--json"]
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: { var d = root.parse(text, []); root.ollamaModels = Array.isArray(d) ? d : [] }
         }
     }
     Process {
