@@ -8,5 +8,5 @@
 | opencode | **real data** | P1: wrote and ran `hello.py`, output 55 |
 | Claude Code 2.1.283 | **real data** | first run: vLLM's Anthropic endpoint refused `effort: high` ("Supported types are xhigh, medium, and low" from Qwen3.8's template); with `CLAUDE_CODE_EFFORT_LEVEL=medium` in the adapter: `claude -p "Create a file primes.py ..."` wrote and ran it, output `[2, 3, 5, 7, 11, 13, 17, 19, 23, 29]`, 38 s |
 | Crush v0.96.1 | **real data** | `crush run "What is 12*12? ..."` → 144, 10 s |
-| Pi 0.87.1 | **real data** | `pi -p --model raytone/qwen3.8-27b "What is 13*13? ..."` → 169, 3 s |
+| Pi 0.87.1 | **real data** | `pi -p --model raytone/qwen3.8-27b "What is 13*13? ..."` → 169, 3 s (the model named on the command line: the adapter writes the provider; Pi has no default-model setting it reads) |
 | Panel recipes section | **code** | not yet opened in a desktop session |

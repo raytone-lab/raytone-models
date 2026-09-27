@@ -19,7 +19,9 @@ class CliTests(unittest.TestCase):
         t = pathlib.Path(self.tmp.name)
         self.hf, self.reg = t / "hf", t / "reg"
         self.reg.mkdir()
-        put(self.hf / "hub", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", SHA, {"config.json": b"{}", "m.safetensors": b"w"})
+        root = put(self.hf / "hub", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", SHA, {"config.json": b"{}", "m.safetensors": b"w"})
+        (root / "trees").mkdir()
+        (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {"config.json": {"size": 2}, "m.safetensors": {"size": 1}}}))
         self.helper_calls = []
         self.env = cli.Env(hf_home=self.hf, registry=self.reg, state=t / "state", home=t / "home",
                            engines={"vllm": {"image": f"vllm/vllm-openai@{DIGEST}"}},
@@ -142,8 +144,35 @@ class CliTests(unittest.TestCase):
         self.assertEqual((s["id"], s["served_name"], s["port"]), ("qwen3-8-27b", "qwen3.8-27b", 18000))
         self.assertEqual(s["args"]["max-model-len"], 262144)
 
+    def register(self, served_name, **over):
+        from tests.test_recipes import recipe
+        c = recipe()["components"][0]
+        d = {"id": "qwen3-8-27b", "served_name": served_name, "engine": "vllm", "port": 18000,
+             "image": f"vllm/vllm-openai@{DIGEST}", "model": f"models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead/snapshots/{SHA}",
+             "args": c["args"], "env": {}}
+        d.update(over)
+        (self.reg / f"{d['id']}.json").write_text(json.dumps(d))
+
+    def test_a_recipe_runs_only_when_its_exact_spec_runs(self):
+        # From Codex's review: the name alone said "running" for any instance serving it
+        self.signed_recipe()
+        self.register("qwen3.8-27b")
+        [r] = json.loads(self.run_cli("recipes", "--json")[1])["recipes"]
+        self.assertTrue(r["running"])
+        self.register("qwen3.8-27b", args={"gpu-memory-utilization": 0.3})
+        [r] = json.loads(self.run_cli("recipes", "--json")[1])["recipes"]
+        self.assertFalse(r["running"])
+        self.assertEqual(r["conflicts"], ["qwen3.8-27b"])
+
+    def test_recipe_stop_leaves_other_instances_alone(self):
+        self.signed_recipe()
+        self.register("qwen3.8-27b", id="someone-else", args={"gpu-memory-utilization": 0.3})
+        self.run_cli("recipe", "stop", "qwen38-27b-coder")
+        self.assertEqual(self.helper_calls, [])
+
     def test_recipe_stop_stops_its_instances(self):
         self.signed_recipe()
+        self.register("qwen3.8-27b")
         self.run_cli("recipe", "stop", "qwen38-27b-coder")
         self.assertEqual(self.helper_calls, [(["stop", "qwen3-8-27b"], None)])
 

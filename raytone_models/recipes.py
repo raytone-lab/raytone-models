@@ -68,6 +68,8 @@ def _component(c):
     m = c["model"]
     if not isinstance(m, dict) or set(m) - {"repo", "revision", "include"}:
         raise RecipeError("model: {repo, revision, include?}")
+    if not isinstance(m.get("include", []), list):
+        raise RecipeError("model.include is a list of patterns")
     if not REPO_RE.match(str(m.get("repo"))) or not REV_RE.match(str(m.get("revision"))):
         raise RecipeError("model: a repo id and a 40-hex commit")
     include = tuple(m.get("include") or ())
@@ -80,19 +82,25 @@ def _component(c):
     if draft is not None and (not isinstance(draft, dict) or set(draft) != {"repo", "revision"}
                               or not REPO_RE.match(str(draft["repo"])) or not REV_RE.match(str(draft["revision"]))):
         raise RecipeError("draft: {repo, revision} with a 40-hex commit")
-    sc = (c.get("args") or {}).get("speculative-config")
+    args = dict(c.get("args") or {})
+    sc = args.get("speculative-config")
+    if isinstance(sc, str):
+        try:
+            sc = args["speculative-config"] = json.loads(sc)
+        except ValueError:
+            raise RecipeError("speculative-config is not JSON") from None
     if isinstance(sc, dict) and "model" in sc:
         raise RecipeError("speculative-config.model is filled in from draft; a recipe does not name paths")
     # the engine, image, name, arguments and environment get the same checks as an instance spec
     probe = {"id": "recipe-check", "engine": c["engine"], "image": c["image"],
              "model": f"models--x--y/snapshots/{'0' * 40}", "served_name": c["served_name"],
-             "port": spec_mod.INSTANCE_PORTS.start, "args": c.get("args", {}), "env": c.get("env", {})}
+             "port": spec_mod.INSTANCE_PORTS.start, "args": args, "env": c.get("env", {})}
     try:
         spec_mod.load(probe)
     except spec_mod.SpecError as e:
         raise RecipeError(f"component {c.get('served_name')!r}: {e}") from None
     return Component(c["role"], c["served_name"], m["repo"], m["revision"], include, c["engine"], c["image"],
-                     dict(c.get("args", {})), dict(c.get("env", {})),
+                     args, dict(c.get("env", {})),
                      draft["repo"] if draft else None, draft["revision"] if draft else None)
 
 
@@ -101,6 +109,15 @@ def load(data):
         raise RecipeError(f"a recipe has the fields {', '.join(sorted(TOP))}")
     if data["schema"] != 1:
         raise RecipeError("only schema 1 is understood")
+    types = {"title": str, "description": str, "source": str, "platforms": list, "requires": dict,
+             "components": list, "agents": dict}
+    for k, t in types.items():
+        if k in data and not isinstance(data[k], t):
+            raise RecipeError(f"{k} must be a {t.__name__}")
+    if not all(isinstance(p, str) for p in data["platforms"]):
+        raise RecipeError("platforms are strings")
+    if not all(isinstance(v, int) and not isinstance(v, bool) for v in data["requires"].values()):
+        raise RecipeError("requires holds whole numbers")
     if not ID_RE.match(str(data["id"])):
         raise RecipeError("id: lowercase letters, digits and dashes")
     comps = tuple(_component(c) for c in data.get("components") or [])
@@ -109,6 +126,9 @@ def load(data):
     names = [c.served_name for c in comps]
     if len(set(names)) != len(names):
         raise RecipeError("two components serve the same name")
+    ids = [instance_id(n) for n in names]
+    if len(set(ids)) != len(ids):
+        raise RecipeError("two components would be the same instance (names differing only in punctuation)")
     req = data["requires"]
     default = (data.get("agents") or {}).get("default_model")
     if default not in names:
@@ -118,25 +138,22 @@ def load(data):
                   comps, default)
 
 
-def verify(path, allowed_signers=ALLOWED_SIGNERS):
-    path = pathlib.Path(path)
-    sig = pathlib.Path(str(path) + ".sig")
+def verify(data, sig, allowed_signers=ALLOWED_SIGNERS, name="recipe"):
+    """The signature over these bytes (the signature file may change: it cannot make other bytes valid)."""
+    sig = pathlib.Path(sig)
     if not sig.exists():
-        raise RecipeError(f"{path.name} is not signed")
-    with open(path, "rb") as f:
-        r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", str(allowed_signers), "-I", SIGNER,
-                            "-n", NAMESPACE, "-s", str(sig)], stdin=f, capture_output=True)
+        raise RecipeError(f"{name} is not signed")
+    r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", str(allowed_signers), "-I", SIGNER,
+                        "-n", NAMESPACE, "-s", str(sig)], input=data, capture_output=True)
     if r.returncode:
-        raise RecipeError(f"{path.name}: the signature does not verify")
+        raise RecipeError(f"{name}: the signature does not verify")
 
 
 def read(path, allowed_signers=ALLOWED_SIGNERS):
-    """A recipe file, verified first and parsed from the very bytes that were verified."""
+    """A recipe file, read once: the bytes verified are the bytes parsed."""
     path = pathlib.Path(path)
     data = path.read_bytes()
-    verify(path, allowed_signers)
-    if path.read_bytes() != data:
-        raise RecipeError(f"{path.name} changed while it was checked")
+    verify(data, str(path) + ".sig", allowed_signers, name=path.name)
     try:
         return load(json.loads(data))
     except ValueError as e:
@@ -151,20 +168,21 @@ def _snapshot(c, hf_home, draft=False):
     return None
 
 
+def _complete(m, include=()):
+    """Only the revision manifest proves a download is whole. With include patterns, every file of
+    the manifest that a pattern matches must be here, and each pattern must match something."""
+    if m is None or m.complete is None:
+        return False
+    if not include:
+        return m.complete and not m.incomplete
+    known = set(m.files) | set(m.missing)
+    wanted = [f for f in known if any(fnmatch.fnmatch(f, p) for p in include)]
+    return (all(any(fnmatch.fnmatch(f, p) for f in known) for p in include)
+            and not any(f in m.missing for f in wanted))
+
+
 def _component_state(c, m):
-    if m is None:
-        return "missing"
-    if c.include:
-        # a partial download: only the recipe's files count, not everything the revision has
-        wanted = lambda f: any(fnmatch.fnmatch(f, p) for p in c.include)
-        if any(wanted(f) for f in m.missing):
-            return "missing"
-        if not all(any(fnmatch.fnmatch(f, p) for f in m.files) for p in c.include):
-            return "missing"
-        return "ready"
-    if m.complete is False or m.missing or m.incomplete:
-        return "missing"
-    return "ready"
+    return "ready" if _complete(m, c.include) else "missing"
 
 
 def status(recipe, hf_home=None):
@@ -173,7 +191,7 @@ def status(recipe, hf_home=None):
         m = _snapshot(c, hf_home)
         state = _component_state(c, m)
         d = _snapshot(c, hf_home, draft=True) if c.draft_repo else None
-        if c.draft_repo and (d is None or d.complete is False or d.missing or d.incomplete):
+        if c.draft_repo and not _complete(d):
             state = "missing"
         comps.append({"served_name": c.served_name, "role": c.role, "repo": c.repo, "state": state,
                       "snapshot": m.snapshot if m else None, "draft_snapshot": d.snapshot if d else None,
@@ -202,6 +220,20 @@ def specs(recipe, hf_home=None, *, used_ports=()):
         out.append(spec_mod.load({"id": instance_id(c.served_name), "engine": c.engine, "image": c.image,
                                   "model": s["snapshot"], "served_name": c.served_name, "port": port,
                                   "args": args, "env": c.env}))
+    return out
+
+
+def expected(recipe, hf_home=None):
+    """What each downloaded component runs as: {served_name: (image, model, args, env)}."""
+    st = status(recipe, hf_home)
+    out = {}
+    for c, s in zip(recipe.components, st["components"]):
+        if s["state"] != "ready":
+            continue
+        args = dict(c.args)
+        if c.draft_repo:
+            args["speculative-config"] = {**args.get("speculative-config", {}), "model": f"/hf/hub/{s['draft_snapshot']}"}
+        out[c.served_name] = (c.image, s["snapshot"], args, c.env)
     return out
 
 

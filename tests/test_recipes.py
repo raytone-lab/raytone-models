@@ -60,6 +60,25 @@ class SchemaTests(unittest.TestCase):
         self.refused("an unknown top-level field", extra=1)
         self.refused("an include pattern leaving the repo", components=[{**c, "model": {"repo": REPO, "revision": SHA, "include": ["../x"]}}])
 
+    def test_components_may_not_share_an_instance(self):
+        # "a.b" and "a-b" become the same instance id (Codex)
+        c = recipe()["components"][0]
+        self.refused("same instance id", components=[{**c, "served_name": "q.1"}, {**c, "served_name": "q-1"}],
+                     agents={"default_model": "q.1"})
+
+    def test_malformed_fields_are_refused_not_crashed_on(self):
+        c = recipe()["components"][0]
+        self.refused("include as a string", components=[{**c, "model": {"repo": REPO, "revision": SHA, "include": "*.json"}}])
+        self.refused("requires as a list", requires=[])
+        self.refused("platforms as a string", platforms="thor-t5000")
+        self.refused("title not a string", title=3)
+        self.refused("components not a list", components={"a": 1})
+
+    def test_a_draft_path_hidden_in_a_json_string_is_refused(self):
+        c = recipe()["components"][0]
+        self.refused("string speculative-config naming a path",
+                     components=[{**c, "args": {**c["args"], "speculative-config": '{"method":"dflash","model":"/cache/x"}'}}])
+
     def test_the_default_model_must_be_a_component(self):
         self.refused("default not served", agents={"default_model": "gpt-5"})
 
@@ -95,6 +114,16 @@ class SignatureTests(unittest.TestCase):
         with self.assertRaises(recipes.RecipeError):
             recipes.read(self.file, allowed_signers=self.t / "allowed")
 
+    def test_the_bytes_parsed_are_the_bytes_verified(self):
+        # From Codex's review: reading the file twice let it change between signature check and
+        # parse (A, then signed B, then A again). The file is read once.
+        # every read_bytes() sees the unsigned A; only the verifier's own open() sees the signed B
+        evil = json.dumps(recipe(id="qwen38-27b-coder", title="evil")).encode()
+        from unittest import mock
+        with mock.patch.object(pathlib.Path, "read_bytes", lambda p: evil):
+            with self.assertRaises(recipes.RecipeError):
+                recipes.read(self.file, allowed_signers=self.t / "allowed")
+
     def test_an_unsigned_recipe_does_not(self):
         pathlib.Path(str(self.file) + ".sig").unlink()
         with self.assertRaises(recipes.RecipeError):
@@ -114,7 +143,11 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(recipes.status(r, self.hf)["state"], "missing")
         put(self.hf / "hub", REPO, "1" * 40, {"config.json": b"{}"})          # another revision
         self.assertEqual(recipes.status(r, self.hf)["state"], "missing")
-        put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        root = put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        # without the revision manifest nothing proves the download is whole (Codex)
+        self.assertEqual(recipes.status(r, self.hf)["state"], "missing")
+        (root / "trees").mkdir()
+        (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {"config.json": {"size": 2}}}))
         st = recipes.status(r, self.hf)
         self.assertEqual(st["state"], "ready")
         self.assertEqual(st["components"][0]["snapshot"], f"models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead/snapshots/{SHA}")
@@ -123,20 +156,30 @@ class StatusTests(unittest.TestCase):
         c = recipe()["components"][0]
         r = recipes.load(recipe(components=[{**c, "model": {"repo": REPO, "revision": SHA, "include": ["a.safetensors", "vae/*"]}}]))
         root = put(self.hf / "hub", REPO, SHA, {"a.safetensors": b"a"})
-        # the revision manifest lists far more than the recipe needs: only the recipe's files count
+        # the revision manifest lists far more than the recipe needs: only the recipe's files count,
+        # but every one of them (both vae shards, not just one match per pattern)
         (root / "trees").mkdir()
         (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {"a.safetensors": {"size": 1},
-                                                                         "vae/v.safetensors": {"size": 1},
+                                                                         "vae/v1.safetensors": {"size": 1},
+                                                                         "vae/v2.safetensors": {"size": 1},
                                                                          "huge.safetensors": {"size": 10**11}}}))
         self.assertEqual(recipes.status(r, self.hf)["state"], "missing")
-        put(self.hf / "hub", REPO, SHA, {"vae/v.safetensors": b"v"})
+        put(self.hf / "hub", REPO, SHA, {"vae/v1.safetensors": b"v"})
+        self.assertEqual(recipes.status(r, self.hf)["state"], "missing")
+        put(self.hf / "hub", REPO, SHA, {"vae/v2.safetensors": b"w"})
         self.assertEqual(recipes.status(r, self.hf)["state"], "ready")
 
     def test_specs_for_apply(self):
         put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        self.tree(REPO, SHA, ["config.json"])
         r = recipes.load(recipe())
         [s] = recipes.specs(r, self.hf, used_ports={18000})
         self.assertEqual((s.id, s.port, s.served_name), ("qwen3-8-27b", 18001, "qwen3.8-27b"))
+
+    def tree(self, repo, sha, files):
+        root = self.hf / "hub" / ("models--" + repo.replace("/", "--"))
+        (root / "trees").mkdir(parents=True, exist_ok=True)
+        (root / "trees" / f"{sha}.json").write_text(json.dumps({"files": {f: {"size": 2} for f in files}}))
 
     def draft_recipe(self):
         c = recipe()["components"][0]
@@ -149,8 +192,10 @@ class StatusTests(unittest.TestCase):
         # and the recipe is ready only when both are here
         r = self.draft_recipe()
         put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        self.tree(REPO, SHA, ["config.json"])
         self.assertEqual(recipes.status(r, self.hf)["state"], "missing")
         put(self.hf / "hub", "poolside/Laguna-S-2.1-DFlash-NVFP4", "b" * 40, {"config.json": b"{}"})
+        self.tree("poolside/Laguna-S-2.1-DFlash-NVFP4", "b" * 40, ["config.json"])
         self.assertEqual(recipes.status(r, self.hf)["state"], "ready")
         self.assertEqual(len(recipes.fetch_commands(r)), 2)
 
@@ -158,6 +203,8 @@ class StatusTests(unittest.TestCase):
         r = self.draft_recipe()
         put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
         put(self.hf / "hub", "poolside/Laguna-S-2.1-DFlash-NVFP4", "b" * 40, {"config.json": b"{}"})
+        self.tree(REPO, SHA, ["config.json"])
+        self.tree("poolside/Laguna-S-2.1-DFlash-NVFP4", "b" * 40, ["config.json"])
         [s] = recipes.specs(r, self.hf)
         self.assertEqual(s.args["speculative-config"], {"method": "dflash", "num_speculative_tokens": 7,
                          "model": "/hf/hub/models--poolside--Laguna-S-2.1-DFlash-NVFP4/snapshots/" + "b" * 40})

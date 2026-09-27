@@ -180,13 +180,30 @@ def _recipe(env, rid):
     raise SystemExit(f"recipe {rid}: {why}")
 
 
+def _matching(r, env):
+    """The recipe's components that run exactly as the recipe says, and those whose name another
+    instance serves: {served_name: instance id}, [served_name]."""
+    want = recipes.expected(r, env.hf_home)
+    matching, conflicts = {}, []
+    for d in _registered(env):
+        name = d.get("served_name")
+        if name not in {c.served_name for c in r.components}:
+            continue
+        if name in want and (d.get("image"), d.get("model"), d.get("args") or {}, d.get("env") or {}) == want[name]:
+            matching[name] = d.get("id")
+        else:
+            conflicts.append(name)
+    return matching, sorted(set(conflicts))
+
+
 def cmd_recipes(env):
     good, bad = _recipes(env)
-    running = {i["served_name"] for i in _instances(env)}
     out = []
     for r in good:
         st = recipes.status(r, env.hf_home)
-        st["running"] = all(c.served_name in running for c in r.components)
+        matching, conflicts = _matching(r, env)
+        st["running"] = len(matching) == len(r.components)
+        st["conflicts"] = conflicts
         st["description"] = r.description
         out.append(st)
     return {"recipes": out, "refused": bad}
@@ -202,7 +219,9 @@ def cmd_recipe(a, env):
             raise SystemExit(str(e)) from None
         return [env.helper(["start"], stdin=s.to_json()) for s in specs]
     if a.action == "stop":
-        return [env.helper(["stop", recipes.instance_id(c.served_name)]) for c in r.components]
+        # only the instances that run as this recipe; another instance with the same name stays
+        matching, _ = _matching(r, env)
+        return [env.helper(["stop", iid]) for iid in matching.values()]
     hf_env = dict(os.environ, HF_HOME=str(env.hf_home), HF_HUB_DISABLE_TELEMETRY="1")
     for cmd in recipes.fetch_commands(r):
         if env.run(cmd, hf_env):
