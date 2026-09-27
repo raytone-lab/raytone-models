@@ -20,6 +20,22 @@ class SystemFilesTests(unittest.TestCase):
         self.assertIn(f"ExecStopPost={HELPER} unregister %i", unit)
         self.assertNotRegex(unit, r"(?m)^Exec\w*=.*(/bin/sh|bash|;|\||&&)")
 
+    def test_the_app_opens_one_window(self):
+        launcher = (ROOT / "bin/raytone-models-app").read_text()
+        self.assertIn("pgrep -f", launcher)
+        self.assertIn("focuswindow", launcher)
+        self.assertIn('exec qs -p "$APP"', launcher)
+        desktop = (ROOT / "packaging/raytone-models.desktop").read_text()
+        self.assertIn("Exec=raytone-models-app", desktop)
+        self.assertIn("Icon=raytone-models", desktop)
+
+    def test_the_package_installs_the_app(self):
+        pkg = (ROOT / "packaging/PKGBUILD").read_text()
+        for needle in ("usr/share/raytone-models/app", "raytone-models-app", "applications/raytone-models.desktop",
+                       "icons/hicolor/scalable/apps/raytone-models.svg", "quickshell", "wl-clipboard"):
+            self.assertIn(needle, pkg)
+        self.assertNotIn("plugin/raytone.models", pkg)
+
     def test_polkit_allows_the_helper_only(self):
         policy = (ROOT / "polkit/org.raytone.models.policy").read_text()
         self.assertIn(f'<annotate key="org.freedesktop.policykit.exec.path">{HELPER}</annotate>', policy)

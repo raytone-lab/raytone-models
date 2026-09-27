@@ -8,6 +8,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import re
 
 DEFAULT_HOME = pathlib.Path("/var/lib/raytone-models/hf")   # root-owned; hub/ and xet/ inside are the user's
 
@@ -26,6 +27,8 @@ class Model:
     expected_size: int = None   # from the revision manifest, when there is one
     complete: bool = None       # every file of the revision is here; None without a manifest
     progress: float = None      # bytes here / expected bytes
+    architecture: str = ""      # config.json architectures[0]
+    role: str = "model"         # "draft": a speculative decoder's weights, not a model to run alone
 
     def to_dict(self):
         return dataclasses.asdict(self)
@@ -49,6 +52,14 @@ def _quant(snap):
         hq = _read_json(snap / "hf_quant_config.json").get("quantization") or {}
         algo = hq.get("quant_algo") or ""
     return str(algo)
+
+
+DRAFT_RE = re.compile(r"Draft|DSpark|DFlash|Assistant|Eagle", re.I)
+
+
+def _architecture(snap):
+    archs = _read_json(snap / "config.json").get("architectures") or []
+    return str(archs[0]) if archs else ""
 
 
 def _format(files):
@@ -91,8 +102,10 @@ def list_models(hf_home=None):
                 expected = sum(int(v.get("size", 0)) for v in manifest.values())
                 complete = not missing
                 progress = 1.0 if complete else (size / expected if expected else 0.0)
+            arch = _architecture(snap)
             out.append(Model(repo=repo, revision=snap.name, snapshot=f"{root.name}/snapshots/{snap.name}",
                              format=_format(files), quant=_quant(snap), size=size, files=files,
                              incomplete=incomplete, missing=missing, expected_size=expected,
-                             complete=complete, progress=progress))
+                             complete=complete, progress=progress, architecture=arch,
+                             role="draft" if DRAFT_RE.search(arch) else "model"))
     return out

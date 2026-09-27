@@ -1,0 +1,14 @@
+#!/bin/bash
+# Render every page of the app offscreen with fixture data:  tests/ui/render DATA_DIR SHOTS_DIR
+# Quickshell loads modules only from inside its config folder, so the harness and a copy of app/
+# are put together in a temporary one.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+data=$(cd "$1" && pwd) shots=$(mkdir -p "$2" && cd "$2" && pwd)
+cfg=$(mktemp -d)
+trap 'rm -rf "$cfg"' EXIT
+cp "$here/shell.qml" "$here/FixtureBackend.qml" "$cfg/"
+cp -r "$here/../../app" "$cfg/app"
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software RAYTONE_UI_DATA="$data" RAYTONE_UI_SHOTS="$shots" RAYTONE_UI_REAL="${RAYTONE_UI_REAL:-}" \
+  timeout 120 qs -p "$cfg" 2>&1 | grep -vE "^\s*$" || true
+ls "$shots"

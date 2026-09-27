@@ -1,0 +1,21 @@
+#!/bin/bash
+# The Backend's request handling in a real Quickshell, against a fake CLI:  tests/ui/probe
+# Expect, early and late: PROBE ... repo=fast/repo search=new loadingRepo=false searching=false
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+cfg=$(mktemp -d)
+trap 'rm -rf "$cfg"' EXIT
+cp "$here/probe.qml" "$cfg/shell.qml"
+cp -r "$here/../../app" "$cfg/app"
+cat > "$cfg/fake-cli" <<'CLI'
+#!/bin/bash
+case "$1 $2 $3" in
+  "hub files slow/repo") sleep 2; echo '{"repo": "slow/repo", "revision": "a", "files": [], "variants": []}' ;;
+  "hub files fast/repo") echo '{"repo": "fast/repo", "revision": "b", "files": [], "variants": []}' ;;
+  "hub search slow") sleep 2; echo '[{"id": "old"}]' ;;
+  "hub search fast") echo '[{"id": "new"}]' ;;
+  *) echo '[]' ;;
+esac
+CLI
+chmod +x "$cfg/fake-cli"
+QT_QPA_PLATFORM=offscreen RAYTONE_UI_FAKE_CLI="$cfg/fake-cli" timeout 60 qs -p "$cfg" 2>&1 | grep -E "PROBE|ERROR|rror" || true

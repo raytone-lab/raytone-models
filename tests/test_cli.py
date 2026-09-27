@@ -208,11 +208,150 @@ class CliTests(unittest.TestCase):
         self.assertEqual(argv[:3], ["hf", "download", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead"])
         self.assertEqual(hf_home, str(self.hf))
 
+    def hub(self):
+        from tests.test_hf import FakeHub
+        self.fake = FakeHub()
+        self.addCleanup(self.fake.server_close)
+        self.addCleanup(self.fake.shutdown)
+        self.env.hf_endpoint = f"http://127.0.0.1:{self.fake.server_address[1]}"
+        self.spawned = []
+
+        class P:
+            pid = 777
+        self.env.spawn = lambda argv, env, log: self.spawned.append((argv, env)) or P()
+        self.env.downloads_dir = pathlib.Path(self.tmp.name) / "downloads"
+        self.env.config_dir = pathlib.Path(self.tmp.name) / "config"
+
+    def test_hub_search_and_files(self):
+        self.hub()
+        rc, out = self.run_cli("hub", "search", "qwen3.8", "--json")
+        self.assertEqual([r["id"] for r in json.loads(out)], ["unsloth/Qwen3.8-27B-GGUF", "meta/secret"])
+        rc, out = self.run_cli("hub", "files", "unsloth/Qwen3.8-27B-GGUF", "--json")
+        d = json.loads(out)
+        self.assertEqual(d["revision"], "a" * 40)
+        self.assertEqual([v["name"] for v in d["variants"]], ["Q4_K_M", "Q8_0"])
+
+    def test_download_a_variant_pins_the_commit(self):
+        self.hub()
+        rc, out = self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q4_K_M", "--json")
+        self.assertEqual(rc, 0, out)
+        [(argv, env)] = self.spawned
+        self.assertEqual(argv, ["hf", "download", "unsloth/Qwen3.8-27B-GGUF", "--revision", "a" * 40,
+                                "--include", "Qwen3.8-27B-Q4_K_M.gguf", "--include", "mmproj-F16.gguf"])
+        rc, out = self.run_cli("downloads", "--json")
+        [row] = json.loads(out)
+        self.assertEqual((row["repo"], row["expected"]), ("unsloth/Qwen3.8-27B-GGUF", 16_900))
+
+    def test_a_finished_variant_download_makes_the_model_ready(self):
+        # a partial download is incomplete against the revision's full manifest, but complete for
+        # what was asked (the Q4_K_M variant): models --json says so (seen on the Thor)
+        self.hub()
+        self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q4_K_M")
+        root = put(self.hf / "hub", "unsloth/Qwen3.8-27B-GGUF", "a" * 40,
+                   {"Qwen3.8-27B-Q4_K_M.gguf": b"q" * 16_000, "mmproj-F16.gguf": b"p" * 900})
+        (root / "trees").mkdir()
+        (root / "trees" / f"{'a' * 40}.json").write_text(json.dumps({"files": {
+            "Qwen3.8-27B-Q4_K_M.gguf": {"size": 16_000}, "mmproj-F16.gguf": {"size": 900}, "big-Q8_0.gguf": {"size": 10**9}}}))
+        self.env.spawn = None
+        m = [x for x in json.loads(self.run_cli("models", "--json")[1]) if x["repo"] == "unsloth/Qwen3.8-27B-GGUF"][0]
+        self.assertEqual(m["download"]["state"], "done")
+        self.assertEqual(m["download"]["include"], ["Qwen3.8-27B-Q4_K_M.gguf", "mmproj-F16.gguf"])
+
+    def test_an_unknown_variant_is_refused(self):
+        self.hub()
+        rc, _ = self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q2_K")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(self.spawned, [])
+
+    def test_the_token_is_read_from_stdin_and_kept_private(self):
+        self.hub()
+        import sys, io, stat as st
+        old = sys.stdin
+        sys.stdin = io.StringIO("hf_secret\n")
+        try:
+            rc, out = self.run_cli("hf-token", "set")
+        finally:
+            sys.stdin = old
+        tok = self.env.config_dir / "hf-token"
+        self.assertEqual(tok.read_text().strip(), "hf_secret")
+        self.assertEqual(st.S_IMODE(tok.stat().st_mode), 0o600)
+        self.assertNotIn("hf_secret", out)
+        self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q4_K_M")
+        self.assertEqual(self.spawned[-1][1]["HF_TOKEN"], "hf_secret")
+        self.assertIn("Bearer hf_secret", [a for _, a in self.fake.seen if a])
+        self.run_cli("hf-token", "clear")
+        self.assertFalse(tok.exists())
+
+    def test_delete_refuses_a_model_in_use(self):
+        self.hub()
+        (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "q", "port": 18000,
+            "model": f"models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead/snapshots/{SHA}"}))
+        ran = []
+        self.env.run = lambda argv, env: ran.append(argv) or 0
+        rc, _ = self.run_cli("delete", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead")
+        self.assertNotEqual(rc, 0)
+        (self.reg / "q.json").unlink()
+        rc, _ = self.run_cli("delete", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead")
+        self.assertEqual(rc, 0)
+        self.assertEqual(ran, [["hf", "cache", "rm", "model/RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "-y"]])
+
+    def test_delete_one_revision(self):
+        # From Codex's review: the app confirms one revision, so only that revision goes
+        self.hub()
+        other = "c" * 40
+        (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "q", "port": 18000,
+            "model": f"models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead/snapshots/{other}"}))
+        ran = []
+        self.env.run = lambda argv, env: ran.append(argv) or 0
+        rc, _ = self.run_cli("delete", f"RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@{SHA}")
+        self.assertEqual(rc, 0)           # another revision is in use, not this one
+        self.assertEqual(ran, [["hf", "cache", "rm", SHA, "-y"]])
+        rc, _ = self.run_cli("delete", f"RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@{other}")
+        self.assertNotEqual(rc, 0)
+        rc, _ = self.run_cli("delete", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@main")
+        self.assertNotEqual(rc, 0)        # a revision is a full commit
+
+    def test_delete_by_revision_stays_in_its_repo(self):
+        # From Codex's re-review: hf cache rm SHA finds the SHA anywhere in the cache, so
+        # `delete A@<B's commit>` must not get past the in-use check on A and delete B
+        self.hub()
+        b = "d" * 40
+        (self.reg / "b.json").write_text(json.dumps({"id": "b", "served_name": "b", "port": 18000,
+            "model": f"models--nvidia--B/snapshots/{b}"}))
+        ran = []
+        self.env.run = lambda argv, env: ran.append(argv) or 0
+        rc, _ = self.run_cli("delete", f"RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@{b}")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(ran, [])
+
+    def test_stats_json(self):
+        (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "qwen3.8-27b", "port": 18000}))
+        self.env.counters = lambda url: {"generation_tokens": 10.0} if ":18000/" in url else None
+        self.env.meminfo = lambda: {"total": 100, "available": 40}
+        rc, out = self.run_cli("stats", "--json")
+        d = json.loads(out)
+        self.assertEqual(d["memory"], {"total": 100, "available": 40})
+        self.assertEqual(d["instances"], [{"id": "q", "served_name": "qwen3.8-27b", "counters": {"generation_tokens": 10.0}}])
+        self.assertIn("time", d)
+
+    def test_engines_json(self):
+        rc, out = self.run_cli("engines", "--json")
+        e = {x["engine"]: x for x in json.loads(out)}
+        self.assertEqual(e["vllm"]["image"], f"vllm/vllm-openai@{DIGEST}")
+        self.assertTrue(e["vllm"]["configured"])
+
     def test_agents_json_lists_the_catalog(self):
         rc, out = self.run_cli("agents", "--json")
         ids = [a["id"] for a in json.loads(out)]
         self.assertIn("opencode", ids)
         self.assertIn("gemini", ids)
+
+    def test_agents_json_says_which_are_connected(self):
+        (self.reg / "qwen.json").write_text(json.dumps(
+            {"id": "qwen", "served_name": "qwen3.8-27b", "port": 18000, "engine": "vllm", "args": {"max-model-len": 131072}}))
+        self.run_cli("agent", "connect", "crush")
+        got = {a["id"]: a.get("connected") for a in json.loads(self.run_cli("agents", "--json")[1])}
+        self.assertEqual((got["crush"], got["opencode"], got["gemini"]), (True, False, None))
 
 
 if __name__ == "__main__":

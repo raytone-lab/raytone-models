@@ -1,0 +1,7 @@
+#!/bin/bash
+# Raytone Models: one window. If it is already open, bring it to the front instead of opening another.
+APP=${RAYTONE_MODELS_APP:-/usr/share/raytone-models/app}
+if pgrep -f "qs -p $APP" > /dev/null; then
+  exec hyprctl dispatch focuswindow "title:^Raytone Models$"
+fi
+exec qs -p "$APP"
