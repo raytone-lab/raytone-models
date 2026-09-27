@@ -9,7 +9,7 @@ import json
 import os
 import pathlib
 
-DEFAULT_HOME = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local/share")) / "raytone/hf"
+DEFAULT_HOME = pathlib.Path("/var/lib/raytone-models/hf")   # root-owned; hub/ and xet/ inside are the user's
 
 
 @dataclasses.dataclass(frozen=True)
