@@ -2,7 +2,7 @@
 import unittest
 
 from raytone_models import engines, spec
-from tests.test_spec import DIGEST, DRAFT, SNAPSHOT, good, sglang
+from tests.test_spec import DIGEST, DRAFT, H3, SNAPSHOT, comfyui, good, sglang
 
 
 class VllmTests(unittest.TestCase):
@@ -99,6 +99,37 @@ class SglangTests(unittest.TestCase):
 
     def test_the_health_url_is_the_same(self):
         self.assertEqual(engines.health_url(spec.load(sglang())), "http://127.0.0.1:18001/v1/models")
+
+
+
+class ComfyuiTests(unittest.TestCase):
+    def argv(self, **over):
+        return engines.docker_argv(spec.load(comfyui(**over)), store="/srv/hf", cache="/var/cache/raytone-models/h3",
+                                   user=(961, 961), groups=(983, 987))
+
+    def test_same_confinement(self):
+        a = self.argv()
+        for flag in ("--pull=never", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=961:961",
+                     "--device=nvidia.com/gpu=all", "--publish=127.0.0.1:18001:8000", "--volume=/srv/hf:/hf:ro",
+                     "--env=HF_HUB_OFFLINE=1", "--env=HOME=/cache"):
+            self.assertIn(flag, a)
+
+    def test_the_local_image_runs_by_its_id(self):
+        # built on this machine (scripts/build-engine), so it has no registry digest: the image ID
+        # pins it just as firmly
+        a = self.argv()
+        self.assertIn(f"{DIGEST}", a)
+        self.assertNotIn(f"raytone/comfyui@{DIGEST}", a)
+
+    def test_the_launcher_gets_the_snapshot_and_flags(self):
+        a = self.argv()
+        rest = a[a.index(DIGEST) + 1:]
+        self.assertEqual(rest[:5], ["raytone-comfyui", "--models", "/hf/hub/" + H3, "--port", "8000"])
+        self.assertIn("--gpu-only", rest)
+        self.assertEqual(rest[rest.index("--reserve-vram") + 1], "2.0")
+
+    def test_health_is_comfyui_own(self):
+        self.assertEqual(engines.health_url(spec.load(comfyui())), "http://127.0.0.1:18001/system_stats")
 
 
 if __name__ == "__main__":

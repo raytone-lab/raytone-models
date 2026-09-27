@@ -7,7 +7,17 @@ can be a root-owned setuid file, and the cache belongs to that user alone.
 """
 import json
 
+from . import spec as spec_mod
+
 CONTAINER_PORT = 8000
+# where each engine says it is up; the OpenAI-compatible ones answer /v1/models
+HEALTH = {"comfyui": "/system_stats"}
+# engines that serve no OpenAI API: never listed to agents or routed to by the router
+NOT_CHAT = {"comfyui"}
+
+
+def health_path(engine):
+    return HEALTH.get(engine, "/v1/models")
 
 
 def _engine_args(spec):
@@ -52,7 +62,8 @@ def docker_argv(spec, *, store, cache, user, groups):
         f"--label=org.raytone.models.id={spec.id}",
     ]
     argv += [f"--env={k}={v}" for k, v in sorted(spec.env.items())]
-    argv.append(spec.image)
+    # a locally built image has no registry digest; its image ID pins it
+    argv.append(spec.image.split("@", 1)[1] if spec_mod.ENGINES[spec.engine].get("local") else spec.image)
     if spec.engine == "vllm":
         argv += [f"/hf/hub/{spec.model}", "--served-model-name", spec.served_name,
                  "--host", "0.0.0.0", "--port", str(CONTAINER_PORT)]
@@ -65,8 +76,12 @@ def docker_argv(spec, *, store, cache, user, groups):
                  "--enable-metrics"]
         argv += _engine_args(spec)
         return argv
+    if spec.engine == "comfyui":
+        argv += ["raytone-comfyui", "--models", f"/hf/hub/{spec.model}", "--port", str(CONTAINER_PORT)]
+        argv += _engine_args(spec)
+        return argv
     raise ValueError(f"no adapter for engine {spec.engine}")
 
 
 def health_url(spec):
-    return f"http://127.0.0.1:{spec.port}/v1/models"
+    return f"http://127.0.0.1:{spec.port}{health_path(spec.engine)}"

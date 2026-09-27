@@ -39,6 +39,32 @@ def sglang(**over):
     return s
 
 
+H3 = "models--Comfy-Org--MiniMax-H3/snapshots/" + "b" * 40
+
+
+def comfyui(**over):
+    s = good(engine="comfyui", image=f"raytone/comfyui@{DIGEST}", model=H3, served_name="minimax-h3",
+             args={"gpu-only": True, "reserve-vram": 2.0}, env={})
+    s.update(over)
+    return s
+
+
+class ComfyuiSpecTests(unittest.TestCase):
+    def test_a_good_comfyui_spec_loads(self):
+        self.assertEqual(spec.load(comfyui()).engine, "comfyui")
+
+    def refused(self, why, **over):
+        with self.assertRaises(spec.SpecError, msg=why):
+            spec.load(comfyui(**over))
+
+    def test_only_the_locally_built_image_and_its_own_arguments(self):
+        self.refused("a registry image", image=f"yanwk/comfyui-boot@{DIGEST}")
+        self.refused("a vllm argument", args={"max-model-len": 4096})
+        self.refused("listen elsewhere", args={"listen": "0.0.0.0"})
+        self.refused("extra paths", args={"extra-model-paths-config": "/etc/x.yaml"})
+        self.refused("reserve out of range", args={"reserve-vram": 500.0})
+
+
 class SglangSpecTests(unittest.TestCase):
     def test_a_good_sglang_spec_loads(self):
         s = spec.load(sglang())

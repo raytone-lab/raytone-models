@@ -117,6 +117,20 @@ ENGINES = {
         "env": {"SGLANG_ENABLE_SPEC_V2": _BIT, "SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN": _BIT,
                 "SGLANG_JIT_DEEPGEMM_PRECOMPILE": _BIT, "FLASHINFER_DISABLE_VERSION_CHECK": _BIT},
     },
+    # video and image generation; the image is built on this machine (engines/comfyui), so it is
+    # pinned by its image ID rather than a registry digest
+    "comfyui": {
+        "images": ("raytone/comfyui",),
+        "local": True,
+        "args": {
+            "gpu-only": _flag,
+            "highvram": _flag,
+            "lowvram": _flag,
+            "disable-smart-memory": _flag,
+            "reserve-vram": _float(0.0, 64.0),
+        },
+        "env": {},
+    },
 }
 
 FIELDS = ("id", "engine", "image", "model", "served_name", "port", "args", "env")
