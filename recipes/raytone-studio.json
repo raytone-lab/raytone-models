@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "id": "raytone-studio",
+  "title": "Raytone Studio: Nemotron 3.5 Lightning and MiniMax H3",
+  "description": "A chat and coding model next to a video model on the one unified memory pool: Nemotron 3.5 Lightning (NVFP4, DSpark, 0.4 of memory) for agents and chat, MiniMax H3 (pruned int8, NVFP4 text encoder, 8-step turbo LoRA) for text to video with sound. Checked on the Jetson AGX Thor 2026-09-28: a 480p 5 s video in 209 s while chat answered 391 and a correct fib(n) at 50-58 tokens/s; lowest available memory 41 GiB, hottest zone 82 C. 768p ran the SoC past the thermal guard and is not part of this recipe.",
+  "platforms": [
+    "thor-t5000"
+  ],
+  "requires": {
+    "memory_gib": 85,
+    "disk_gib": 60
+  },
+  "source": "Nemotron parameters from Mia's AI Lab on LMSYS's SGLang image; H3 files and graph from Comfy-Org's MiniMax H3 text-to-video template",
+  "components": [
+    {
+      "role": "chat",
+      "served_name": "nemotron-3.5-lightning",
+      "model": {
+        "repo": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4",
+        "revision": "bee7596271d1495f6992ae224aefde4410e816b8"
+      },
+      "draft": {
+        "repo": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark",
+        "revision": "8a0177116d138011e63103110f136ec0ca09ebbf"
+      },
+      "engine": "sglang",
+      "image": "lmsysorg/sglang@sha256:a04d9a1a7ffe371b05230aecab001d4ba2bfa0e5c137bc56409ecc4cbc3ac864",
+      "args": {
+        "mem-fraction-static": 0.4,
+        "mamba-ssm-dtype": "float16",
+        "cuda-graph-max-bs-decode": 4,
+        "reasoning-parser": "nemotron_3",
+        "tool-call-parser": "qwen3_coder",
+        "speculative-algorithm": "DSPARK",
+        "speculative-dspark-block-size": 3
+      },
+      "env": {}
+    },
+    {
+      "role": "video",
+      "served_name": "minimax-h3",
+      "model": {
+        "repo": "Comfy-Org/MiniMax-H3",
+        "revision": "bf92c4091e333e69b8ca1998e0a669f15cb0832b",
+        "include": [
+          "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+          "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "vae/minimax_h3_video_vae_fp16.safetensors",
+          "vae/minimax_h3_audio_vae_fp32.safetensors",
+          "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+        ]
+      },
+      "engine": "comfyui",
+      "image": "raytone/comfyui@local",
+      "args": {
+        "disable-smart-memory": true
+      },
+      "env": {}
+    }
+  ],
+  "agents": {
+    "default_model": "nemotron-3.5-lightning"
+  }
+}
