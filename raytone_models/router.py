@@ -155,12 +155,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
             return
         try:
-            model = json.loads(body).get("model")
-        except (ValueError, AttributeError):
+            payload = json.loads(body)
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
             return self._error(400, "the body is not a JSON object")
+        model = payload.get("model")
+        if model is not None and not isinstance(model, str):
+            return self._error(400, "model is a string")
         served = instances(self.server.registry, self.server.ports)
         if model is None and len(served) == 1:
+            # the engine checks the name too: fill it in
             model = next(iter(served))
+            payload["model"] = model
+            body = json.dumps(payload).encode()
         if model not in served:
             return self._error(404, f"model {model!r} is not running; running: {', '.join(sorted(served)) or 'none'}",
                                "model_not_found")
