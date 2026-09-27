@@ -122,8 +122,8 @@ Item {
         copyProc.running = true
     }
 
-    function launchAgent(command) {
-        launchProc.command = ["omarchy-launch-tui", command]
+    function launchAgent(args) {
+        launchProc.command = ["omarchy-launch-tui"].concat(args)
         launchProc.running = true
     }
 

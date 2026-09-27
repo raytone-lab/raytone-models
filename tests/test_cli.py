@@ -188,6 +188,27 @@ class CliTests(unittest.TestCase):
         rows = {e["engine"]: e for e in json.loads(self.run_cli("engines", "--json")[1])}
         self.assertEqual((rows["ollama"]["configured"], rows["ollama"]["tag"]), (True, "0.34.4"))
 
+    def test_agent_options_still_parse(self):
+        # an agent's own arguments must not swallow ours
+        a = cli.parse(["agent", "connect", "opencode", "--default", "x", "--json"])
+        self.assertEqual((a.action, a.default, a.json), ("connect", "x", True))
+        a = cli.parse(["agent-exec", "copilot", "-p", "hi", "--json"])
+        self.assertEqual(a.rest, ["-p", "hi", "--json"])
+
+    def test_agent_exec_starts_an_env_agent_with_its_variables(self):
+        (self.reg / "qwen.json").write_text(json.dumps(
+            {"id": "qwen", "served_name": "qwen3.8-27b", "port": 18000, "engine": "vllm", "args": {"max-model-len": 131072}}))
+        ran = []
+        self.env.execvpe = lambda file, argv, env: ran.append((file, argv, env))
+        rc, _ = self.run_cli("agent-exec", "copilot", "-p", "hi")
+        self.assertNotEqual(rc, 0)                     # not connected yet
+        self.run_cli("agent", "connect", "copilot")
+        self.run_cli("agent-exec", "copilot", "-p", "hi")
+        [(file, argv, env)] = ran
+        self.assertEqual((file, argv), ("copilot", ["copilot", "-p", "hi"]))
+        self.assertEqual((env["COPILOT_MODEL"], env["COPILOT_OFFLINE"]), ("qwen3.8-27b", "true"))
+        self.assertIn("PATH", env)                    # the rest of the environment stays
+
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")
         self.assertEqual(self.helper_calls, [(["stop", "qwen"], None)])

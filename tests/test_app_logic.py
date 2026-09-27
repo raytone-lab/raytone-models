@@ -128,10 +128,17 @@ class AppLogicTests(unittest.TestCase):
         self.assertEqual(call("clock", 83.6), "1:23")
         self.assertEqual(call("clock", 3725), "62:05")
 
+    def test_launch_arguments(self):
+        self.assertEqual(call("launchArgs", "opencode"), ["opencode"])
+        self.assertEqual(call("launchArgs", "copilot"),
+                         ["--app-id=org.omarchy.copilot", "raytone-models", "agent-exec", "copilot"])
+        self.assertIsNone(call("launchArgs", "gemini"))
+
     def test_agent_command(self):
         self.assertEqual(call("agentCommand", "claude"), "claude")
         self.assertEqual(call("agentCommand", "opencode"), "opencode")
         self.assertEqual(call("agentCommand", "codex"), "codex")
+        self.assertEqual(call("agentCommand", "copilot"), "copilot")
         self.assertIsNone(call("agentCommand", "gemini"))
 
 

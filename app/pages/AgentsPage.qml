@@ -50,7 +50,7 @@ ColumnLayout {
                     delegate: Card {
                         id: a
                         required property var modelData
-                        readonly property string command: Logic.agentCommand(modelData.id)
+                        readonly property var command: Logic.launchArgs(modelData.id)
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         padding: 16
