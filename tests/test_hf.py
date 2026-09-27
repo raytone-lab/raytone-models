@@ -14,6 +14,8 @@ SHA = "a" * 40
 class FakeHub(http.server.ThreadingHTTPServer):
     def __init__(self):
         self.seen = []
+        self.redirect_to = None     # an absolute URL /api/models/moved/away redirects to
+        self.next_link = None       # overrides the tree's next-page link
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -24,14 +26,39 @@ class FakeHub(http.server.ThreadingHTTPServer):
                 outer.seen.append((self.path, self.headers.get("Authorization")))
                 u = urllib.parse.urlsplit(self.path)
                 q = urllib.parse.parse_qs(u.query)
+                origin = f"http://127.0.0.1:{outer.server_address[1]}"
+                if u.path == "/api/models/moved/away":
+                    self.send_response(302)
+                    self.send_header("Location", outer.redirect_to)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if u.path == "/api/models/renamed/repo":
+                    self.send_response(307)
+                    self.send_header("Location", origin + "/api/models/unsloth/Qwen3.8-27B-GGUF")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                link = None
                 if u.path == "/api/models":
                     body = [{"id": "unsloth/Qwen3.8-27B-GGUF", "downloads": 900, "gated": False,
                              "pipeline_tag": "image-text-to-text", "library_name": "gguf", "tags": ["gguf"]},
                             {"id": "meta/secret", "downloads": 5, "gated": "manual", "pipeline_tag": "text-generation"}]
                     if q.get("search") == ["nothing"]:
                         body = []
-                elif u.path == "/api/models/unsloth/Qwen3.8-27B-GGUF":
+                elif u.path in ("/api/models/unsloth/Qwen3.8-27B-GGUF", "/api/models/unsloth/Qwen3.8-27B-GGUF/revision/main"):
                     body = {"id": "unsloth/Qwen3.8-27B-GGUF", "sha": SHA, "gated": False}
+                elif u.path == "/api/models/big/GGUF":
+                    body = {"id": "big/GGUF", "sha": SHA}
+                elif u.path == f"/api/models/big/GGUF/tree/{SHA}":
+                    # the tree API pages with a Link header, like the Hub does for large repos
+                    if q.get("cursor") == ["2"]:
+                        body = [{"type": "file", "path": "Q8_0/big-Q8_0-00002-of-00002.gguf", "size": 7, "lfs": {"oid": "6" * 64}}]
+                    else:
+                        body = [{"type": "file", "path": "Q8_0/big-Q8_0-00001-of-00002.gguf", "size": 5, "lfs": {"oid": "5" * 64}}]
+                        link = f'<{outer.next_link or origin + u.path + "?recursive=1&cursor=2"}>; rel="next"'
+                elif u.path == "/api/models/short/rev/revision/abc123":
+                    body = {"id": "short/rev", "sha": "abc123"}
                 elif u.path == f"/api/models/unsloth/Qwen3.8-27B-GGUF/tree/{SHA}":
                     body = [{"type": "file", "path": "README.md", "size": 10},
                             {"type": "file", "path": "Qwen3.8-27B-Q4_K_M.gguf", "size": 16_000, "lfs": {"oid": "1" * 64}},
@@ -50,6 +77,8 @@ class FakeHub(http.server.ThreadingHTTPServer):
                 data = json.dumps(body).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
+                if link:
+                    self.send_header("Link", link)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -109,6 +138,40 @@ class HubTests(unittest.TestCase):
     def test_a_missing_repo_is_a_clear_error(self):
         with self.assertRaises(hf.HubError):
             self.c.files("nobody/nothing")
+
+    def test_a_redirect_to_another_origin_is_refused_and_never_sees_the_token(self):
+        # From Codex's review: urllib follows redirects and would carry the Authorization header to
+        # whatever host a mirror names, even over plain HTTP.
+        other = FakeHub()
+        self.addCleanup(other.server_close)
+        self.addCleanup(other.shutdown)
+        self.hub.redirect_to = f"http://127.0.0.1:{other.server_address[1]}/api/models/unsloth/Qwen3.8-27B-GGUF"
+        c = hf.Hub(endpoint=self.c.endpoint, token="hf_secret")
+        with self.assertRaises(hf.HubError):
+            c.files("moved/away")
+        self.assertEqual(other.seen, [])
+
+    def test_a_redirect_within_the_hub_is_followed(self):
+        # the Hub redirects a renamed repo to its new name on the same host
+        sha, files = self.c.files("renamed/repo")
+        self.assertEqual((sha, len(files)), (SHA, 5))
+
+    def test_the_file_tree_is_read_page_by_page(self):
+        sha, files = self.c.files("big/GGUF")
+        self.assertEqual([f["path"] for f in files], ["Q8_0/big-Q8_0-00001-of-00002.gguf", "Q8_0/big-Q8_0-00002-of-00002.gguf"])
+        self.assertEqual(hf.variants(files)[0]["size"], 12)
+
+    def test_a_next_page_on_another_origin_is_refused(self):
+        self.hub.next_link = "https://evil.example/api/models/big/GGUF/tree/x"
+        with self.assertRaises(hf.HubError):
+            self.c.files("big/GGUF")
+
+    def test_a_branch_or_tag_resolves_to_its_commit(self):
+        # `download org/model@main` must pin the commit hf will cache under, not the name "main"
+        sha, _ = self.c.files("unsloth/Qwen3.8-27B-GGUF", "main")
+        self.assertEqual(sha, SHA)
+        with self.assertRaises(hf.HubError):
+            self.c.files("short/rev", "abc123")     # the Hub must answer with a full commit
 
     def test_only_https_endpoints_outside_loopback(self):
         with self.assertRaises(hf.HubError):
