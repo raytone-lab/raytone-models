@@ -66,6 +66,14 @@ function modelState(m) {
     return "unverified"
 }
 
+// What omarchy-launch-tui gets for an agent: its command, or for an agent that reads its endpoint
+// from the environment, raytone-models starting it with the variables connect wrote.
+function launchArgs(id) {
+    if (id === "copilot") return ["--app-id=org.omarchy.copilot", "raytone-models", "agent-exec", "copilot"]
+    var c = agentCommand(id)
+    return c ? [c] : null
+}
+
 // The command each connectable agent starts with (in a terminal, from the Agents page).
 function agentCommand(id) {
     var commands = { "opencode": "opencode", "claude": "claude", "crush": "crush", "pi": "pi", "codex": "codex", "copilot": "copilot" }
