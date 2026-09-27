@@ -207,8 +207,9 @@ class CodexTests(unittest.TestCase):
 
 
 class EnvAdapterTests(unittest.TestCase):
-    """Copilot CLI and Grok take a custom endpoint from the environment only: the adapter writes a
-    systemd environment.d file (the Omarchy session reads it at login) that Launch also uses."""
+    """Copilot CLI takes a custom endpoint from its environment only. From Codex's review of PR #10:
+    not the session's environment (environment.d reaches every program and outlives a revert), but
+    variables of our own that `raytone-models agent-exec copilot` (and Launch) start it with."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -221,7 +222,9 @@ class EnvAdapterTests(unittest.TestCase):
     def test_copilot_uses_its_byok_variables_offline(self):
         a = agents.get("copilot", home=self.home, state=self.state)
         a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
-        path = self.home / ".config/environment.d/60-raytone-copilot.conf"
+        path = self.home / ".config/raytone-models/agents/copilot.env"
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertFalse((self.home / ".config/environment.d").exists())
         env = dict(l.split("=", 1) for l in path.read_text().splitlines() if l and not l.startswith("#"))
         self.assertEqual(env, {"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BASE_URL": BASE,
                                "COPILOT_MODEL": "qwen3.8-27b", "COPILOT_OFFLINE": "true",
@@ -232,7 +235,7 @@ class EnvAdapterTests(unittest.TestCase):
         self.assertEqual(a.env(), {})
 
     def test_an_existing_file_is_restored(self):
-        path = self.home / ".config/environment.d/60-raytone-copilot.conf"
+        path = self.home / ".config/raytone-models/agents/copilot.env"
         path.parent.mkdir(parents=True)
         path.write_bytes(b"MINE=1\n")
         a = agents.get("copilot", home=self.home, state=self.state)

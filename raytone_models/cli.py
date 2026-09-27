@@ -102,6 +102,7 @@ class Env:
     counters: object = live.counters
     meminfo: object = live.memory
     ollama: object = None
+    execvpe: object = os.execvpe
     videos_dir: pathlib.Path = video.OUT_DIR
     video_poll: float = 1.0
 
@@ -199,6 +200,17 @@ def cmd_start(a, env):
     except spec_mod.SpecError as e:
         raise SystemExit(f"refused: {e}") from None
     return env.helper(["start"], stdin=s.to_json())
+
+
+def cmd_agent_exec(a, env):
+    """Start an agent that reads its endpoint from the environment, with the variables connect wrote."""
+    ad = agents.get(a.agent, home=env.home, state=env.state)
+    if not isinstance(ad, agents.EnvAdapter):
+        raise SystemExit(f"{a.agent} keeps its settings in its own files: start it as usual")
+    variables = ad.env()
+    if not variables:
+        raise SystemExit(f"{a.agent} is not connected: raytone-models agent connect {a.agent}")
+    env.execvpe(ad.command, [ad.command, *a.rest], {**os.environ, **variables})
 
 
 def cmd_agent(a, env):
@@ -434,6 +446,10 @@ def parse(argv):
     ag.add_argument("agent")
     ag.add_argument("--default")
     ag.add_argument("--json", action="store_true")
+    # its own command: everything after the agent's name is the agent's
+    ax = sub.add_parser("agent-exec")
+    ax.add_argument("agent")
+    ax.add_argument("rest", nargs=argparse.REMAINDER)
     hb = sub.add_parser("hub")
     hb.add_argument("action", choices=["search", "files"])
     hb.add_argument("query")
@@ -532,6 +548,8 @@ def main(argv=None, env=None):
             _print(env.helper(["stop", a.id]), a.json)
         elif a.command == "ollama":
             return cmd_ollama(a, env)
+        elif a.command == "agent-exec":
+            return cmd_agent_exec(a, env)
         elif a.command == "agent":
             _print(cmd_agent(a, env), a.json)
         elif a.command == "hub":
