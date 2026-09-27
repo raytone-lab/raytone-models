@@ -218,7 +218,7 @@ def _recipe(env, rid):
 def _matching(r, env):
     """The recipe's components that run exactly as the recipe says, and those whose name another
     instance serves: {served_name: instance id}, [served_name]."""
-    want = recipes.expected(r, env.hf_home)
+    want = recipes.expected(r, env.hf_home, images=env.engines)
     matching, conflicts = {}, []
     for d in _registered(env):
         name = d.get("served_name")
@@ -249,7 +249,7 @@ def cmd_recipe(a, env):
     if a.action == "apply":
         used = {d.get("port") for d in _registered(env)}
         try:
-            specs = recipes.specs(r, env.hf_home, used_ports=used)
+            specs = recipes.specs(r, env.hf_home, used_ports=used, images=env.engines)
         except recipes.RecipeError as e:
             raise SystemExit(str(e)) from None
         # every component checked before any starts: an id another served name uses is not ours to replace
