@@ -6,6 +6,8 @@
     raytone-models stop ID
     raytone-models agents [--json]
     raytone-models agent connect|revert AGENT [--default SERVED] [--json]
+    raytone-models recipes [--json]
+    raytone-models recipe apply|stop|fetch ID [--json]
     raytone-models router [--port 8090]
 
 Starting and stopping go through the privileged helper (pkexec), with the spec on stdin; the CLI
@@ -21,10 +23,15 @@ import subprocess
 import sys
 import urllib.request
 
-from . import agents, router, spec as spec_mod, store
+from . import agents, recipes, router, spec as spec_mod, store
 
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
+USER_RECIPES = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local/share")) / "raytone-models/recipes"
+
+
+def _run(argv, env):
+    return subprocess.call(argv, env=env)
 
 
 def elevate_argv(environ):
@@ -68,12 +75,17 @@ class Env:
     engines: dict = None
     helper: object = _pkexec
     probe: object = _probe
+    recipe_dirs: list = None
+    allowed_signers: pathlib.Path = recipes.ALLOWED_SIGNERS
+    run: object = _run
 
     def __post_init__(self):
         self.hf_home = pathlib.Path(self.hf_home or store.home())
         self.home = pathlib.Path(self.home or pathlib.Path.home())
         if self.engines is None:
             self.engines = _engines()
+        if self.recipe_dirs is None:
+            self.recipe_dirs = [recipes.SYSTEM_DIR, USER_RECIPES]
 
 
 def _value(text):
@@ -155,6 +167,49 @@ def cmd_agent(a, env):
     return ad.status()
 
 
+def _recipes(env):
+    return recipes.available(env.recipe_dirs, env.allowed_signers)
+
+
+def _recipe(env, rid):
+    good, bad = _recipes(env)
+    for r in good:
+        if r.id == rid:
+            return r
+    why = next((b["error"] for b in bad if pathlib.Path(b["file"]).stem == rid), "no such recipe")
+    raise SystemExit(f"recipe {rid}: {why}")
+
+
+def cmd_recipes(env):
+    good, bad = _recipes(env)
+    running = {i["served_name"] for i in _instances(env)}
+    out = []
+    for r in good:
+        st = recipes.status(r, env.hf_home)
+        st["running"] = all(c.served_name in running for c in r.components)
+        st["description"] = r.description
+        out.append(st)
+    return {"recipes": out, "refused": bad}
+
+
+def cmd_recipe(a, env):
+    r = _recipe(env, a.id)
+    if a.action == "apply":
+        used = {d.get("port") for d in _registered(env)}
+        try:
+            specs = recipes.specs(r, env.hf_home, used_ports=used)
+        except recipes.RecipeError as e:
+            raise SystemExit(str(e)) from None
+        return [env.helper(["start"], stdin=s.to_json()) for s in specs]
+    if a.action == "stop":
+        return [env.helper(["stop", recipes.instance_id(c.served_name)]) for c in r.components]
+    hf_env = dict(os.environ, HF_HOME=str(env.hf_home), HF_HUB_DISABLE_TELEMETRY="1")
+    for cmd in recipes.fetch_commands(r):
+        if env.run(cmd, hf_env):
+            raise SystemExit(f"download failed: {' '.join(cmd[:3])}")
+    return recipes.status(r, env.hf_home)
+
+
 def parse(argv):
     p = argparse.ArgumentParser(prog="raytone-models")
     sub = p.add_subparsers(dest="command", required=True)
@@ -175,6 +230,11 @@ def parse(argv):
     ag.add_argument("agent")
     ag.add_argument("--default")
     ag.add_argument("--json", action="store_true")
+    sub.add_parser("recipes").add_argument("--json", action="store_true")
+    rc = sub.add_parser("recipe")
+    rc.add_argument("action", choices=["apply", "stop", "fetch"])
+    rc.add_argument("id")
+    rc.add_argument("--json", action="store_true")
     r = sub.add_parser("router")
     r.add_argument("--port", type=int, default=router.DEFAULT_PORT)
     return p.parse_args(argv)
@@ -206,6 +266,10 @@ def main(argv=None, env=None):
             _print(env.helper(["stop", a.id]), a.json)
         elif a.command == "agent":
             _print(cmd_agent(a, env), a.json)
+        elif a.command == "recipes":
+            _print(cmd_recipes(env), a.json)
+        elif a.command == "recipe":
+            _print(cmd_recipe(a, env), a.json)
         elif a.command == "router":
             srv = router.make_server("127.0.0.1", a.port)
             srv.serve_forever()
