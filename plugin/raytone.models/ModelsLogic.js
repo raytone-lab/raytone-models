@@ -4,9 +4,10 @@
 
 // Until recipes carry each model's parameters, "Run" uses conservative vLLM settings, and the
 // tool/reasoning parsers only where the model family is known.
-function runArgv(repo) {
+function runArgv(repo, revision) {
     var name = String(repo).split("/").pop().toLowerCase().replace(/[^a-z0-9.:_-]+/g, "-")
-    var argv = ["raytone-models", "start", repo, "--engine", "vllm", "--name", name,
+    var target = revision ? repo + "@" + revision : repo
+    var argv = ["raytone-models", "start", target, "--engine", "vllm", "--name", name,
                 "--arg", "gpu-memory-utilization=0.6", "--arg", "max-model-len=65536",
                 "--arg", "enable-prefix-caching", "--json"]
     if (/qwen3\.?8/i.test(repo))

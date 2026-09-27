@@ -18,14 +18,16 @@ def call(fn, *args):
 @unittest.skipUnless(shutil.which("node"), "node not installed")
 class PanelLogicTests(unittest.TestCase):
     def test_run_argv_for_a_qwen_model_has_its_parsers(self):
-        argv = call("runArgv", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead")
-        self.assertEqual(argv[:4], ["raytone-models", "start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine"])
+        argv = call("runArgv", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "009632fef96d" + "0" * 28)
+        # the row's revision, so two revisions of one repo can each be started (Codex)
+        self.assertEqual(argv[:4], ["raytone-models", "start",
+                                    "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead@009632fef96d" + "0" * 28, "--engine"])
         self.assertIn("tool-call-parser=qwen3_coder", argv)
         self.assertIn("reasoning-parser=qwen3", argv)
         self.assertEqual(argv[argv.index("--name") + 1], "qwen3.8-27b-nvfp4-bf16-lmhead")
 
     def test_run_argv_for_other_models_has_no_guessed_parsers(self):
-        argv = call("runArgv", "RedHatAI/Muse-Glimmer-30B-NVFP4")
+        argv = call("runArgv", "RedHatAI/Muse-Glimmer-30B-NVFP4", "e" * 40)
         self.assertFalse([a for a in argv if "parser" in a])
         self.assertIn("gpu-memory-utilization=0.6", argv)
 
