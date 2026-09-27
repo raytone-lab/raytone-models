@@ -69,6 +69,15 @@ class StoreTests(unittest.TestCase):
         put(self.hub, "n/m", SHA, {"hf_quant_config.json": q, "model.safetensors": b"w"})
         self.assertEqual(store.list_models(self.home)[0].quant, "NVFP4")
 
+    def test_draft_models_are_recognised_by_their_architecture(self):
+        # speculative-decoding drafts are not models to run on their own (names seen on the Thor)
+        for arch, role in (("DSparkDraftModel", "draft"), ("Qwen3DSparkModel", "draft"), ("DFlash2DraftModel", "draft"),
+                           ("MuseGlimmerAssistantModel", "draft"), ("Qwen3_5ForConditionalGeneration", "model")):
+            with self.subTest(arch):
+                put(self.hub, f"a/{arch}", SHA, {"config.json": json.dumps({"architectures": [arch]}).encode()})
+                m = [x for x in store.list_models(self.home) if x.repo == f"a/{arch}"][0]
+                self.assertEqual((m.architecture, m.role), (arch, role))
+
     def test_downloads_in_progress_are_reported(self):
         put(self.hub, "a/b", SHA, {"x.safetensors": b"w"}, incomplete=("c1", "c2"))
         self.assertEqual(store.list_models(self.home)[0].incomplete, 2)
