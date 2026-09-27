@@ -86,7 +86,17 @@ def _refusal(e):
     return "; ".join(details) or (d.get("error") or {}).get("message") or str(e)
 
 
-def generate(base, wf, out_dir=OUT_DIR, *, poll=1.0, timeout=3600, emit=print):
+def cancel(base, pid):
+    """Take a job off ComfyUI: out of the queue if it waits, interrupted if it runs."""
+    for path, body in (("/queue", {"delete": [pid]}), ("/interrupt", {"prompt_id": pid})):
+        try:
+            _call(base, path, body, timeout=10)
+        except (OSError, ValueError):
+            pass
+
+
+def generate(base, wf, out_dir=OUT_DIR, *, poll=1.0, timeout=3600, emit=print, stop=None):
+    """stop() is asked between polls; when it answers true the job is cancelled on ComfyUI too."""
     t0 = time.time()
     try:
         pid = json.loads(_call(base, "/prompt", {"prompt": wf, "client_id": "raytone-models"}))["prompt_id"]
@@ -96,7 +106,11 @@ def generate(base, wf, out_dir=OUT_DIR, *, poll=1.0, timeout=3600, emit=print):
         raise VideoError(f"ComfyUI did not answer: {e}") from None
     emit({"state": "queued", "prompt_id": pid})
     while True:
+        if stop and stop():
+            cancel(base, pid)
+            raise VideoError("stopped")
         if time.time() - t0 > timeout:
+            cancel(base, pid)
             raise VideoError(f"no video after {timeout} s")
         try:
             h = json.loads(_call(base, f"/history/{urllib.parse.quote(pid)}")).get(pid)
@@ -117,10 +131,13 @@ def generate(base, wf, out_dir=OUT_DIR, *, poll=1.0, timeout=3600, emit=print):
         raise VideoError("ComfyUI finished without a video")
     f = files[0]
     q = urllib.parse.urlencode({"filename": f["filename"], "subfolder": f.get("subfolder", ""), "type": "output"})
-    data = _call(base, f"/view?{q}", timeout=120)
-    out_dir = pathlib.Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / (time.strftime("%Y%m%d-%H%M%S-") + pathlib.Path(f["filename"]).name)
-    path.write_bytes(data)
+    try:
+        data = _call(base, f"/view?{q}", timeout=120)
+        out_dir = pathlib.Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / (time.strftime("%Y%m%d-%H%M%S-") + pathlib.Path(f["filename"]).name)
+        path.write_bytes(data)
+    except (OSError, ValueError) as e:
+        raise VideoError(f"the video was made but could not be saved: {e}") from None
     emit({"done": str(path), "seconds": round(time.time() - t0, 1)})
     return path

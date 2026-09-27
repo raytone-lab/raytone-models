@@ -239,15 +239,20 @@ Item {
     }
     Process {
         id: videoProc
+        property bool reported: false
+        onStarted: reported = false
         stdout: SplitParser {
             onRead: function(line) {
                 var d = root.parse(line, null)
                 if (!d) return
-                if (d.done !== undefined) root.videoDone(d.done, d.seconds || 0)
-                else if (d.error !== undefined) root.videoError(d.error)
+                if (d.done !== undefined) { videoProc.reported = true; root.videoDone(d.done, d.seconds || 0) }
+                else if (d.error !== undefined) { videoProc.reported = true; root.videoError(d.error) }
             }
         }
-        onExited: root.videoEnded()
+        onExited: function(exitCode) {
+            if (!reported && exitCode !== 0) root.videoError("the video command ended without a result (exit " + exitCode + ")")
+            root.videoEnded()
+        }
     }
     Process { id: openProc }
     Process { id: copyProc; onExited: function(code) { if (code === 0) root.notice = "Endpoint copied" } }

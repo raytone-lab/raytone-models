@@ -18,6 +18,8 @@ class FakeComfy(http.server.ThreadingHTTPServer):
         self.polls = 0
         self.fail = None          # node_errors to answer /prompt with
         self.error = None         # an execution error to report in the history
+        self.posts = []           # (path, body) of every POST
+        self.view_status = 200
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -34,6 +36,9 @@ class FakeComfy(http.server.ThreadingHTTPServer):
 
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                outer.posts.append((self.path, body))
+                if self.path in ("/queue", "/interrupt"):
+                    return self.send(200, {})
                 if self.path == "/prompt":
                     if outer.fail:
                         return self.send(400, {"error": {"message": "Prompt outputs failed validation"}, "node_errors": outer.fail})
@@ -56,6 +61,8 @@ class FakeComfy(http.server.ThreadingHTTPServer):
                                                                                   "subfolder": "video", "type": "output"}],
                                                                       "animated": [True]}}}})
                 if u.path == "/view":
+                    if outer.view_status != 200:
+                        return self.send(outer.view_status, {})
                     q = urllib.parse.parse_qs(u.query)
                     if q == {"filename": ["MiniMax_H3_00001_.mp4"], "subfolder": ["video"], "type": ["output"]}:
                         return self.send(200, b"\x00\x00\x00 ftypmp4", "video/mp4")
@@ -146,6 +153,25 @@ class GenerateTests(unittest.TestCase):
         with self.assertRaises(video.VideoError) as e:
             video.generate(self.base, video.workflow("a fox"), self.out, poll=0.01, emit=self.lines.append)
         self.assertIn("CUDA out of memory", str(e.exception))
+
+    def test_stop_takes_the_job_off_comfyui(self):
+        # From Codex's review of PR #5: stopping the CLI alone left the job queued or running
+        with self.assertRaises(video.VideoError) as e:
+            video.generate(self.base, video.workflow("a fox"), self.out, poll=0.01, emit=self.lines.append, stop=lambda: True)
+        self.assertIn("stopped", str(e.exception))
+        self.assertIn(("/queue", {"delete": ["p-1"]}), self.srv.posts)
+        self.assertIn(("/interrupt", {"prompt_id": "p-1"}), self.srv.posts)
+
+    def test_a_video_that_cannot_be_fetched_is_an_error(self):
+        self.srv.view_status = 500
+        with self.assertRaises(video.VideoError):
+            video.generate(self.base, video.workflow("a fox"), self.out, poll=0.01, emit=self.lines.append)
+
+    def test_a_video_that_cannot_be_saved_is_an_error(self):
+        blocker = pathlib.Path(self.tmp.name) / "file"
+        blocker.write_text("not a directory")
+        with self.assertRaises(video.VideoError):
+            video.generate(self.base, video.workflow("a fox"), blocker / "Videos", poll=0.01, emit=self.lines.append)
 
     def test_it_gives_up_after_the_timeout(self):
         self.srv.polls = -10**9           # never finishes

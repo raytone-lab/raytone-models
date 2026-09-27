@@ -26,6 +26,7 @@ import json
 import os
 import pathlib
 import re
+import signal
 import subprocess
 import sys
 import urllib.request
@@ -346,12 +347,18 @@ def cmd_video(a, env):
         emit({"error": "no video model is running; start one on Recipes" if not found
               else "several video models are running; name one with --model"})
         return 1
+    # the app's Stop sends SIGTERM: the job is then taken off ComfyUI as well
+    stopped = []
+    previous = signal.signal(signal.SIGTERM, lambda *_: stopped.append(True))
     try:
         wf = video.workflow(a.prompt, size=a.size, seconds=a.seconds, seed=a.seed, turbo=not a.no_turbo)
-        video.generate(f"http://127.0.0.1:{found[0]['port']}", wf, env.videos_dir, poll=env.video_poll, emit=emit)
+        video.generate(f"http://127.0.0.1:{found[0]['port']}", wf, env.videos_dir, poll=env.video_poll, emit=emit,
+                       stop=lambda: bool(stopped))
     except video.VideoError as e:
         emit({"error": str(e)})
         return 1
+    finally:
+        signal.signal(signal.SIGTERM, previous)
     return 0
 
 
