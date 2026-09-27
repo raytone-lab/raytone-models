@@ -120,12 +120,19 @@ ColumnLayout {
         visible: page.backend.ollamaModels.length > 0
         spacing: 6
         Text { text: "OLLAMA LIBRARY"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
-        Repeater {
+        ListView {
+            id: olist
+            Layout.fillWidth: true
+            implicitHeight: Math.min(count * 38, 190)       // a long library scrolls
+            clip: true
+            spacing: 2
             model: page.backend.ollamaModels
+            ScrollBar.vertical: ScrollBar {}
             delegate: RowLayout {
                 id: orow
                 required property var modelData
-                Layout.fillWidth: true
+                width: olist.width
+                height: 36
                 spacing: 14
                 Text { text: orow.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                 Text { text: Logic.gib(orow.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight }

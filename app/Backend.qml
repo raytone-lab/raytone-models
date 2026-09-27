@@ -218,13 +218,21 @@ Item {
     Process {
         id: actionProc
         property string doneNotice: ""
-        stdout: StdioCollector { waitForEnd: true }
+        // the CLI reports some failures as {"error": ...} on stdout (JSON-lines commands)
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                var d = root.parse(text, null)
+                if (d && !Array.isArray(d) && d.error) root.lastError = String(d.error)
+            }
+        }
         stderr: StdioCollector {
             waitForEnd: true
             onStreamFinished: if (String(text).trim()) root.lastError = String(text).trim().split("\n").pop()
         }
         onExited: function(exitCode) {
             root.busy = ""
+            if (exitCode !== 0 && !root.lastError) root.lastError = "That did not work (exit " + exitCode + ")"
             if (exitCode === 0 && doneNotice) root.notice = doneNotice
             root.refresh()
         }
