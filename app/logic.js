@@ -85,16 +85,23 @@ function chatModels(instances) {
 
 // The GGUF files llama.cpp runs for a model: the main file (a split model's first part) and the
 // vision projector if there is one; the downloaded variant first, else the usual 4-bit one.
+// Include patterns match as the downloader's do: fnmatch, * crosses directories, "dir/" is all below.
+function includeMatch(path, pattern) {
+    var p = /\/$/.test(pattern) ? pattern + "*" : pattern
+    var re = p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")
+    return new RegExp("^" + re + "$").test(path)
+}
+
 function ggufFiles(m) {
     var files = (m.files || []).filter(function (f) { return /\.gguf$/i.test(f) })
     var asked = m.download && m.download.include && m.download.include.length ? m.download.include : null
-    if (asked) {
-        var mine = files.filter(function (f) { return asked.indexOf(f) >= 0 })
-        if (mine.length) files = mine
+    var picked = asked ? files.filter(function (f) { return asked.some(function (p) { return includeMatch(f, p) }) }) : []
+    function projectors(list) { return list.filter(function (f) { return /mmproj/i.test(f) }) }
+    function models(list) {
+        return list.filter(function (f) { return !/mmproj/i.test(f) && !/-0000[2-9]-of-|-000[1-9][0-9]-of-/.test(f) }).sort()
     }
-    var mmproj = files.filter(function (f) { return /mmproj/i.test(f) })[0] || null
-    var models = files.filter(function (f) { return !/mmproj/i.test(f) && !/-0000[2-9]-of-|-000[1-9][0-9]-of-/.test(f) }).sort()
-    if (!models.length) return null
-    var preferred = models.filter(function (f) { return /Q4_K_M/.test(f) })[0]
-    return { model: preferred || models[0], mmproj: mmproj }
+    var candidates = models(picked).length ? models(picked) : models(files)
+    if (!candidates.length) return null
+    var preferred = candidates.filter(function (f) { return /Q4_K_M/.test(f) })[0]
+    return { model: preferred || candidates[0], mmproj: projectors(picked)[0] || projectors(files)[0] || null }
 }

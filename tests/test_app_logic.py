@@ -86,6 +86,16 @@ class AppLogicTests(unittest.TestCase):
         # otherwise the usual 4-bit one
         self.assertEqual(call("ggufFiles", {"files": ["x-Q8_0.gguf", "x-Q4_K_M.gguf"]})["model"], "x-Q4_K_M.gguf")
         self.assertIsNone(call("ggufFiles", {"files": ["model.safetensors"]}))
+        # From Codex's review of PR #7: include patterns match like the downloader's (* crosses
+        # directories), and the projector is chosen on its own
+        m = {"files": ["x-Q4_K_M.gguf", "x-Q8_0.gguf", "mmproj-F16.gguf"],
+             "download": {"state": "done", "include": ["*Q8_0*", "mmproj-F16.gguf"]}}
+        self.assertEqual(call("ggufFiles", m), {"model": "x-Q8_0.gguf", "mmproj": "mmproj-F16.gguf"})
+        m = {"files": ["x-Q8_0.gguf", "mmproj-F16.gguf"], "download": {"state": "done", "include": ["x-Q8_0.gguf"]}}
+        self.assertEqual(call("ggufFiles", m), {"model": "x-Q8_0.gguf", "mmproj": "mmproj-F16.gguf"})
+        m = {"files": ["Q8_0/a-Q8_0-00001-of-00002.gguf", "Q8_0/a-Q8_0-00002-of-00002.gguf", "a-Q4_K_M.gguf"],
+             "download": {"state": "done", "include": ["Q8_0/"]}}
+        self.assertEqual(call("ggufFiles", m)["model"], "Q8_0/a-Q8_0-00001-of-00002.gguf")
 
     def test_clock(self):
         self.assertEqual(call("clock", 0), "0:00")

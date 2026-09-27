@@ -1,11 +1,12 @@
 # llama.cpp's server for Raytone Models, built for the Jetson AGX Thor (sm_110) with CUDA 13.0:
 # CUDA 13.2 builds give garbage on sm_110 (ggml-org/llama.cpp#27763). Built locally with
 # scripts/build-engine llamacpp; the engine runs it by image ID.
+# b11221; declared before the first FROM so both stages see the default
+ARG LLAMA_CPP_COMMIT=136887b665180c13c6209a4ce0673637b6cd3afd
+
 FROM nvidia/cuda@sha256:5dc1bca23d05bd37b011be68ec470c03b403a5da07ec3a86e41af9470e9d0cc6 AS build
 # 13.0.2-devel-ubuntu24.04
-
-# b11221
-ARG LLAMA_CPP_COMMIT=136887b665180c13c6209a4ce0673637b6cd3afd
+ARG LLAMA_CPP_COMMIT
 ARG CUDA_ARCHITECTURES=110
 
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential ca-certificates \

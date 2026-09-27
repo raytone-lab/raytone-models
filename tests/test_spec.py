@@ -91,6 +91,10 @@ class LlamacppSpecTests(unittest.TestCase):
             self.refused(f"model-file {bad!r}", args={"model-file": bad})
             self.refused(f"mmproj-file {bad!r}", args={"model-file": "a.gguf", "mmproj-file": bad})
 
+    def test_a_trailing_newline_is_not_a_match(self):
+        # From Codex's review of PR #7: "$" also matches before a final newline
+        self.refused("model-file", args={"model-file": "a.gguf\n"})
+
     def test_a_model_file_is_required(self):
         self.refused("no model-file", args={"ctx-size": 4096})
 
@@ -134,6 +138,10 @@ class SpecTests(unittest.TestCase):
             spec.load(good(**over))
 
     def test_identity_fields(self):
+        for field, value in (("id", "qwen\n"), ("served_name", "q\n"), ("model", SNAPSHOT + "\n"),
+                             ("image", f"vllm/vllm-openai@{DIGEST}\n")):
+            self.refused(f"{field} with a trailing newline", **{field: value})
+        self.refused("a word argument with a trailing newline", args={"tool-call-parser": "qwen3\n"})
         self.refused("id with a slash", id="../x")
         self.refused("id too long", id="a" * 65)
         self.refused("unknown engine", engine="bash")

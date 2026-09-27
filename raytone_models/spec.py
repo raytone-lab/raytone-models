@@ -34,7 +34,7 @@ def _int(lo, hi):
 
 
 def _word(v):
-    return isinstance(v, str) and bool(WORD_RE.match(v))
+    return isinstance(v, str) and bool(WORD_RE.fullmatch(v))
 
 
 def _choice(*values):
@@ -56,12 +56,12 @@ GGUF_FILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9
 
 
 def _gguf_file(v):
-    return isinstance(v, str) and len(v) <= 255 and bool(GGUF_FILE_RE.match(v))
+    return isinstance(v, str) and len(v) <= 255 and bool(GGUF_FILE_RE.fullmatch(v))
 
 
 def _draft_path(v):
     # the one path an engine takes: a snapshot inside the store the container mounts at /hf
-    return isinstance(v, str) and v.startswith("/hf/hub/") and bool(SNAPSHOT_RE.match(v[len("/hf/hub/"):]))
+    return isinstance(v, str) and v.startswith("/hf/hub/") and bool(SNAPSHOT_RE.fullmatch(v[len("/hf/hub/"):]))
 
 
 _BIT = re.compile(r"^[01]$")
@@ -186,17 +186,17 @@ def load(data):
     if not isinstance(data, dict) or set(data) - set(FIELDS) or set(FIELDS[:6]) - set(data):
         raise SpecError(f"a spec has exactly the fields {', '.join(FIELDS)}")
     d = {"args": {}, "env": {}, **data}
-    if not isinstance(d["id"], str) or not ID_RE.match(d["id"]):
+    if not isinstance(d["id"], str) or not ID_RE.fullmatch(d["id"]):
         raise SpecError("id: lowercase letters, digits and dashes, at most 64")
     engine = ENGINES.get(d["engine"])
     if engine is None:
         raise SpecError(f"engine: one of {', '.join(ENGINES)}")
-    m = DIGEST_RE.match(d["image"]) if isinstance(d["image"], str) else None
+    m = DIGEST_RE.fullmatch(d["image"]) if isinstance(d["image"], str) else None
     if not m or m["repo"] not in engine["images"]:
         raise SpecError(f"image: pinned by digest, from {', '.join(engine['images'])}")
-    if not isinstance(d["model"], str) or not SNAPSHOT_RE.match(d["model"]):
+    if not isinstance(d["model"], str) or not SNAPSHOT_RE.fullmatch(d["model"]):
         raise SpecError("model: a snapshot in the store (models--ORG--NAME/snapshots/COMMIT)")
-    if not isinstance(d["served_name"], str) or not NAME_RE.match(d["served_name"]):
+    if not isinstance(d["served_name"], str) or not NAME_RE.fullmatch(d["served_name"]):
         raise SpecError("served_name: letters, digits and ._:- only")
     if not isinstance(d["port"], int) or isinstance(d["port"], bool) or d["port"] not in INSTANCE_PORTS:
         raise SpecError(f"port: {INSTANCE_PORTS.start}-{INSTANCE_PORTS.stop - 1}")
@@ -213,6 +213,6 @@ def load(data):
             raise SpecError(f"args: {k!r} is required by {d['engine']}")
     for k, v in d["env"].items():
         allowed = engine["env"].get(k)
-        if allowed is None or not isinstance(v, str) or not allowed.match(v):
+        if allowed is None or not isinstance(v, str) or not allowed.fullmatch(v):
             raise SpecError(f"env: {k!r} is not allowed or has a bad value")
     return Spec(**{k: d[k] for k in FIELDS})
