@@ -1,0 +1,13 @@
+#!/bin/bash
+# Sign a recipe with Raytone AI Lab's recipe key (kept outside any repository):
+#   scripts/sign-recipe recipes/NAME.json      ->  recipes/NAME.json.sig
+# The recipe is checked first; the signature is verified against packaging/allowed_signers after.
+set -euo pipefail
+KEY=${RAYTONE_RECIPE_KEY:-$HOME/.config/raytone/recipe-signing/id_ed25519}
+cd "$(dirname "$0")/.."
+for f in "$@"; do
+  python3 -c "import json,sys; from raytone_models import recipes; recipes.load(json.load(open(sys.argv[1])))" "$f"
+  rm -f "$f.sig"
+  ssh-keygen -q -Y sign -f "$KEY" -n raytone-recipe "$f"
+  ssh-keygen -Y verify -f packaging/allowed_signers -I recipes@raytone.ai -n raytone-recipe -s "$f.sig" < "$f"
+done
