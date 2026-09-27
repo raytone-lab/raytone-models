@@ -20,10 +20,10 @@ def health_path(engine):
     return HEALTH.get(engine, "/v1/models")
 
 
-def _engine_args(spec):
+def _engine_args(args):
     out = []
-    for k in sorted(spec.args):
-        v = spec.args[k]
+    for k in sorted(args):
+        v = args[k]
         if v is True:
             out.append(f"--{k}")
         elif isinstance(v, (dict, str)) and k.endswith(("-config", "-per-prompt")):
@@ -67,18 +67,26 @@ def docker_argv(spec, *, store, cache, user, groups):
     if spec.engine == "vllm":
         argv += [f"/hf/hub/{spec.model}", "--served-model-name", spec.served_name,
                  "--host", "0.0.0.0", "--port", str(CONTAINER_PORT)]
-        argv += _engine_args(spec)
+        argv += _engine_args(spec.args)
         return argv
     if spec.engine == "sglang":
         # the module rather than an image's entrypoint script: NGC and LMSYS images both have it
         argv += ["python3", "-m", "sglang.launch_server", "--model-path", f"/hf/hub/{spec.model}",
                  "--served-model-name", spec.served_name, "--host", "0.0.0.0", "--port", str(CONTAINER_PORT),
                  "--enable-metrics"]
-        argv += _engine_args(spec)
+        argv += _engine_args(spec.args)
+        return argv
+    if spec.engine == "llamacpp":
+        args = dict(spec.args)
+        model = f"/hf/hub/{spec.model}/{args.pop('model-file')}"
+        mmproj = args.pop("mmproj-file", None)
+        argv += ["llama-server", "-m", model] + (["--mmproj", f"/hf/hub/{spec.model}/{mmproj}"] if mmproj else [])
+        argv += ["--alias", spec.served_name, "--host", "0.0.0.0", "--port", str(CONTAINER_PORT), "--metrics"]
+        argv += _engine_args(args)
         return argv
     if spec.engine == "comfyui":
         argv += ["raytone-comfyui", "--models", f"/hf/hub/{spec.model}", "--port", str(CONTAINER_PORT)]
-        argv += _engine_args(spec)
+        argv += _engine_args(spec.args)
         return argv
     raise ValueError(f"no adapter for engine {spec.engine}")
 

@@ -50,6 +50,15 @@ def _json_object(v):
     return isinstance(v, dict) and all(isinstance(k, str) for k in v)
 
 
+# a GGUF file inside the model's snapshot: path components that start with a letter, digit or _
+# (so never "..", never an option), ending in .gguf
+GGUF_FILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*\.gguf$")
+
+
+def _gguf_file(v):
+    return isinstance(v, str) and len(v) <= 255 and bool(GGUF_FILE_RE.match(v))
+
+
 def _draft_path(v):
     # the one path an engine takes: a snapshot inside the store the container mounts at /hf
     return isinstance(v, str) and v.startswith("/hf/hub/") and bool(SNAPSHOT_RE.match(v[len("/hf/hub/"):]))
@@ -117,6 +126,28 @@ ENGINES = {
         "env": {"SGLANG_ENABLE_SPEC_V2": _BIT, "SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN": _BIT,
                 "SGLANG_JIT_DEEPGEMM_PRECOMPILE": _BIT, "FLASHINFER_DISABLE_VERSION_CHECK": _BIT},
     },
+    # GGUF models; llama.cpp built on this machine with CUDA 13.0 for sm_110 (engines/llamacpp)
+    "llamacpp": {
+        "images": ("raytone/llama.cpp",),
+        "local": True,
+        "requires": ("model-file",),
+        "args": {
+            "model-file": _gguf_file,
+            "mmproj-file": _gguf_file,
+            "ctx-size": _int(512, 4_194_304),
+            "n-gpu-layers": _int(0, 999),
+            "parallel": _int(1, 64),
+            "batch-size": _int(32, 65536),
+            "ubatch-size": _int(32, 65536),
+            "flash-attn": _choice("on", "off", "auto"),
+            "cache-type-k": _choice("f16", "bf16", "q8_0", "q4_0"),
+            "cache-type-v": _choice("f16", "bf16", "q8_0", "q4_0"),
+            "reasoning-format": _choice("none", "deepseek", "auto"),
+            "jinja": _flag,
+            "no-mmap": _flag,
+        },
+        "env": {},
+    },
     # video and image generation; the image is built on this machine (engines/comfyui), so it is
     # pinned by its image ID rather than a registry digest
     "comfyui": {
@@ -177,6 +208,9 @@ def load(data):
             raise SpecError(f"args: {k!r} is not an argument this engine accepts")
         if not check(v):
             raise SpecError(f"args: bad value for {k!r}")
+    for k in engine.get("requires", ()):
+        if k not in d["args"]:
+            raise SpecError(f"args: {k!r} is required by {d['engine']}")
     for k, v in d["env"].items():
         allowed = engine["env"].get(k)
         if allowed is None or not isinstance(v, str) or not allowed.match(v):
