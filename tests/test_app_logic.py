@@ -69,6 +69,11 @@ class AppLogicTests(unittest.TestCase):
         self.assertEqual(call("modelState", {"complete": False, "progress": 0.03, "incomplete": 1, "missing": ["x"],
                                              "download": {"state": "running", "progress": 0.4}}), "downloading 40%")
 
+    def test_chat_models_leave_out_video_engines(self):
+        inst = [{"served_name": "q", "ready": True, "chat": True}, {"served_name": "h3", "ready": True, "chat": False},
+                {"served_name": "m", "ready": False, "chat": True}]
+        self.assertEqual([i["served_name"] for i in call("chatModels", inst)], ["q"])
+
     def test_clock(self):
         self.assertEqual(call("clock", 0), "0:00")
         self.assertEqual(call("clock", 83.6), "1:23")

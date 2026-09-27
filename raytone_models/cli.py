@@ -150,6 +150,7 @@ def _instances(env):
     for d in _registered(env):
         port = d.get("port")
         out.append({"id": d.get("id"), "served_name": d.get("served_name"), "engine": d.get("engine"), "port": port,
+                    "chat": d.get("engine") not in engines.NOT_CHAT,
                     "context": (d.get("args") or {}).get("max-model-len"),
                     "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}{engines.health_path(d.get('engine'))}")})
     return out
@@ -193,7 +194,7 @@ def cmd_agent(a, env):
     if a.action == "revert":
         ad.revert()
         return ad.status()
-    ready = [i for i in _instances(env) if i["ready"]]
+    ready = [i for i in _instances(env) if i["ready"] and i["chat"]]
     if not ready:
         raise SystemExit("no model is running and ready")
     models = [{"id": i["served_name"], "context": i["context"] or 32768, "output": min(32768, (i["context"] or 32768) // 4)}

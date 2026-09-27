@@ -130,6 +130,16 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertIn("error", json.loads(out.splitlines()[-1]))
 
+    def test_a_video_engine_is_not_offered_to_agents(self):
+        # From Codex's review of PR #5: a ready ComfyUI is not a chat model
+        (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3", "port": 18000, "engine": "comfyui"}))
+        self.env.probe = lambda url: True
+        [i] = json.loads(self.run_cli("instances", "--json")[1])
+        self.assertEqual((i["ready"], i["chat"]), (True, False))
+        rc, _ = self.run_cli("agent", "connect", "opencode", "--json")
+        self.assertNotEqual(rc, 0)
+        self.assertFalse((self.env.home / ".config/opencode/opencode.json").exists())
+
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")
         self.assertEqual(self.helper_calls, [(["stop", "qwen"], None)])
