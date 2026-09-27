@@ -42,11 +42,16 @@ class Ollama:
         except (OSError, ValueError):
             return None
 
-    def loaded(self):
+    def running(self):
+        """The models Ollama has in memory: [{name, context}]."""
         try:
-            return [m["name"] for m in self._json("/api/ps").get("models", []) if NAME_RE.fullmatch(str(m.get("name")))]
-        except (OSError, ValueError, KeyError):
+            return [{"name": m["name"], "context": m.get("context_length")} for m in self._json("/api/ps").get("models", [])
+                    if NAME_RE.fullmatch(str(m.get("name"))) and ".." not in m["name"]]
+        except (OSError, ValueError, KeyError, AttributeError):
             return []
+
+    def loaded(self):
+        return [m["name"] for m in self.running()]
 
     def models(self):
         try:

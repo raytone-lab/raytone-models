@@ -31,7 +31,7 @@ import subprocess
 import sys
 import urllib.request
 
-from . import agents, downloads, engines, hf, live, recipes, router, spec as spec_mod, store, video
+from . import agents, downloads, engines, hf, live, ollama as ollama_mod, recipes, router, spec as spec_mod, store, video
 
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
@@ -101,6 +101,7 @@ class Env:
     config_dir: pathlib.Path = CONFIG_DIR
     counters: object = live.counters
     meminfo: object = live.memory
+    ollama: object = None
     videos_dir: pathlib.Path = video.OUT_DIR
     video_poll: float = 1.0
 
@@ -111,6 +112,8 @@ class Env:
             self.engines = _engines()
         if self.recipe_dirs is None:
             self.recipe_dirs = [recipes.SYSTEM_DIR, USER_RECIPES]
+        if self.ollama is None:
+            self.ollama = ollama_mod.Ollama()
         if self.hf_endpoint is None:
             self.hf_endpoint = os.environ.get("HF_ENDPOINT") or hf.DEFAULT_ENDPOINT
 
@@ -155,7 +158,14 @@ def _instances(env):
                     "context": next((a[k] for a in [d.get("args") or {}]
                                      for k in ("max-model-len", "context-length", "ctx-size") if k in a), None),
                     "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}{engines.health_path(d.get('engine'))}")})
-    return out
+    names = {o["served_name"] for o in out}          # an instance wins over an Ollama model, as in the router
+    return out + [o for o in _ollama_instances(env) if o["served_name"] not in names]
+
+
+def _ollama_instances(env):
+    # Ollama is its own service: the models it holds in memory are running instances
+    return [{"id": f"ollama:{m['name']}", "served_name": m["name"], "engine": "ollama", "port": ollama_mod.PORT,
+             "chat": True, "context": m["context"], "ready": True} for m in env.ollama.running()]
 
 
 def _find_model(env, ref):
@@ -373,10 +383,30 @@ def cmd_stats(env):
     return {"time": time.time(), "memory": env.meminfo(), "instances": out}
 
 
+def cmd_ollama(a, env):
+    try:
+        if a.action == "models":
+            _print(env.ollama.models(), a.json)
+        elif a.action == "pull":
+            env.ollama.pull(a.name, emit=lambda o: print(json.dumps(o), flush=True))
+        else:
+            {"run": env.ollama.load, "stop": env.ollama.unload, "delete": env.ollama.delete}[a.action](a.name)
+            _print({a.action: a.name}, a.json)
+    except ollama_mod.OllamaError as e:
+        print(json.dumps({"error": str(e)}), flush=True)
+        return 1
+    return 0
+
+
 def cmd_engines(env):
     names = sorted(set(spec_mod.ENGINES) | {"sglang", "llamacpp", "ollama", "comfyui"})
     rows = []
     for name in names:
+        if name == "ollama":
+            version = env.ollama.version()
+            rows.append({"engine": "ollama", "image": "system service (ollama.service)" if version else None,
+                         "tag": version, "checked": None, "configured": version is not None})
+            continue
         e = env.engines.get(name) or {}
         rows.append({"engine": name, "image": e.get("image"), "tag": e.get("tag"), "checked": e.get("checked"),
                      "configured": bool(e.get("image")) and name in spec_mod.ENGINES})
@@ -428,6 +458,10 @@ def parse(argv):
     for name in ("stats", "engines"):
         sub.add_parser(name).add_argument("--json", action="store_true")
     sub.add_parser("chat")
+    ol = sub.add_parser("ollama")
+    ol.add_argument("action", choices=["models", "run", "stop", "pull", "delete"])
+    ol.add_argument("name", nargs="?")
+    ol.add_argument("--json", action="store_true")
     v = sub.add_parser("video")
     v.add_argument("--prompt", required=True)
     v.add_argument("--model", help="the served name of a ComfyUI instance (the only one when omitted)")
@@ -487,8 +521,13 @@ def main(argv=None, env=None):
             _print(rows, a.json)
         elif a.command == "start":
             _print(cmd_start(a, env), a.json)
+        elif a.command == "stop" and a.id.startswith("ollama:"):
+            env.ollama.unload(a.id[len("ollama:"):])
+            _print({"stopped": a.id}, a.json)
         elif a.command == "stop":
             _print(env.helper(["stop", a.id]), a.json)
+        elif a.command == "ollama":
+            return cmd_ollama(a, env)
         elif a.command == "agent":
             _print(cmd_agent(a, env), a.json)
         elif a.command == "hub":
