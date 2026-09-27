@@ -3,13 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import ".."
 import "../components"
+import "../logic.js" as Logic
 
 ColumnLayout {
     id: page
     property var backend
     property bool streaming: false
     property string lastStats: ""
-    readonly property var ready: page.backend.instances.filter(function (i) { return i.ready })
+    readonly property var ready: Logic.chatModels(page.backend.instances)
     spacing: 14
 
     ListModel { id: messages }
