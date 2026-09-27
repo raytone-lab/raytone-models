@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Raytone Models
+Comment=Run local models, download them from Hugging Face, connect your coding agents
+Exec=raytone-models-app
+Icon=raytone-models
+Categories=Development;Utility;
+Terminal=false
+StartupWMClass=raytone-models
