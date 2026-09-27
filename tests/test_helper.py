@@ -19,7 +19,10 @@ class HelperTests(unittest.TestCase):
         self.store, self.run, self.cache = t / "hf", t / "run", t / "cache"
         (self.store / "hub" / SNAPSHOT).mkdir(parents=True)
         self.calls = []
-        self.paths = dict(store=self.store, run_dir=self.run, cache=self.cache, systemctl=self.calls.append)
+        self.chowned = []
+        self.paths = dict(store=self.store, run_dir=self.run, cache=self.cache, systemctl=self.calls.append,
+                          engine_user=lambda: ((961, 961), (983, 987)),
+                          chown=lambda p, uid, gid: self.chowned.append((pathlib.Path(p).name, uid, gid)))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -34,6 +37,9 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(entry.stat().st_mode), 0o644)
         self.assertEqual(self.calls, [["start", "raytone-engine@qwen38-27b.service"]])
         self.assertTrue((self.cache / "qwen38-27b").is_dir())
+        # the cache is the engine user's alone
+        self.assertEqual(self.chowned, [("qwen38-27b", 961, 961)])
+        self.assertEqual(stat.S_IMODE((self.cache / "qwen38-27b").stat().st_mode), 0o700)
 
     def test_a_bad_spec_changes_nothing(self):
         with self.assertRaises(helper.HelperError):
@@ -86,19 +92,35 @@ class HelperTests(unittest.TestCase):
         with self.assertRaises(helper.HelperError):
             helper.run_argv("qwen38-27b", **self.paths)
 
-    def test_the_configured_store_must_be_a_user_data_directory(self):
-        # the store is mounted into root containers: it must never be a system path
-        for bad in ("/", "/etc", "/root/hf", "relative/hf", "/home/../etc", "/home", "/home/nvidia",
-                    "/home/nvidia/./hf", "/var/lib/raytone-models", "/home/nvidia//hf"):
-            with self.subTest(store=bad), self.assertRaises(helper.HelperError):
-                helper.check_store(bad, owner_of=lambda p: 1000, resolve=lambda p: p)
-        with self.assertRaises(helper.HelperError):
-            helper.check_store("/home/nvidia/.local/share/raytone/hf", owner_of=lambda p: 0, resolve=lambda p: p)
-        with self.assertRaises(helper.HelperError):   # a link somewhere on the path
-            helper.check_store("/home/nvidia/link/hf", owner_of=lambda p: 1000, resolve=lambda p: "/etc/hf")
-        self.assertEqual(helper.check_store("/home/nvidia/.local/share/raytone/hf", owner_of=lambda p: 1000,
-                                            resolve=lambda p: p), pathlib.Path("/home/nvidia/.local/share/raytone/hf"))
-        helper.check_store("/var/lib/raytone-models/hf", owner_of=lambda p: 1000, resolve=lambda p: p)
+    def lstat_of(self, tree):
+        """A fake lstat over {path: (is_dir, is_link, uid, mode)}."""
+        def lstat(p):
+            if p not in tree:
+                raise FileNotFoundError(p)
+            is_dir, is_link, uid, mode = tree[p]
+            kind = stat.S_IFLNK if is_link else (stat.S_IFDIR if is_dir else stat.S_IFREG)
+            return os.stat_result((kind | mode, 0, 0, 0, uid, 0, 0, 0, 0, 0))
+        return lstat
+
+    def test_the_store_is_a_path_the_user_cannot_swap(self):
+        # From Codex's review: the path is checked and then handed to docker, so it must not be
+        # replaceable in between: root-owned, not group/other-writable, from / down, no links.
+        good_tree = {"/": (1, 0, 0, 0o755), "/var": (1, 0, 0, 0o755), "/var/lib": (1, 0, 0, 0o755),
+                     "/var/lib/raytone-models": (1, 0, 0, 0o755), "/var/lib/raytone-models/hf": (1, 0, 0, 0o755)}
+        self.assertEqual(helper.check_store("/var/lib/raytone-models/hf", lstat=self.lstat_of(good_tree)),
+                         pathlib.Path("/var/lib/raytone-models/hf"))
+        bad = {
+            "user-owned store": {**good_tree, "/var/lib/raytone-models/hf": (1, 0, 1000, 0o755)},
+            "group-writable parent": {**good_tree, "/var/lib/raytone-models": (1, 0, 0, 0o775)},
+            "a link on the way": {**good_tree, "/var/lib": (1, 1, 0, 0o777)},
+        }
+        for name, tree in bad.items():
+            with self.subTest(name), self.assertRaises(helper.HelperError):
+                helper.check_store("/var/lib/raytone-models/hf", lstat=self.lstat_of(tree))
+        for path in ("/home/nvidia/.local/share/raytone/hf", "/", "/var/lib/raytone-models", "/var/lib/raytone-models/../x",
+                     "relative/hf"):
+            with self.subTest(path), self.assertRaises(helper.HelperError):
+                helper.check_store(path, lstat=self.lstat_of(good_tree))
 
     def test_the_cli_reads_the_spec_from_stdin(self):
         # pkexec passes no environment and arguments are visible in ps: the spec comes on stdin

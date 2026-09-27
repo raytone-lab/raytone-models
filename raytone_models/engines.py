@@ -2,6 +2,8 @@
 
 The container gets the GPU through CDI, the model store read-only, a per-instance cache it may
 write (compile caches, vLLM's packed tables), its port on loopback only, and no host namespaces.
+It runs as the dedicated engine user with no capabilities: nothing it writes to the host cache
+can be a root-owned setuid file, and the cache belongs to that user alone.
 """
 import json
 
@@ -22,9 +24,16 @@ def _engine_args(spec):
     return out
 
 
-def docker_argv(spec, *, store, cache):
+def docker_argv(spec, *, store, cache, user, groups):
+    uid, gid = user
+    if uid == 0 or gid == 0:
+        raise ValueError("the engine never runs as root")
     argv = [
         "docker", "run", "--rm", "--name", f"raytone-{spec.id}",
+        f"--user={uid}:{gid}",
+        *[f"--group-add={g}" for g in groups],
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
         "--device=nvidia.com/gpu=all",
         "--shm-size=16g",
         f"--publish=127.0.0.1:{spec.port}:{CONTAINER_PORT}",
@@ -32,8 +41,11 @@ def docker_argv(spec, *, store, cache):
         f"--volume={cache}:/cache",
         "--env=HF_HOME=/hf",
         "--env=HF_HUB_OFFLINE=1",
+        "--env=HOME=/cache",
         "--env=XDG_CACHE_HOME=/cache",
         "--env=VLLM_CACHE_ROOT=/cache/vllm",
+        "--env=TRITON_CACHE_DIR=/cache/triton",
+        "--env=TORCHINDUCTOR_CACHE_DIR=/cache/inductor",
         f"--label=org.raytone.models.id={spec.id}",
     ]
     argv += [f"--env={k}={v}" for k, v in sorted(spec.env.items())]
