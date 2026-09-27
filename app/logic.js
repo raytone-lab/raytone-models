@@ -56,7 +56,7 @@ function repoName(repo) { return String(repo).split("/").pop() }
 function repoOrg(repo) { return String(repo).split("/")[0] }
 
 function modelState(m) {
-    if (m.complete === true && !m.incomplete) return "ready"
+    if (m.complete === true) return "ready"
     // a variant download: what was asked for is what counts, not the revision's full manifest
     if (m.download && m.download.state === "running")
         return "downloading " + Math.floor(100 * Number(m.download.progress || 0)) + "%"
