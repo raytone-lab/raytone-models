@@ -5,7 +5,9 @@ import http.server
 import json
 import pathlib
 import tempfile
+import socket
 import threading
+import time
 import unittest
 
 from raytone_models import router
@@ -16,6 +18,7 @@ class Upstream(http.server.ThreadingHTTPServer):
 
     def __init__(self):
         self.seen = []
+        self.aborted = threading.Event()     # a slow stream found its client gone
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -27,6 +30,20 @@ class Upstream(http.server.ThreadingHTTPServer):
             def do_POST(self):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 outer.seen.append((self.path, dict(self.headers), json.loads(body)))
+                if json.loads(body).get("slow"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.end_headers()
+                    try:
+                        for i in range(200):
+                            chunk = f"data: {{\"i\": {i}}}\n\n".encode()
+                            self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+                            self.wfile.flush()
+                            time.sleep(0.02)
+                    except (BrokenPipeError, ConnectionResetError):
+                        outer.aborted.set()
+                    return
                 if json.loads(body).get("stream"):
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")
@@ -95,6 +112,22 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(ctype, "text/event-stream")
         self.assertEqual(body.count(b"data: "), 3)
+
+    def test_a_client_that_goes_away_stops_the_engine_stream(self):
+        # seen on the Thor: an agent killed mid-answer left the router writing into a closed socket
+        # (ConnectionResetError); the engine must see its connection closed, so it stops generating
+        errors = []
+        self.srv.handle_error = lambda *a: errors.append(a)
+        s = socket.create_connection(("127.0.0.1", self.port))
+        body = json.dumps({"model": "qwen3.8-27b", "slow": True}).encode()
+        s.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                  + f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+        self.assertIn(b"200", s.recv(4096))
+        s.close()
+        self.assertTrue(self.a.aborted.wait(3), "the engine kept streaming to nobody")
+        status, _, _ = self.request("POST", "/v1/chat/completions", {"model": "qwen3.8-27b"})
+        self.assertEqual(status, 200)
+        self.assertEqual(errors, [])          # a client going away is normal, not a server error
 
     def test_agent_credentials_are_not_forwarded(self):
         self.request("POST", "/v1/chat/completions", {"model": "qwen3.8-27b"},
