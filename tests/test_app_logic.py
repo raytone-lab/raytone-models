@@ -74,6 +74,14 @@ class AppLogicTests(unittest.TestCase):
                 {"served_name": "m", "ready": False, "chat": True}]
         self.assertEqual([i["served_name"] for i in call("chatModels", inst)], ["q"])
 
+    def test_include_patterns_match_like_fnmatch(self):
+        import fnmatch
+        cases = [("x-Q8_0.gguf", "x-Q[8]_0.gguf"), ("x-Q8_0.gguf", "x-Q[!4]_0.gguf"), ("x-Q4_0.gguf", "x-Q[!4]_0.gguf"),
+                 ("dir/x.gguf", "*.gguf"), ("x-Q8_0.gguf", "x-Q?_0.gguf"), ("a[b.gguf", "a[b.gguf"), ("x+y.gguf", "x+y.gguf"),
+                 ("x-Q8_0.gguf", "x-Q[0-9]_0.gguf"), ("x].gguf", "x[]].gguf"), ("xa.gguf", "x[!]].gguf")]
+        for path, pattern in cases:
+            self.assertEqual(call("includeMatch", path, pattern), fnmatch.fnmatchcase(path, pattern), (path, pattern))
+
     def test_gguf_files_to_run(self):
         m = {"files": ["README.md", "Qwen3-0.6B-Q4_K_M.gguf", "mmproj-F16.gguf"]}
         self.assertEqual(call("ggufFiles", m), {"model": "Qwen3-0.6B-Q4_K_M.gguf", "mmproj": "mmproj-F16.gguf"})

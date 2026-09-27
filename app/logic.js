@@ -88,7 +88,25 @@ function chatModels(instances) {
 // Include patterns match as the downloader's do: fnmatch, * crosses directories, "dir/" is all below.
 function includeMatch(path, pattern) {
     var p = /\/$/.test(pattern) ? pattern + "*" : pattern
-    var re = p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")
+    // fnmatch.translate: * and ? and [set] / [!set]; an unclosed [ is literal
+    var re = "", i = 0
+    while (i < p.length) {
+        var c = p[i++]
+        if (c === "*") re += ".*"
+        else if (c === "?") re += "."
+        else if (c === "[") {
+            var j = i
+            if (j < p.length && p[j] === "!") j++
+            if (j < p.length && p[j] === "]") j++
+            while (j < p.length && p[j] !== "]") j++
+            if (j >= p.length) { re += "\\["; continue }
+            var set = p.slice(i, j).replace(/\\/g, "\\\\").replace(/\]/g, "\\]")   // JS reads [] as an empty set
+            i = j + 1
+            if (set[0] === "!") set = "^" + set.slice(1)
+            else if (set[0] === "^") set = "\\" + set
+            re += "[" + set + "]"
+        } else re += c.replace(/[.+^${}()|[\]\\\/-]/g, "\\$&")
+    }
     return new RegExp("^" + re + "$").test(path)
 }
 
