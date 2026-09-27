@@ -188,6 +188,19 @@ class CodexTests(unittest.TestCase):
             self.a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
         self.assertEqual(self.path.read_bytes(), b"model = [unclosed\n")
 
+    def test_a_multi_line_string_is_never_edited(self):
+        # From Codex's review of PR #8: lines inside a multi-line string look like keys and tables;
+        # the edit must change nothing but our own settings, or not happen at all
+        for original in (b'developer_instructions = """\nmodel = example\nKeep this.\n"""\n',
+                         b'model = """\napproval_policy = "never"\n# """\n',
+                         b'notes = """\n[model_providers.raytone]\nkeep me\n"""\n'):
+            with self.subTest(original=original):
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.path.write_bytes(original)
+                with self.assertRaises(agents.AgentError):
+                    self.a.connect(MODELS, default="qwen3.8-27b", base_url=BASE)
+                self.assertEqual(self.path.read_bytes(), original)
+
     def test_codex_is_connectable_now(self):
         row = next(r for r in agents.catalog() if r["id"] == "codex")
         self.assertTrue(row["supported"])

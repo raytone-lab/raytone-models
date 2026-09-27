@@ -220,16 +220,22 @@ class Codex(Adapter):
             raise AgentError(f"{default} is not one of the running models")
         text = self.path.read_text() if self.path.exists() else ""
         try:
-            tomllib.loads(text)
+            before = tomllib.loads(text)
         except tomllib.TOMLDecodeError:
             raise AgentError(f"{self.path} is not valid TOML; left as it is") from None
+        if not isinstance(before.get("model_providers", {}), dict):
+            raise AgentError(f"{self.path}: model_providers is not a table; left as it is")
         new = self._edit(text, default, base_url, chosen["context"])
+        # the whole configuration afterwards must be the one before with our settings in it and
+        # nothing else changed (a line inside a multi-line string only looks like a key)
+        expected = dict(before, model=default, model_provider="raytone", model_context_window=int(chosen["context"]))
+        expected["model_providers"] = dict(before.get("model_providers", {}),
+                                           raytone={"name": "Raytone Models", "base_url": base_url, "wire_api": "responses"})
         try:
-            cfg = tomllib.loads(new)
+            ok = tomllib.loads(new) == expected
         except tomllib.TOMLDecodeError:
-            raise AgentError(f"{self.path} has a layout this adapter cannot edit safely; left as it is") from None
-        p = cfg.get("model_providers", {}).get("raytone", {})
-        if (cfg.get("model"), cfg.get("model_provider"), p.get("base_url"), p.get("wire_api")) != (default, "raytone", base_url, "responses"):
+            ok = False
+        if not ok:
             raise AgentError(f"{self.path} has a layout this adapter cannot edit safely; left as it is")
         mode = self.path.stat().st_mode & 0o7777 if self.path.exists() else 0o600
         self._save_original()
