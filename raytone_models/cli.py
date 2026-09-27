@@ -522,7 +522,11 @@ def main(argv=None, env=None):
         elif a.command == "start":
             _print(cmd_start(a, env), a.json)
         elif a.command == "stop" and a.id.startswith("ollama:"):
-            env.ollama.unload(a.id[len("ollama:"):])
+            try:
+                env.ollama.unload(a.id[len("ollama:"):])
+            except ollama_mod.OllamaError as e:
+                print(json.dumps({"error": str(e)}), flush=True)
+                return 1
             _print({"stopped": a.id}, a.json)
         elif a.command == "stop":
             _print(env.helper(["stop", a.id]), a.json)

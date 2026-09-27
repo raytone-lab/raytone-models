@@ -178,6 +178,11 @@ class CliTests(unittest.TestCase):
         self.assertEqual(json.loads(out.splitlines()[-1]), {"done": True})
         self.assertNotEqual(self.run_cli("ollama", "run", "../x")[0], 0)
 
+    def test_stopping_an_ollama_model_when_ollama_is_down(self):
+        rc, out = self.run_cli("stop", "ollama:qwen3:1.7b", "--json")
+        self.assertEqual(rc, 1)
+        self.assertIn("error", json.loads(out))
+
     def test_ollama_in_engines(self):
         self.ollama()
         rows = {e["engine"]: e for e in json.loads(self.run_cli("engines", "--json")[1])}
