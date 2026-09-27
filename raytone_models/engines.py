@@ -32,6 +32,7 @@ def docker_argv(spec, *, store, cache, user, groups):
         "docker", "run", "--rm", "--name", f"raytone-{spec.id}",
         f"--user={uid}:{gid}",
         *[f"--group-add={g}" for g in groups],
+        "--pull=never",
         "--cap-drop=ALL",
         "--security-opt=no-new-privileges",
         "--device=nvidia.com/gpu=all",
