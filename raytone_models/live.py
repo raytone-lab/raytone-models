@@ -1,5 +1,5 @@
 """Live data for the app: the unified memory pool, each engine's token counters (Prometheus
-/metrics, which vLLM and SGLang serve), and a chat streamed through the router as JSON lines.
+/metrics, which vLLM, SGLang and llama.cpp serve), and a chat streamed through the router as JSON lines.
 
 The app computes tokens per second from two counter samples; nothing here keeps state.
 """
@@ -13,7 +13,9 @@ import urllib.request
 METRIC_NAMES = {"vllm:generation_tokens_total": "generation_tokens", "vllm:prompt_tokens_total": "prompt_tokens",
                 "vllm:num_requests_running": "running",
                 "sglang:generation_tokens_total": "generation_tokens", "sglang:prompt_tokens_total": "prompt_tokens",
-                "sglang:num_running_reqs": "running"}
+                "sglang:num_running_reqs": "running",
+                "llamacpp:tokens_predicted_total": "generation_tokens", "llamacpp:prompt_tokens_total": "prompt_tokens",
+                "llamacpp:requests_processing": "running"}
 LINE_RE = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?\s+([0-9.eE+-]+)")
 
 
