@@ -1,0 +1,7 @@
+{
+  "vllm": {
+    "image": "vllm/vllm-openai@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90",
+    "tag": "v0.30.0",
+    "checked": "2026-09-27, Jetson AGX Thor: torch 2.13.0+cu130, arch list includes sm_110, CUDA matmul on NVIDIA Thor (11, 0)"
+  }
+}
