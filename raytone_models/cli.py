@@ -152,7 +152,8 @@ def _instances(env):
         port = d.get("port")
         out.append({"id": d.get("id"), "served_name": d.get("served_name"), "engine": d.get("engine"), "port": port,
                     "chat": d.get("engine") not in engines.NOT_CHAT,
-                    "context": (d.get("args") or {}).get("max-model-len"),
+                    "context": next((a[k] for a in [d.get("args") or {}]
+                                     for k in ("max-model-len", "context-length", "ctx-size") if k in a), None),
                     "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}{engines.health_path(d.get('engine'))}")})
     return out
 
