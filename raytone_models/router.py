@@ -12,8 +12,10 @@ import ipaddress
 import json
 import pathlib
 import threading
+import time
 
 from . import engines
+from . import ollama as ollama_mod
 from . import spec as spec_mod
 
 DEFAULT_REGISTRY = pathlib.Path("/run/raytone-models/instances")
@@ -63,11 +65,39 @@ def instances(registry, ports):
     return out
 
 
+def _ollama_names():
+    """The models Ollama has, cached for a few seconds (Ollama loads one on first use)."""
+    now = time.monotonic()
+    if now - _ollama_cache[0] > 5:
+        try:
+            names = [m["name"] for m in ollama_mod.Ollama(timeout=1).models()]
+        except ollama_mod.OllamaError:
+            names = []
+        _ollama_cache[:] = [now, names]
+    return _ollama_cache[1]
+
+
+_ollama_cache = [-1e9, []]
+
+
+def served(server):
+    """model name -> port: Ollama's models on its fixed port, then the registry's instances, which
+    win over an Ollama model of the same name."""
+    out = {}
+    names, port = server.ollama
+    try:
+        out.update({n: port for n in names() if isinstance(n, str) and spec_mod.NAME_RE.fullmatch(n)})
+    except OSError:
+        pass
+    out.update(instances(server.registry, server.ports))
+    return out
+
+
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, addr, handler, registry, ports):
-        self.registry, self.ports = registry, ports
+    def __init__(self, addr, handler, registry, ports, ollama):
+        self.registry, self.ports, self.ollama = registry, ports, ollama
         self.request_timeout = REQUEST_TIMEOUT
         self.slots = threading.BoundedSemaphore(MAX_CONCURRENT)
         super().__init__(addr, handler)
@@ -121,7 +151,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not self._guard(body_expected=False):
             return
         if self.path.split("?")[0] in ("/v1/models", "/models"):
-            names = instances(self.server.registry, self.server.ports)
+            names = served(self.server)
             self._json(200, {"object": "list",
                              "data": [{"id": n, "object": "model", "owned_by": "raytone"} for n in sorted(names)]})
         elif self.path == "/health":
@@ -166,16 +196,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         model = payload.get("model")
         if model is not None and not isinstance(model, str):
             return self._error(400, "model is a string")
-        served = instances(self.server.registry, self.server.ports)
-        if model is None and len(served) == 1:
+        served_now = served(self.server)
+        if model is None and len(served_now) == 1:
             # the engine checks the name too: fill it in
-            model = next(iter(served))
+            model = next(iter(served_now))
             payload["model"] = model
             body = json.dumps(payload).encode()
-        if model not in served:
-            return self._error(404, f"model {model!r} is not running; running: {', '.join(sorted(served)) or 'none'}",
+        if model not in served_now:
+            return self._error(404, f"model {model!r} is not running; running: {', '.join(sorted(served_now)) or 'none'}",
                                "model_not_found")
-        self._relay(served[model], body)
+        self._relay(served_now[model], body)
 
     def _relay(self, port, body):
         headers = {k: v for k, v in self.headers.items() if k.lower() in FORWARD_HEADERS}
@@ -209,7 +239,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             up.close()
 
 
-def make_server(host="127.0.0.1", port=DEFAULT_PORT, *, registry=DEFAULT_REGISTRY, ports=spec_mod.INSTANCE_PORTS):
+def make_server(host="127.0.0.1", port=DEFAULT_PORT, *, registry=DEFAULT_REGISTRY, ports=spec_mod.INSTANCE_PORTS,
+                ollama=(_ollama_names, ollama_mod.PORT)):
+    """ollama: (a callable naming Ollama's models, its port)."""
     if not _loopback(host):
         raise ValueError("the router binds loopback only")
-    return Server((host, port), Handler, registry, ports)
+    return Server((host, port), Handler, registry, ports, ollama)
