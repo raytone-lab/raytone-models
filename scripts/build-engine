@@ -8,8 +8,10 @@ here=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)   # also through /usr/bi
 [[ $name =~ ^[a-z0-9.-]+$ && -f $here/engines/$name/Dockerfile ]] || { echo "no engine $name in $here/engines" >&2; exit 1; }
 docker=${RAYTONE_DOCKER:-docker} sudo=${RAYTONE_SUDO-sudo}
 file=${RAYTONE_ENGINES_FILE:-/etc/raytone-models/engines.json}
-tmp=$(mktemp) iid=$(mktemp)
-trap 'rm -f "$tmp" "$iid"' EXIT
+# a directory of ours: root's docker writes the iidfile, and we can still remove it from here
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+tmp=$work/engines.json iid=$work/iid
 # the ID of this build (the tag may be moved by another build in the meantime)
 $sudo "$docker" build --iidfile "$iid" -t "raytone/$name:local" "$here/engines/$name"
 id=$(cat "$iid")
