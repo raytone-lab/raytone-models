@@ -78,6 +78,13 @@ class SglangTests(unittest.TestCase):
         for bad in ("--network=host", "--ipc=host", "--privileged"):
             self.assertNotIn(bad, a)
 
+    def test_the_user_has_a_name_without_a_passwd_entry(self):
+        # seen on the Thor: torch's compiler asks getpass.getuser(), and uid 955 has no passwd entry
+        # in the image; getpass reads LOGNAME and USER first
+        a = self.argv()
+        self.assertIn("--env=USER=raytone-engine", a)
+        self.assertIn("--env=LOGNAME=raytone-engine", a)
+
     def test_launch_server_with_the_model_and_metrics(self):
         a = self.argv()
         rest = a[a.index(f"nvcr.io/nvidia/sglang@{DIGEST}") + 1:]

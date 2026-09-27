@@ -43,6 +43,8 @@ def docker_argv(spec, *, store, cache, user, groups):
         "--env=HF_HOME=/hf",
         "--env=HF_HUB_OFFLINE=1",
         "--env=HOME=/cache",
+        "--env=USER=raytone-engine",      # no passwd entry for the uid inside the image
+        "--env=LOGNAME=raytone-engine",
         "--env=XDG_CACHE_HOME=/cache",
         "--env=VLLM_CACHE_ROOT=/cache/vllm",
         "--env=TRITON_CACHE_DIR=/cache/triton",
