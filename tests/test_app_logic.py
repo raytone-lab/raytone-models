@@ -69,6 +69,11 @@ class AppLogicTests(unittest.TestCase):
         self.assertEqual(call("modelState", {"complete": False, "progress": 0.03, "incomplete": 1, "missing": ["x"],
                                              "download": {"state": "running", "progress": 0.4}}), "downloading 40%")
 
+    def test_clock(self):
+        self.assertEqual(call("clock", 0), "0:00")
+        self.assertEqual(call("clock", 83.6), "1:23")
+        self.assertEqual(call("clock", 3725), "62:05")
+
     def test_agent_command(self):
         self.assertEqual(call("agentCommand", "claude"), "claude")
         self.assertEqual(call("agentCommand", "opencode"), "opencode")
