@@ -82,6 +82,7 @@ class AppLogicTests(unittest.TestCase):
     def test_agent_command(self):
         self.assertEqual(call("agentCommand", "claude"), "claude")
         self.assertEqual(call("agentCommand", "opencode"), "opencode")
+        self.assertEqual(call("agentCommand", "codex"), "codex")
         self.assertIsNone(call("agentCommand", "gemini"))
 
 

@@ -140,6 +140,13 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertFalse((self.env.home / ".config/opencode/opencode.json").exists())
 
+    def test_context_length_from_every_engine(self):
+        for engine, args in (("vllm", {"max-model-len": 131072}), ("sglang", {"context-length": 262144}),
+                             ("llamacpp", {"ctx-size": 32768, "model-file": "a.gguf"})):
+            (self.reg / "x.json").write_text(json.dumps({"id": "x", "served_name": "x", "port": 18000, "engine": engine, "args": args}))
+            [i] = json.loads(self.run_cli("instances", "--json")[1])
+            self.assertEqual(i["context"], list(v for k, v in args.items() if k != "model-file")[0], engine)
+
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")
         self.assertEqual(self.helper_calls, [(["stop", "qwen"], None)])
