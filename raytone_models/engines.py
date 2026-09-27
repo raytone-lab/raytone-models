@@ -56,6 +56,13 @@ def docker_argv(spec, *, store, cache, user, groups):
                  "--host", "0.0.0.0", "--port", str(CONTAINER_PORT)]
         argv += _engine_args(spec)
         return argv
+    if spec.engine == "sglang":
+        # the module rather than an image's entrypoint script: NGC and LMSYS images both have it
+        argv += ["python3", "-m", "sglang.launch_server", "--model-path", f"/hf/hub/{spec.model}",
+                 "--served-model-name", spec.served_name, "--host", "0.0.0.0", "--port", str(CONTAINER_PORT),
+                 "--enable-metrics"]
+        argv += _engine_args(spec)
+        return argv
     raise ValueError(f"no adapter for engine {spec.engine}")
 
 

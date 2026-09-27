@@ -2,7 +2,7 @@
 import unittest
 
 from raytone_models import engines, spec
-from tests.test_spec import DIGEST, SNAPSHOT, good
+from tests.test_spec import DIGEST, DRAFT, SNAPSHOT, good, sglang
 
 
 class VllmTests(unittest.TestCase):
@@ -61,6 +61,37 @@ class VllmTests(unittest.TestCase):
 
     def test_health_url(self):
         self.assertEqual(engines.health_url(spec.load(good())), "http://127.0.0.1:18001/v1/models")
+
+
+
+class SglangTests(unittest.TestCase):
+    def argv(self, **over):
+        return engines.docker_argv(spec.load(sglang(**over)), store="/srv/hf", cache="/var/cache/raytone-models/n",
+                                   user=(961, 961), groups=(983, 987))
+
+    def test_same_confinement_as_vllm(self):
+        a = self.argv()
+        for flag in ("--pull=never", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=961:961",
+                     "--device=nvidia.com/gpu=all", "--publish=127.0.0.1:18001:8000", "--volume=/srv/hf:/hf:ro",
+                     "--env=HF_HUB_OFFLINE=1", "--env=HOME=/cache"):
+            self.assertIn(flag, a)
+        for bad in ("--network=host", "--ipc=host", "--privileged"):
+            self.assertNotIn(bad, a)
+
+    def test_launch_server_with_the_model_and_metrics(self):
+        a = self.argv()
+        rest = a[a.index(f"nvcr.io/nvidia/sglang@{DIGEST}") + 1:]
+        self.assertEqual(rest[:3], ["python3", "-m", "sglang.launch_server"])
+        self.assertEqual(rest[rest.index("--model-path") + 1], "/hf/hub/" + SNAPSHOT)
+        self.assertEqual(rest[rest.index("--served-model-name") + 1], "qwen3.8-27b")
+        self.assertEqual(rest[rest.index("--port") + 1], "8000")
+        self.assertIn("--enable-metrics", rest)     # the Running page's tokens/s
+        self.assertEqual(rest[rest.index("--speculative-draft-model-path") + 1], DRAFT)
+        self.assertEqual(rest[rest.index("--speculative-dspark-block-size") + 1], "3")
+        self.assertIn("--env=SGLANG_ENABLE_SPEC_V2=1", a)
+
+    def test_the_health_url_is_the_same(self):
+        self.assertEqual(engines.health_url(spec.load(sglang())), "http://127.0.0.1:18001/v1/models")
 
 
 if __name__ == "__main__":
