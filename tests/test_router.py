@@ -115,6 +115,14 @@ class RouterTests(unittest.TestCase):
         status, _, body = self.request("POST", "/v1/chat/completions", {"messages": []})
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["served_by"], self.a.server_address[1])
+        # the engine is told which model: the name is filled in (Codex)
+        self.assertEqual(self.a.seen[-1][2]["model"], "qwen3.8-27b")
+
+    def test_a_model_that_is_not_a_string_is_a_400(self):
+        for bad in ([], {}, 3):
+            with self.subTest(model=bad):
+                status, _, _ = self.request("POST", "/v1/chat/completions", {"model": bad})
+                self.assertEqual(status, 400)
 
     def test_a_foreign_host_header_is_refused(self):
         # DNS rebinding: a web page cannot use the router through a name that resolves to 127.0.0.1

@@ -69,6 +69,28 @@ class HelperTests(unittest.TestCase):
         self.start(id="qwen38-27b", port=18003)                 # the same instance may be restarted
         self.assertEqual(self.calls[-1], ["start", "raytone-engine@qwen38-27b.service"])
 
+    def test_restarting_an_instance_stops_the_old_one_first(self):
+        # From Codex's PR review: `systemctl start` on a running unit does nothing, so a new port in
+        # the registry would point the router at nobody
+        self.start()
+        self.start(port=18005)
+        self.assertEqual(self.calls[-2:], [["stop", "raytone-engine@qwen38-27b.service"],
+                                           ["start", "raytone-engine@qwen38-27b.service"]])
+        self.assertEqual(json.loads((self.run / "instances" / "qwen38-27b.json").read_text())["port"], 18005)
+
+    def test_a_failed_start_is_unregistered(self):
+        def failing(args):
+            if args[0] == "start":
+                raise helper.subprocess.CalledProcessError(1, ["systemctl", *args])
+        with self.assertRaises(helper.HelperError):
+            helper.start(json.dumps(good()), **{**self.paths, "systemctl": failing})
+        self.assertFalse((self.run / "instances" / "qwen38-27b.json").exists())
+
+    def test_the_unit_unregisters_when_it_ends(self):
+        self.start()
+        helper.unregister("qwen38-27b", **self.paths)
+        self.assertFalse((self.run / "instances" / "qwen38-27b.json").exists())
+
     def test_stop_stops_and_unregisters(self):
         self.start()
         helper.stop("qwen38-27b", **self.paths)

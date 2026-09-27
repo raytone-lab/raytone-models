@@ -200,7 +200,7 @@ Item {
                             actionText: root.busyKey === "run:" + modelData.repo ? "Starting…" : "Run"
                             actionVisible: Logic.runnable(modelData)
                             actionEnabled: root.busyKey === ""
-                            onAction: root.act("run:" + modelData.repo, Logic.runArgv(modelData.repo))
+                            onAction: root.act("run:" + modelData.repo, Logic.runArgv(modelData.repo, modelData.revision))
                         }
                     }
 
@@ -218,6 +218,7 @@ Item {
                             actionEnabled: root.busyKey === "" && root.readyModels() > 0
                             secondaryText: "Revert"
                             secondaryVisible: actionVisible
+                            secondaryEnabled: root.busyKey === ""    // reverting needs no running model
                             onAction: root.act("agent:" + modelData.id, ["raytone-models", "agent", "connect", modelData.id, "--json"])
                             onSecondary: root.act("agent:" + modelData.id, ["raytone-models", "agent", "revert", modelData.id, "--json"])
                         }
@@ -256,6 +257,7 @@ Item {
         property bool actionEnabled: true
         property string secondaryText: ""
         property bool secondaryVisible: false
+        property bool secondaryEnabled: actionEnabled
         signal action()
         signal secondary()
         Layout.fillWidth: true
@@ -274,7 +276,7 @@ Item {
                 Text { text: row.detail; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontCaption; elide: Text.ElideRight; Layout.fillWidth: true }
             }
             Text { visible: row.status !== ""; text: row.status; color: row.statusColor; font.family: Theme.fontFamily; font.pixelSize: Theme.fontState }
-            RaytoneButton { visible: row.secondaryVisible; text: row.secondaryText; variant: "outline"; enabled: row.actionEnabled; onClicked: row.secondary() }
+            RaytoneButton { visible: row.secondaryVisible; text: row.secondaryText; variant: "outline"; enabled: row.secondaryEnabled; onClicked: row.secondary() }
             RaytoneButton { visible: row.actionVisible; text: row.actionText; variant: "primary"; enabled: row.actionEnabled; onClicked: row.action() }
         }
     }

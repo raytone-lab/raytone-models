@@ -16,6 +16,8 @@ class SystemFilesTests(unittest.TestCase):
         unit = (ROOT / "systemd/raytone-engine@.service").read_text()
         self.assertIn(f"ExecStart={HELPER} run %i", unit)
         self.assertIn("Requires=docker.service", unit)
+        # an engine that exits or fails leaves the registry (and the router, and the panel)
+        self.assertIn(f"ExecStopPost={HELPER} unregister %i", unit)
         self.assertNotRegex(unit, r"(?m)^Exec\w*=.*(/bin/sh|bash|;|\||&&)")
 
     def test_polkit_allows_the_helper_only(self):
