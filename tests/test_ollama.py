@@ -18,6 +18,7 @@ PS = {"models": [{"name": "qwen3:1.7b", "size_vram": 1500000000, "context_length
 class FakeOllama(http.server.ThreadingHTTPServer):
     def __init__(self):
         self.posts = []
+        self.redirect = None
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -33,6 +34,12 @@ class FakeOllama(http.server.ThreadingHTTPServer):
                 self.wfile.write(data)
 
             def do_GET(self):
+                if self.path == "/api/tags" and outer.redirect:
+                    self.send_response(302)
+                    self.send_header("Location", outer.redirect)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 if self.path == "/api/version":
                     return self.send(200, {"version": "0.34.4"})
                 if self.path == "/api/tags":
@@ -99,6 +106,18 @@ class OllamaTests(unittest.TestCase):
     def test_delete(self):
         self.o.delete("qwen3:1.7b")
         self.assertEqual(self.srv.posts, [("DELETE /api/delete", {"model": "qwen3:1.7b"})])
+
+    def test_a_redirect_is_not_followed(self):
+        # From Codex's review of PR #9: the router asks Ollama for its models; a redirect must not
+        # take that request to another service
+        other = FakeOllama()
+        self.addCleanup(other.server_close)
+        self.addCleanup(other.shutdown)
+        self.srv.redirect = f"http://127.0.0.1:{other.server_address[1]}/api/tags"
+        with self.assertRaises(ollama.OllamaError):
+            self.o.models()
+        self.assertEqual(other.posts, [])
+        self.assertEqual(self.o.version(), "0.34.4")        # the other calls still work
 
     def test_names_are_checked(self):
         for bad in ("../x", "a b", "", "-x", "x\n"):

@@ -142,6 +142,27 @@ class RouterTests(unittest.TestCase):
         status, _, body = self.request("POST", "/v1/chat/completions", {"model": "qwen3:1.7b"})
         self.assertEqual((status, json.loads(body)["served_by"]), (200, self.ol.server_address[1]))
 
+    def test_a_namespaced_ollama_model_is_routed(self):
+        self.ollama_names = ["team/model:latest"]
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "team/model:latest"})
+        self.assertEqual((status, json.loads(body)["served_by"]), (200, self.ol.server_address[1]))
+
+    def test_the_ollama_names_are_refreshed_by_one_thread_at_a_time(self):
+        # From Codex's review of PR #9: a slow failed refresh must not overwrite a newer good one
+        calls = []
+
+        def fetch():
+            calls.append(1)
+            time.sleep(0.2)
+            return ["qwen3:1.7b"]
+        cache = router.Cached(fetch, ttl=5)
+        threads = [threading.Thread(target=cache) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual((len(calls), cache()), (1, ["qwen3:1.7b"]))
+
     def test_an_instance_wins_over_an_ollama_model_of_the_same_name(self):
         self.ollama_names = ["qwen3.8-27b"]
         status, _, body = self.request("POST", "/v1/chat/completions", {"model": "qwen3.8-27b"})

@@ -17,6 +17,15 @@ class OllamaError(RuntimeError):
     pass
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # Ollama is one fixed address: a redirect never takes a request anywhere else
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.URLError(f"Ollama answered with a redirect to {newurl}; refused")
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 def _check(name):
     if not isinstance(name, str) or not NAME_RE.fullmatch(name) or ".." in name:
         raise OllamaError(f"{name!r} is not an Ollama model name")
@@ -30,7 +39,7 @@ class Ollama:
     def _call(self, method, path, body=None, timeout=None):
         req = urllib.request.Request(self.base + path, json.dumps(body).encode() if body is not None else None,
                                      {"Content-Type": "application/json"}, method=method)
-        return urllib.request.urlopen(req, timeout=timeout or self.timeout)
+        return _OPENER.open(req, timeout=timeout or self.timeout)
 
     def _json(self, path):
         with self._call("GET", path) as r:
