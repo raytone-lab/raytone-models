@@ -122,7 +122,10 @@ class RouterTests(unittest.TestCase):
         body = json.dumps({"model": "qwen3.8-27b", "slow": True}).encode()
         s.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
                   + f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
-        self.assertIn(b"200", s.recv(4096))
+        got = b""
+        while b"data: " not in got:          # the headers and a first chunk of the answer
+            got += s.recv(4096)
+        self.assertIn(b" 200 ", got)
         s.close()
         self.assertTrue(self.a.aborted.wait(3), "the engine kept streaming to nobody")
         status, _, _ = self.request("POST", "/v1/chat/completions", {"model": "qwen3.8-27b"})
