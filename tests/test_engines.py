@@ -144,7 +144,7 @@ class LlamacppTests(unittest.TestCase):
                      "--publish=127.0.0.1:18001:8000", "--volume=/srv/hf:/hf:ro", "--env=HF_HUB_OFFLINE=1"):
             self.assertIn(flag, a)
         self.assertIn(DIGEST, a)
-        self.assertNotIn(f"raytone/llama.cpp@{DIGEST}", a)
+        self.assertNotIn(f"raytone/llamacpp@{DIGEST}", a)
 
     def test_llama_server_gets_the_files_and_flags(self):
         a = self.argv(args={"model-file": "Qwen3-0.6B-Q4_K_M.gguf", "mmproj-file": "mmproj-F16.gguf", "ctx-size": 32768,

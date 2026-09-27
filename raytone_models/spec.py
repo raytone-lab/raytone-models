@@ -128,7 +128,7 @@ ENGINES = {
     },
     # GGUF models; llama.cpp built on this machine with CUDA 13.0 for sm_110 (engines/llamacpp)
     "llamacpp": {
-        "images": ("raytone/llama.cpp",),
+        "images": ("raytone/llamacpp",),
         "local": True,
         "requires": ("model-file",),
         "args": {

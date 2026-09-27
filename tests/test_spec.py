@@ -69,7 +69,7 @@ GGUF = "models--unsloth--Qwen3-0.6B-GGUF/snapshots/" + "9" * 40
 
 
 def llamacpp(**over):
-    s = good(engine="llamacpp", image=f"raytone/llama.cpp@{DIGEST}", model=GGUF, served_name="qwen3-0.6b",
+    s = good(engine="llamacpp", image=f"raytone/llamacpp@{DIGEST}", model=GGUF, served_name="qwen3-0.6b",
              args={"model-file": "Qwen3-0.6B-Q4_K_M.gguf", "ctx-size": 32768, "n-gpu-layers": 999, "flash-attn": "on",
                    "jinja": True},
              env={})
