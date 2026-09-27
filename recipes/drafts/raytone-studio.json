@@ -38,7 +38,7 @@
                             "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"]},
       "engine": "comfyui",
       "image": "raytone/comfyui@local",
-      "args": {"gpu-only": true},
+      "args": {"disable-smart-memory": true},
       "env": {}
     }
   ],
