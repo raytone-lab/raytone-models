@@ -185,6 +185,15 @@ class Pi(JsonAdapter):
         }
 
 
+class Hermes(JsonAdapter):
+    """~/.hermes/config.yaml: its custom provider (an OpenAI-compatible endpoint; no key on loopback).
+    Written as JSON, which is YAML; a config in YAML proper is not ours to rewrite."""
+    id, rel = "hermes", ".hermes/config.yaml"
+
+    def merge(self, cfg, base_url):
+        cfg["model"] = {"provider": "custom", "base_url": base_url, "default": MODEL}
+
+
 class Codex(Adapter):
     """~/.codex/config.toml: a custom provider on the Responses API. TOML has no writer in the
     standard library, so the file is edited as text: our top-level keys and our provider table are
@@ -285,7 +294,7 @@ class Copilot(EnvAdapter):
                 "COPILOT_OFFLINE": "true"}
 
 
-ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Codex, Copilot)}
+ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Hermes, Codex, Copilot)}
 
 
 def get(agent_id, **kw):

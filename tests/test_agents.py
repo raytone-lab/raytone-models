@@ -129,9 +129,23 @@ class JsonAdapterTests(unittest.TestCase):
         self.assertEqual(p["models"], [{"id": "local", "name": "Local model (Raytone Models)"}])
         self.assertIn("other", cfg["providers"])
 
+    def test_hermes_gets_a_custom_provider(self):
+        # ~/.hermes/config.yaml, written as JSON (which is YAML); Hermes needs no key on loopback
+        cfg = self.roundtrip("hermes", ".hermes/config.yaml", b'{"toolsets": ["hermes-cli"], "model": {"provider": "nous"}}\n')
+        self.assertEqual(cfg["model"], {"provider": "custom", "base_url": BASE, "default": "local"})
+        self.assertEqual(cfg["toolsets"], ["hermes-cli"])
+
+    def test_a_hermes_config_in_yaml_is_left_alone(self):
+        path = self.home / ".hermes/config.yaml"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"model:\n  provider: nous\n")
+        with self.assertRaises(agents.AgentError):
+            agents.get("hermes", home=self.home, state=self.state).connect(base_url=BASE)
+        self.assertEqual(path.read_bytes(), b"model:\n  provider: nous\n")
+
     def test_catalog_marks_the_agents_with_adapters(self):
         info = {a["id"]: a for a in agents.catalog()}
-        for name in ("opencode", "claude", "crush", "pi"):
+        for name in ("opencode", "claude", "crush", "pi", "hermes"):
             self.assertTrue(info[name]["connectable"], name)
         self.assertFalse(info["gemini"]["connectable"])
 
