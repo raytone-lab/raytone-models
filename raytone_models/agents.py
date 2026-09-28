@@ -98,6 +98,8 @@ class Adapter:
 class JsonAdapter(Adapter):
     """An agent whose settings are one JSON file: parse it (or refuse), keep the original, merge."""
     rel = ""
+    seeds = ()      # read instead, the first that exists, while the config does not (they are left as they are)
+    setup = ""      # set when the agent's own setup must have written the config first: how to run it
 
     @property
     def path(self):
@@ -107,14 +109,17 @@ class JsonAdapter(Adapter):
         raise NotImplementedError
 
     def connect(self, *, base_url=ROUTER):
+        if self.setup and not self.path.exists():
+            raise AgentError(f"{self.id} is not set up yet: {self.setup}")
         cfg = {}
-        if self.path.exists():
+        source = next((f for f in (self.path, *(self.home / s for s in self.seeds)) if f.exists()), None)
+        if source is not None:
             try:
-                cfg = json.loads(self.path.read_text())
+                cfg = json.loads(source.read_text())
             except ValueError:
-                raise AgentError(f"{self.path} is not plain JSON; left as it is") from None
+                raise AgentError(f"{source} is not plain JSON; left as it is") from None
             if not isinstance(cfg, dict):
-                raise AgentError(f"{self.path} is not a JSON object; left as it is")
+                raise AgentError(f"{source} is not a JSON object; left as it is")
         mode = self.path.stat().st_mode & 0o7777 if self.path.exists() else 0o600
         self._save_original()
         self.merge(cfg, base_url)
@@ -183,6 +188,41 @@ class Pi(JsonAdapter):
             "baseUrl": base_url, "api": "openai-completions", "apiKey": "raytone-local",
             "models": [{"id": MODEL, "name": LABEL}],
         }
+
+
+class Omp(Pi):
+    """Oh My Pi, Pi's fork: ~/.omp/agent/models.yml, written as JSON (which is YAML). It reads
+    models.yml before models.yaml before models.json (converting a models.json once), so the
+    first of those it would read is carried over; one in YAML proper is refused."""
+    id, rel, seeds = "omp", ".omp/agent/models.yml", (".omp/agent/models.yaml", ".omp/agent/models.json")
+
+
+class Openclaw(JsonAdapter):
+    """~/.openclaw/openclaw.json (JSON5; a file with comments is left alone): a provider and the
+    default model. OpenClaw's agent runs in its gateway, which its own onboarding installs."""
+    id, rel = "openclaw", ".openclaw/openclaw.json"
+    setup = "run omarchy-openclaw-onboard (or openclaw onboard) first"
+
+    def merge(self, cfg, base_url):
+        cfg.setdefault("models", {}).setdefault("providers", {})["raytone"] = {
+            "baseUrl": base_url, "apiKey": "raytone-local", "api": "openai-completions",
+            "models": [{"id": MODEL, "name": LABEL}],
+        }
+        defaults = cfg.setdefault("agents", {}).setdefault("defaults", {})
+        model = defaults.get("model")
+        defaults["model"] = {**(model if isinstance(model, dict) else {}), "primary": f"raytone/{MODEL}"}
+
+
+class Hermes(JsonAdapter):
+    """~/.hermes/config.yaml: its custom provider (an OpenAI-compatible endpoint; no key on loopback).
+    Written as JSON, which is YAML; a config in YAML proper is not ours to rewrite."""
+    id, rel = "hermes", ".hermes/config.yaml"
+
+    def merge(self, cfg, base_url):
+        # the rest of model (aliases, ...) stays; the old endpoint's key and wire format do not
+        model = {k: v for k, v in (cfg.get("model") if isinstance(cfg.get("model"), dict) else {}).items()
+                 if k not in ("api_key", "api_mode")}
+        cfg["model"] = {**model, "provider": "custom", "base_url": base_url, "default": MODEL}
 
 
 class Codex(Adapter):
@@ -285,7 +325,7 @@ class Copilot(EnvAdapter):
                 "COPILOT_OFFLINE": "true"}
 
 
-ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Codex, Copilot)}
+ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Omp, Hermes, Openclaw, Codex, Copilot)}
 
 
 def get(agent_id, **kw):

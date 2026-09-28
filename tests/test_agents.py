@@ -129,9 +129,81 @@ class JsonAdapterTests(unittest.TestCase):
         self.assertEqual(p["models"], [{"id": "local", "name": "Local model (Raytone Models)"}])
         self.assertIn("other", cfg["providers"])
 
+    def test_hermes_gets_a_custom_provider(self):
+        # ~/.hermes/config.yaml, written as JSON (which is YAML); Hermes needs no key on loopback
+        cfg = self.roundtrip("hermes", ".hermes/config.yaml",
+                             b'{"toolsets": ["hermes-cli"], "model": {"provider": "nous", "aliases": {"q": "x"}, "api_key": "k", "api_mode": "anthropic_messages"}}\n')
+        # From Codex's review: only the endpoint's keys change; the rest of model stays
+        self.assertEqual(cfg["model"], {"provider": "custom", "base_url": BASE, "default": "local", "aliases": {"q": "x"}})
+        self.assertEqual(cfg["toolsets"], ["hermes-cli"])
+
+    def test_a_hermes_config_in_yaml_is_left_alone(self):
+        path = self.home / ".hermes/config.yaml"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"model:\n  provider: nous\n")
+        with self.assertRaises(agents.AgentError):
+            agents.get("hermes", home=self.home, state=self.state).connect(base_url=BASE)
+        self.assertEqual(path.read_bytes(), b"model:\n  provider: nous\n")
+
+    def test_oh_my_pi_gets_a_provider_in_models_yml(self):
+        # Oh My Pi reads models.yml (it converts a models.json once, then reads only the YAML);
+        # written as JSON, which is YAML
+        cfg = self.roundtrip("omp", ".omp/agent/models.yml", b'{"providers": {"other": {}}}\n')
+        p = cfg["providers"]["raytone"]
+        self.assertEqual((p["baseUrl"], p["api"]), (BASE, "openai-completions"))
+        self.assertEqual(p["models"], [{"id": "local", "name": "Local model (Raytone Models)"}])
+        self.assertIn("other", cfg["providers"])
+
+    def test_oh_my_pi_keeps_the_providers_of_a_models_json(self):
+        # with no models.yml yet, the YAML we write replaces models.json for Oh My Pi: carry it over
+        old = self.home / ".omp/agent/models.json"
+        old.parent.mkdir(parents=True)
+        old.write_bytes(b'{"providers": {"mine": {"baseUrl": "http://x"}}}')
+        a = agents.get("omp", home=self.home, state=self.state)
+        a.connect(base_url=BASE)
+        cfg = json.loads((self.home / ".omp/agent/models.yml").read_text())
+        self.assertEqual(sorted(cfg["providers"]), ["mine", "raytone"])
+        a.revert()
+        self.assertFalse((self.home / ".omp/agent/models.yml").exists())
+        self.assertEqual(old.read_bytes(), b'{"providers": {"mine": {"baseUrl": "http://x"}}}')
+
+    def test_oh_my_pi_never_hides_a_models_yaml(self):
+        # From Codex's review: Oh My Pi reads models.yml before models.yaml before models.json
+        yaml = self.home / ".omp/agent/models.yaml"
+        yaml.parent.mkdir(parents=True)
+        (yaml.parent / "models.json").write_text('{"providers": {"old": {}}}')
+        yaml.write_text('{"providers": {"mine": {}}}')
+        a = agents.get("omp", home=self.home, state=self.state)
+        a.connect(base_url=BASE)
+        cfg = json.loads((self.home / ".omp/agent/models.yml").read_text())
+        self.assertEqual(sorted(cfg["providers"]), ["mine", "raytone"])
+        a.revert()
+        # in YAML proper it cannot be carried over: nothing is written
+        yaml.write_text("providers:\n  mine: {}\n")
+        with self.assertRaises(agents.AgentError):
+            a.connect(base_url=BASE)
+        self.assertFalse((self.home / ".omp/agent/models.yml").exists())
+
+    def test_openclaw_gets_a_provider_and_the_default_model(self):
+        cfg = self.roundtrip("openclaw", ".openclaw/openclaw.json",
+                             b'{"gateway": {"mode": "local", "port": 18789}, "agents": {"defaults": {"workspace": "/w", "model": {"fallbacks": ["x/y"]}}}}\n')
+        p = cfg["models"]["providers"]["raytone"]
+        self.assertEqual((p["baseUrl"], p["api"]), (BASE, "openai-completions"))
+        self.assertEqual(p["models"], [{"id": "local", "name": "Local model (Raytone Models)"}])
+        self.assertEqual(cfg["agents"]["defaults"]["model"], {"primary": "raytone/local", "fallbacks": ["x/y"]})
+        self.assertEqual(cfg["agents"]["defaults"]["workspace"], "/w")
+        self.assertEqual(cfg["gateway"], {"mode": "local", "port": 18789})
+
+    def test_openclaw_must_be_set_up_first(self):
+        # its own onboarding installs the gateway the agent runs in; a config of ours alone would not
+        with self.assertRaises(agents.AgentError) as e:
+            agents.get("openclaw", home=self.home, state=self.state).connect(base_url=BASE)
+        self.assertIn("onboard", str(e.exception))
+        self.assertFalse((self.home / ".openclaw").exists())
+
     def test_catalog_marks_the_agents_with_adapters(self):
         info = {a["id"]: a for a in agents.catalog()}
-        for name in ("opencode", "claude", "crush", "pi"):
+        for name in ("opencode", "claude", "crush", "pi", "hermes", "omp", "openclaw"):
             self.assertTrue(info[name]["connectable"], name)
         self.assertFalse(info["gemini"]["connectable"])
 

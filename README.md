@@ -38,12 +38,13 @@ through them in a desktop session is still to do.
 - **Agents** are connected once and never tied to a model: they get the router's address and the
   name `local`, so switching models needs no change to them. The context length is the engine's,
   set when the model starts; vLLM and SGLang refuse a longer request with an error the agent can act
-  on (Ollama instead drops the start of it). OpenCode, Claude Code, Crush, Pi and Codex connect in one
-  click (their own config files, restored byte for byte by Revert; in Pi, pick `raytone/local`
-  with `/model`); GitHub Copilot CLI, which reads its
+  on (Ollama instead drops the start of it). OpenCode, Claude Code, Crush, Pi, Oh My Pi, Hermes,
+  OpenClaw and Codex connect in one click (their own config files, restored byte for byte by Revert;
+  OpenClaw once its own onboarding has installed its gateway, which Revert leaves in place); GitHub
+  Copilot CLI, which reads its
   endpoint from the environment only, starts on them with `raytone-models agent-exec copilot` (the
   Agents page's Launch). Gemini, Cursor and Muse Code cannot use a local endpoint, nor could Grok's
-  CLI as installed; Oh My Pi, Hermes and OpenClaw are not connected yet.
+  CLI as installed.
 - **Recipes**, signed by Raytone AI Lab (`ssh-keygen -Y`, verified offline):
 
   | Recipe | What | Checked on the Thor |
