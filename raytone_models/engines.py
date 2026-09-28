@@ -61,9 +61,11 @@ def docker_argv(spec, *, store, cache, user, groups):
         "--env=TORCHINDUCTOR_CACHE_DIR=/cache/inductor",
         f"--label=org.raytone.models.id={spec.id}",
     ]
+    if spec.memory_gib:
+        argv += [f"--memory={spec.memory_gib}g", f"--memory-swap={spec.memory_gib}g"]
     argv += [f"--env={k}={v}" for k, v in sorted(spec.env.items())]
     # a locally built image has no registry digest; its image ID pins it
-    argv.append(spec.image.split("@", 1)[1] if spec_mod.ENGINES[spec.engine].get("local") else spec.image)
+    argv.append(spec.image.split("@", 1)[1] if spec_mod.is_local(spec.image) else spec.image)
     if spec.engine == "vllm":
         argv += [f"/hf/hub/{spec.model}", "--served-model-name", spec.served_name,
                  "--host", "0.0.0.0", "--port", str(CONTAINER_PORT)]

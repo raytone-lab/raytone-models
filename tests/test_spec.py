@@ -104,6 +104,45 @@ class LlamacppSpecTests(unittest.TestCase):
         self.refused("a bad cache type", args={"model-file": "a.gguf", "cache-type-k": "evil"})
 
 
+class LocalVllmTests(unittest.TestCase):
+    """A vLLM image built on this machine (raytone/vllm-NAME), e.g. with a model's own patches that
+    are not ours to ship, and the arguments Qwen3.8 Flash Next's single-device lane needs."""
+
+    def flashnext(self, **over):
+        d = self._flashnext()
+        d.update(over)
+        return d
+
+    def _flashnext(self):
+        return good(image=f"raytone/vllm-flashnext@{DIGEST}", memory_gib=99,
+                    args={"gpu-memory-utilization": 0.773, "kv-cache-dtype": "fp8", "mamba-ssm-cache-dtype": "bfloat16",
+                          "load-format": "safetensors", "safetensors-load-strategy": "lazy", "enable-chunked-prefill": True,
+                          "enable-prompt-tokens-details": True, "distributed-executor-backend": "mp",
+                          "engram-config": {"cpu_offload": True}, "kv-cache-memory-bytes": "12G",
+                          "compilation-config": {"mode": 0, "cudagraph_mode": "FULL_DECODE_ONLY"}},
+                    env={"VLLM_PLE_MMAP_DIR": "/cache/vllm/ple_mmap_v030", "VLLM_PLE_MMAP_ADVICE": "1",
+                         "VLLM_MTP_DRAFT_VOCAB": "/opt/raytone/draft_vocab.txt", "VLLM_USE_V2_MODEL_RUNNER": "1",
+                         "VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR": "/cache/fi_autotune", "MAX_JOBS": "2",
+                         "FLASHINFER_NVCC_THREADS": "1"})
+
+    def test_a_local_vllm_image_with_its_lane_loads(self):
+        s = spec.load(self.flashnext())
+        self.assertEqual((s.memory_gib, spec.is_local(s.image)), (99, True))
+        self.assertFalse(spec.is_local(f"vllm/vllm-openai@{DIGEST}"))
+
+    def test_bounds(self):
+        for over in ({"image": f"raytone/comfyui@{DIGEST}"}, {"image": f"raytone/vllm-@{DIGEST}"},
+                     {"memory_gib": 500}, {"memory_gib": True},
+                     {"env": {"VLLM_PLE_MMAP_DIR": "/root/.ssh"}}, {"env": {"VLLM_PLE_MMAP_DIR": "/cache/../etc"}},
+                     {"env": {"VLLM_MTP_DRAFT_VOCAB": "/etc/shadow"}}, {"args": {"kv-cache-memory-bytes": "12G --x"}},
+                     {"args": {"distributed-executor-backend": "ray"}}):
+            with self.subTest(over=over), self.assertRaises(spec.SpecError):
+                spec.load(self.flashnext(**over))
+
+    def test_memory_is_optional(self):
+        self.assertIsNone(spec.load(good()).memory_gib)
+
+
 class SglangSpecTests(unittest.TestCase):
     def test_a_good_sglang_spec_loads(self):
         s = spec.load(sglang())
