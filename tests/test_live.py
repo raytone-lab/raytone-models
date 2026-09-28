@@ -79,6 +79,10 @@ class LiveTests(unittest.TestCase):
         conf.write_text("<FAN 1>\n\tFAN_DEFAULT_PROFILE raytone\n")
         self.assertEqual(live.video_sizes(conf), ["480p", "768p"])
         self.assertEqual(live.video_sizes(t / "none.conf"), ["480p", "768p"])   # no nvfancontrol: not a Thor
+        # From Codex's re-review: a configuration that is there but cannot be read allows 480p only
+        (t / "dangling.conf").symlink_to(t / "removed.conf")
+        self.assertEqual(live.video_sizes(t / "dangling.conf"), ["480p"])
+        self.assertEqual(live.video_sizes(t), ["480p"])                        # a directory: unreadable
 
     def test_memory_of_the_unified_pool(self):
         m = live.memory(self.meminfo)

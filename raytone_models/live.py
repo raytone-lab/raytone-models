@@ -4,6 +4,7 @@
 The app computes tokens per second from two counter samples; nothing here keeps state.
 """
 import json
+import os
 import pathlib
 import re
 import sys
@@ -32,10 +33,12 @@ def memory(meminfo="/proc/meminfo"):
 def video_sizes(fan_conf="/etc/nvfancontrol.conf"):
     """768p held a Thor at 96 C with JetPack's fan curve, past the thermal guard's 95 C: offered only
     where nvfancontrol uses the Thor edition's curve, or where there is no nvfancontrol at all."""
+    if not os.path.lexists(fan_conf):
+        return ["480p", "768p"]
     try:
         text = pathlib.Path(fan_conf).read_text()
-    except OSError:
-        return ["480p", "768p"]
+    except OSError:           # there, but unreadable (or a link to nothing): the safe choice
+        return ["480p"]
     m = re.search(r"(?m)^\s*FAN_DEFAULT_PROFILE\s+(\S+)", text)
     return ["480p", "768p"] if m and m.group(1) == "raytone" else ["480p"]
 
