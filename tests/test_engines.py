@@ -56,6 +56,18 @@ class VllmTests(unittest.TestCase):
         a = self.argv(args={"speculative-config": {"method": "mtp", "num_speculative_tokens": 3}})
         self.assertEqual(a[a.index("--speculative-config") + 1], '{"method":"mtp","num_speculative_tokens":3}')
 
+    def test_a_memory_limit_caps_the_container(self):
+        # without swap, as Mia's lane does: the container is killed before the board runs out
+        a = self.argv(memory_gib=99)
+        self.assertIn("--memory=99g", a)
+        self.assertIn("--memory-swap=99g", a)
+        self.assertNotIn("--memory=99g", self.argv())
+
+    def test_a_local_vllm_image_runs_by_its_id(self):
+        a = self.argv(image=f"raytone/vllm-flashnext@{DIGEST}")
+        self.assertIn(DIGEST, a)
+        self.assertNotIn(f"raytone/vllm-flashnext@{DIGEST}", a)
+
     def test_engine_env_is_passed(self):
         self.assertIn("--env=VLLM_PLE_MMAP=1", self.argv(env={"VLLM_PLE_MMAP": "1"}))
 

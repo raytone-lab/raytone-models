@@ -104,6 +104,65 @@ class LlamacppSpecTests(unittest.TestCase):
         self.refused("a bad cache type", args={"model-file": "a.gguf", "cache-type-k": "evil"})
 
 
+class LocalVllmTests(unittest.TestCase):
+    """A vLLM image built on this machine (raytone/vllm-NAME), e.g. with a model's own patches that
+    are not ours to ship, and the arguments Qwen3.8 Flash Next's single-device lane needs."""
+
+    def flashnext(self, **over):
+        d = self._flashnext()
+        d.update(over)
+        return d
+
+    def _flashnext(self):
+        return good(image=f"raytone/vllm-flashnext@{DIGEST}", memory_gib=99,
+                    args={"gpu-memory-utilization": 0.773, "kv-cache-dtype": "fp8", "mamba-ssm-cache-dtype": "bfloat16",
+                          "load-format": "safetensors", "safetensors-load-strategy": "lazy", "enable-chunked-prefill": True,
+                          "enable-prompt-tokens-details": True, "distributed-executor-backend": "mp",
+                          "engram-config": {"cpu_offload": True}, "kv-cache-memory-bytes": "12G",
+                          "compilation-config": {"mode": 0, "cudagraph_mode": "FULL_DECODE_ONLY"}},
+                    env={"VLLM_PLE_MMAP_DIR": "/cache/vllm/ple_mmap_v030", "VLLM_PLE_MMAP_ADVICE": "1",
+                         "VLLM_MTP_DRAFT_VOCAB": "/opt/raytone/draft_vocab.txt", "VLLM_USE_V2_MODEL_RUNNER": "1",
+                         "VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR": "/cache/fi_autotune", "MAX_JOBS": "2",
+                         "FLASHINFER_NVCC_THREADS": "1"})
+
+    def test_a_local_vllm_image_with_its_lane_loads(self):
+        s = spec.load(self.flashnext())
+        self.assertEqual((s.memory_gib, spec.is_local(s.image)), (99, True))
+        self.assertFalse(spec.is_local(f"vllm/vllm-openai@{DIGEST}"))
+
+    def test_bounds(self):
+        for over in ({"image": f"raytone/comfyui@{DIGEST}"}, {"image": f"raytone/vllm-@{DIGEST}"},
+                     {"memory_gib": 500}, {"memory_gib": True},
+                     {"env": {"VLLM_PLE_MMAP_DIR": "/root/.ssh"}}, {"env": {"VLLM_PLE_MMAP_DIR": "/cache/../etc"}},
+                     {"env": {"VLLM_MTP_DRAFT_VOCAB": "/etc/shadow"}}, {"args": {"kv-cache-memory-bytes": "12G --x"}},
+                     {"args": {"distributed-executor-backend": "ray"}}):
+            with self.subTest(over=over), self.assertRaises(spec.SpecError):
+                spec.load(self.flashnext(**over))
+
+    def test_json_arguments_have_a_schema(self):
+        # From Codex's review of PR #13: vLLM reads paths and importable names from these objects
+        base = self._flashnext()["args"]
+        for key, bad in (("compilation-config", {"mode": 1, "backend": "os.system"}),
+                         ("compilation-config", {"cache_dir": "/tmp/x"}),
+                         ("compilation-config", {"mode": "0"}),
+                         ("engram-config", {"cpu_offload": True, "path": "/x"}),
+                         ("speculative-config", {"method": "mtp", "model": "/cache/evil"}),
+                         ("speculative-config", {"method": "mtp", "num_speculative_tokens": 3, "draft_model_config": {}}),
+                         ("limit-mm-per-prompt", {"image": "all"})):
+            with self.subTest(key=key, bad=bad), self.assertRaises(spec.SpecError):
+                spec.load(self.flashnext(args={**base, key: bad}))
+        ok = {"method": "mtp", "num_speculative_tokens": 3, "use_local_argmax_reduction": True,
+              "disable_eagle_block_drop": True, "index_share_for_mtp_iteration": True}
+        spec.load(self.flashnext(args={**base, "speculative-config": ok}))
+        spec.load(good(args={"speculative-config": {"method": "dflash", "num_speculative_tokens": 7,
+                                                    "model": "/hf/hub/models--a--b/snapshots/" + "c" * 40}}))
+        spec.load(good(args={"speculative-config": '{"method":"mtp","num_speculative_tokens":3}'}))
+        spec.load(good(args={"limit-mm-per-prompt": {"image": 2, "video": 0}}))
+
+    def test_memory_is_optional(self):
+        self.assertIsNone(spec.load(good()).memory_gib)
+
+
 class SglangSpecTests(unittest.TestCase):
     def test_a_good_sglang_spec_loads(self):
         s = spec.load(sglang())

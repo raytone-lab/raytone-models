@@ -41,15 +41,6 @@ def _choice(*values):
     return lambda v: v in values
 
 
-def _json_object(v):
-    if isinstance(v, str):
-        try:
-            v = json.loads(v)
-        except ValueError:
-            return False
-    return isinstance(v, dict) and all(isinstance(k, str) for k in v)
-
-
 # a GGUF file inside the model's snapshot: path components that start with a letter, digit or _
 # (so never "..", never an option), ending in .gguf
 GGUF_FILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*\.gguf$")
@@ -66,11 +57,38 @@ def _draft_path(v):
 
 _BIT = re.compile(r"^[01]$")
 
+def _bool(v):
+    return isinstance(v, bool)
+
+
+def _schema(fields):
+    """A JSON object (or a string holding one) with only these keys, each passing its check: vLLM
+    reads paths and importable names from some of its config objects, so no free-form ones."""
+    def check(v):
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                return False
+        return isinstance(v, dict) and all(k in fields and fields[k](x) for k, x in v.items())
+    return check
+
+
+SPECULATIVE = _schema({"method": _choice("mtp", "dflash", "eagle", "eagle3", "ngram", "draft_model"),
+                       "num_speculative_tokens": _int(1, 32), "model": lambda v: _draft_path(v),
+                       "use_local_argmax_reduction": _bool, "disable_eagle_block_drop": _bool,
+                       "index_share_for_mtp_iteration": _bool})
+COMPILATION = _schema({"mode": _int(0, 3),
+                       "cudagraph_mode": _choice("NONE", "PIECEWISE", "FULL", "FULL_DECODE_ONLY", "FULL_AND_PIECEWISE")})
+ENGRAM = _schema({"cpu_offload": _bool, "embedding_across_dp": _bool, "dp_shared_memory": _bool})
+LIMIT_MM = _schema({"image": _int(0, 64), "video": _int(0, 64), "audio": _int(0, 64)})
+
 # Per engine: the image repositories it may come from, its arguments with their checks, and the
 # environment variables it may receive.
 ENGINES = {
     "vllm": {
-        "images": ("vllm/vllm-openai", "nvcr.io/nvidia/vllm"),
+        # raytone/vllm-NAME: a vLLM image built on this machine (with a model's own patches, say)
+        "images": ("vllm/vllm-openai", "nvcr.io/nvidia/vllm", "raytone/vllm-*"),
         "args": {
             "gpu-memory-utilization": _float(0.05, 0.95),
             "max-model-len": _int(512, 4_194_304),
@@ -85,12 +103,28 @@ ENGINES = {
             "enforce-eager": _flag,
             "no-enable-flashinfer-autotune": _flag,
             "trust-remote-code": _flag,
-            "speculative-config": _json_object,
-            "limit-mm-per-prompt": _json_object,
+            "speculative-config": SPECULATIVE,
+            "limit-mm-per-prompt": LIMIT_MM,
+            # Qwen3.8 Flash Next's single-device lane
+            "engram-config": ENGRAM,
+            "compilation-config": COMPILATION,
+            "kv-cache-memory-bytes": lambda v: isinstance(v, str) and bool(re.fullmatch(r"[1-9][0-9]{0,3}[MG]", v)),
+            "mamba-ssm-cache-dtype": _choice("auto", "float16", "bfloat16", "float32"),
+            "load-format": _choice("auto", "safetensors"),
+            "safetensors-load-strategy": _choice("lazy", "eager"),
+            "enable-chunked-prefill": _flag,
+            "enable-prompt-tokens-details": _flag,
+            "distributed-executor-backend": _choice("mp", "uni"),
         },
         # each variable by name, with the values it may take (Qwen3.8 Flash Next's PLE table options)
         "env": {"VLLM_PLE_MMAP": re.compile(r"^[01]$"), "VLLM_PLE_SSD": re.compile(r"^[01]$"),
-                "VLLM_ALLOW_LONG_MAX_MODEL_LEN": re.compile(r"^[01]$")},
+                "VLLM_ALLOW_LONG_MAX_MODEL_LEN": re.compile(r"^[01]$"),
+                # paths only inside the instance's own cache, or files a local image put in /opt/raytone
+                "VLLM_PLE_MMAP_DIR": re.compile(r"/cache(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+"),
+                "VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR": re.compile(r"/cache(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+"),
+                "VLLM_MTP_DRAFT_VOCAB": re.compile(r"/opt/raytone/[A-Za-z0-9_][A-Za-z0-9_.-]*"),
+                "VLLM_PLE_MMAP_ADVICE": re.compile(r"[01]"), "VLLM_USE_V2_MODEL_RUNNER": re.compile(r"[01]"),
+                "MAX_JOBS": re.compile(r"[1-9][0-9]?"), "FLASHINFER_NVCC_THREADS": re.compile(r"[1-9][0-9]?")},
     },
     "sglang": {
         "images": ("nvcr.io/nvidia/sglang", "lmsysorg/sglang"),
@@ -164,7 +198,23 @@ ENGINES = {
     },
 }
 
-FIELDS = ("id", "engine", "image", "model", "served_name", "port", "args", "env")
+FIELDS = ("id", "engine", "image", "model", "served_name", "port", "args", "env", "memory_gib")
+LOCAL_REPO_RE = re.compile(r"raytone/[a-z0-9][a-z0-9.-]*")
+
+
+def is_local(image):
+    """An image built on this machine (raytone/...), run by its image ID."""
+    return isinstance(image, str) and bool(LOCAL_REPO_RE.fullmatch(image.split("@", 1)[0]))
+
+
+def _image_allowed(repo, images):
+    for pattern in images:
+        if pattern.endswith("*"):
+            if repo.startswith(pattern[:-1]) and re.fullmatch(r"[a-z0-9][a-z0-9-]*", repo[len(pattern) - 1:]):
+                return True
+        elif repo == pattern:
+            return True
+    return False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -177,6 +227,7 @@ class Spec:
     port: int
     args: dict
     env: dict
+    memory_gib: int = None      # a hard memory limit for the container, without swap
 
     def to_json(self):
         return json.dumps(dataclasses.asdict(self), sort_keys=True, indent=2) + "\n"
@@ -185,14 +236,14 @@ class Spec:
 def load(data):
     if not isinstance(data, dict) or set(data) - set(FIELDS) or set(FIELDS[:6]) - set(data):
         raise SpecError(f"a spec has exactly the fields {', '.join(FIELDS)}")
-    d = {"args": {}, "env": {}, **data}
+    d = {"args": {}, "env": {}, "memory_gib": None, **data}
     if not isinstance(d["id"], str) or not ID_RE.fullmatch(d["id"]):
         raise SpecError("id: lowercase letters, digits and dashes, at most 64")
     engine = ENGINES.get(d["engine"])
     if engine is None:
         raise SpecError(f"engine: one of {', '.join(ENGINES)}")
     m = DIGEST_RE.fullmatch(d["image"]) if isinstance(d["image"], str) else None
-    if not m or m["repo"] not in engine["images"]:
+    if not m or not _image_allowed(m["repo"], engine["images"]):
         raise SpecError(f"image: pinned by digest, from {', '.join(engine['images'])}")
     if not isinstance(d["model"], str) or not SNAPSHOT_RE.fullmatch(d["model"]):
         raise SpecError("model: a snapshot in the store (models--ORG--NAME/snapshots/COMMIT)")
@@ -200,6 +251,9 @@ def load(data):
         raise SpecError("served_name: letters, digits and ._:- only")
     if not isinstance(d["port"], int) or isinstance(d["port"], bool) or d["port"] not in INSTANCE_PORTS:
         raise SpecError(f"port: {INSTANCE_PORTS.start}-{INSTANCE_PORTS.stop - 1}")
+    mem = d["memory_gib"]
+    if mem is not None and (not isinstance(mem, int) or isinstance(mem, bool) or not 8 <= mem <= 128):
+        raise SpecError("memory_gib: 8-128, or none")
     if not isinstance(d["args"], dict) or not isinstance(d["env"], dict):
         raise SpecError("args and env are objects")
     for k, v in d["args"].items():
@@ -213,6 +267,6 @@ def load(data):
             raise SpecError(f"args: {k!r} is required by {d['engine']}")
     for k, v in d["env"].items():
         allowed = engine["env"].get(k)
-        if allowed is None or not isinstance(v, str) or not allowed.fullmatch(v):
+        if allowed is None or not isinstance(v, str) or not allowed.fullmatch(v) or ".." in v:
             raise SpecError(f"env: {k!r} is not allowed or has a bad value")
     return Spec(**{k: d[k] for k in FIELDS})
