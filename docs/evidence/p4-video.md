@@ -16,7 +16,8 @@ Runs (prompt: a red fox trotting through snow in a birch forest at sunrise, with
 | 480p, 5 s | `gpu-only`, alone | 271 s (first step 58 s, then about 19 s per step) | 46.2 GiB | H.264 864x480 24 fps 5.17 s, AAC stereo 32 kHz, 0.95 MB |
 | 480p, 5 s | `disable-smart-memory`, alone | 193 s | 92.6 GiB | as above |
 | 768p (1344x768), 5 s | `disable-smart-memory`, alone | not finished: the SoC stayed at 85-89 C and reached 96 C, and the thermal guard (95 C) rebooted the Thor at 00:35 | — | none |
+| 768p, 5 s | `disable-smart-memory`, with Nemotron running (Studio), the Thor edition's `raytone` fan curve | 711 s | — | H.264 1344x768 5.17 s with audio; hottest zone 86.2 C, fan up to about 3350 rpm |
 
-During the 480p runs the hottest zone peaked at 84 C (fan about 2300 rpm). The fan follows JetPack's stock "cool" profile, which scales with the margin to 115 C and was at about 2800 of 5371 rpm at 89 C. Until the fan curve or the guard is decided, the Video page offers 480p only.
+During the 480p runs the hottest zone peaked at 84 C (fan about 2300 rpm). The fan follows JetPack's stock "cool" profile, which scales with the margin to 115 C and was at about 2800 of 5371 rpm at 89 C. With the Thor edition's own fan curve (full speed from an average of 83 C, raytone-thor-omarchy 0.1.0-11) the same 768p video finished 9 C under the guard, and the Video page offers 768p again.
 
 With `gpu-only` ComfyUI keeps every model resident, so the text encoder (15 GB), the transformer (20 GB) and the VAE stay together; with `disable-smart-memory` each is freed after use, which on unified memory is also faster. The recipe uses `disable-smart-memory`.

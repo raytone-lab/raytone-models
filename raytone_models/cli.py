@@ -101,6 +101,7 @@ class Env:
     config_dir: pathlib.Path = CONFIG_DIR
     counters: object = live.counters
     meminfo: object = live.memory
+    video_sizes: object = live.video_sizes
     ollama: object = None
     execvpe: object = os.execvpe
     videos_dir: pathlib.Path = video.OUT_DIR
@@ -370,6 +371,9 @@ def cmd_video(a, env):
         emit({"error": "no video model is running; start one on Recipes" if not found
               else "several video models are running; name one with --model"})
         return 1
+    if a.size not in env.video_sizes():
+        emit({"error": f"{a.size} runs this machine too hot with its current fan curve (raytone-thor-omarchy sets one that allows it)"})
+        return 1
     # the app's Stop sends SIGTERM: the job is then taken off ComfyUI as well
     stopped = []
     previous = signal.signal(signal.SIGTERM, lambda *_: stopped.append(True))
@@ -392,7 +396,7 @@ def cmd_stats(env):
         if isinstance(d.get("port"), int):
             out.append({"id": d.get("id"), "served_name": d.get("served_name"),
                         "counters": env.counters(f"http://127.0.0.1:{d['port']}/metrics")})
-    return {"time": time.time(), "memory": env.meminfo(), "instances": out}
+    return {"time": time.time(), "memory": env.meminfo(), "instances": out, "video_sizes": env.video_sizes()}
 
 
 def cmd_ollama(a, env):
