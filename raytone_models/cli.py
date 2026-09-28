@@ -514,30 +514,31 @@ def _print(obj, as_json):
 
 def _models(env):
     """Local models; each carries the download that brought it in, if any. A variant download is
-    complete for what was asked even while the revision's full manifest is not."""
+    complete for what was asked even while the revision's full manifest is not, and so is a recipe
+    that takes only some of a repo's files (MiniMax H3: 88 of about 500 GB)."""
     rank = {"running": 0, "done": 1}
     rows = downloads.listing(hf_home=env.hf_home, state_dir=env.downloads_dir)
-    # a recipe may take only some of a repo's files (MiniMax H3: 88 of about 500 GB): with those
-    # here, the model is ready for it, whatever the rest of the manifest says
-    try:
-        wanted = [(r.id, c) for r in _recipes(env)[0] for c in r.components if c.include]
-    except OSError:
-        wanted = []
-    out = []
+    out, pending = [], []
     for m in store.list_models(env.hf_home):
         d = m.to_dict()
         mine = [r for r in rows if r["repo"] == m.repo and r["revision"] == m.revision]
         mine.sort(key=lambda r: rank.get(r["state"], 2))
         if mine:
             d["download"] = mine[0]
-        else:
+        if not m.complete and d.get("download", {}).get("state") not in ("running", "done"):
+            pending.append((m, d))      # a failed or cancelled download does not hide a recipe's files
+        out.append(d)
+    if pending:                          # recipes are read (and verified) only when needed
+        try:
+            wanted = [(r.id, c) for r in _recipes(env)[0] for c in r.components if c.include]
+        except OSError:
+            wanted = []
+        for m, d in pending:
             for rid, c in wanted:
                 if c.repo == m.repo and c.revision == m.revision and recipes._complete(m, c.include):
                     d["download"] = {"state": "done", "include": list(c.include), "recipe": rid}
                     break
-        out.append(d)
     return out
-
 
 def main(argv=None, env=None):
     a = parse(sys.argv[1:] if argv is None else argv)

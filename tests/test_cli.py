@@ -285,6 +285,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(m["download"], {"state": "done", "include": ["config.json", "m.safetensors"],
                                          "recipe": "qwen38-27b-coder"})
 
+    def test_a_failed_download_does_not_hide_a_recipes_files(self):
+        # From Codex's review: an old failed or cancelled download of the whole repo must not win
+        root = self.hf / "hub" / "models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead"
+        (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {
+            "config.json": {"size": 2}, "m.safetensors": {"size": 1}, "other-variant.safetensors": {"size": 10**9}}}))
+        self.signed_recipe(model={"repo": "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "revision": SHA,
+                                  "include": ["config.json", "m.safetensors"]})
+        self.env.downloads_dir = pathlib.Path(self.tmp.name) / "downloads"
+        self.env.downloads_dir.mkdir()
+        (self.env.downloads_dir / "x.json").write_text(json.dumps({
+            "id": "x", "repo": "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "revision": SHA, "include": [],
+            "files": [{"path": "other-variant.safetensors", "size": 10**9}], "expected": 10**9, "pid": 1,
+            "state": "cancelled"}))
+        [m] = json.loads(self.run_cli("models", "--json")[1])
+        self.assertEqual(m["download"].get("recipe"), "qwen38-27b-coder")
+
     def test_recipes_json_lists_signed_recipes_with_their_state(self):
         self.signed_recipe()
         rc, out = self.run_cli("recipes", "--json")

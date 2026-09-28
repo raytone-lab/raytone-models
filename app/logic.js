@@ -60,7 +60,7 @@ function modelState(m) {
     // a variant download: what was asked for is what counts, not the revision's full manifest
     if (m.download && m.download.state === "running")
         return "downloading " + Math.floor(100 * Number(m.download.progress || 0)) + "%"
-    if (m.download && m.download.state === "done" && !m.incomplete) return "ready"
+    if (m.download && m.download.state === "done" && (!m.incomplete || m.download.recipe)) return "ready"
     if (m.complete === false) return "incomplete " + Math.floor(100 * Number(m.progress || 0)) + "%"
     if (m.incomplete) return "downloading"
     return "unverified"
