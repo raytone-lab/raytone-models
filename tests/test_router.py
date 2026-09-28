@@ -75,8 +75,10 @@ class RouterTests(unittest.TestCase):
         self.register("muse-glimmer-30b", self.b)
         self.ol = Upstream()                 # a fake Ollama: models it has are routed to its port
         self.ollama_names = ["qwen3:1.7b"]
+        self.current = self.reg / "current"          # not a .json: not a registry entry
         self.srv = router.make_server("127.0.0.1", 0, registry=self.reg, ports=range(1024, 65536),
-                                      ollama=(lambda: self.ollama_names, self.ol.server_address[1]))
+                                      ollama=(lambda: self.ollama_names, self.ol.server_address[1]),
+                                      current=self.current)
         threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.port = self.srv.server_address[1]
 
@@ -102,7 +104,7 @@ class RouterTests(unittest.TestCase):
         status, _, body = self.request("GET", "/v1/models")
         self.assertEqual(status, 200)
         ids = sorted(m["id"] for m in json.loads(body)["data"])
-        self.assertEqual(ids, ["muse-glimmer-30b", "qwen3.8-27b"])
+        self.assertEqual(ids, ["local", "muse-glimmer-30b", "qwen3.8-27b"])
 
     def test_requests_go_to_the_instance_serving_the_model(self):
         for path in ("/v1/chat/completions", "/v1/completions", "/v1/embeddings", "/v1/messages", "/v1/responses"):
@@ -175,6 +177,40 @@ class RouterTests(unittest.TestCase):
         status, _, body = self.request("GET", "/v1/models")
         self.assertEqual(status, 200)
         self.assertNotIn("qwen3:1.7b", [m["id"] for m in json.loads(body)["data"]])
+
+    def post_local(self):
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "local", "messages": []})
+        return status, (json.loads(body) if status == 200 else body)
+
+    def test_local_is_the_model_started_last(self):
+        # the owner's model of it: agents know one address and one name, and use whatever runs
+        import os, time
+        os.utime(self.reg / "qwen3-8-27b.json", (time.time() - 60, time.time() - 60))
+        status, body = self.post_local()
+        self.assertEqual((status, body["served_by"]), (200, self.b.server_address[1]))
+        # the engine checks the name it serves, so the router puts the real one in
+        self.assertEqual(self.b.seen[-1][2]["model"], "muse-glimmer-30b")
+
+    def test_local_follows_the_model_chosen_as_current(self):
+        self.current.write_text("qwen3.8-27b\n")
+        self.assertEqual(self.post_local()[1]["served_by"], self.a.server_address[1])
+        self.current.write_text("qwen3:1.7b\n")               # an Ollama model can be current too
+        self.assertEqual(self.post_local()[1]["served_by"], self.ol.server_address[1])
+        self.assertEqual(self.ol.seen[-1][2]["model"], "qwen3:1.7b")
+        self.current.write_text("stopped-model\n")            # not running: the newest one instead
+        self.assertEqual(self.post_local()[0], 200)
+
+    def test_local_is_listed_and_never_a_video_engine(self):
+        status, _, body = self.request("GET", "/v1/models")
+        self.assertIn("local", [m["id"] for m in json.loads(body)["data"]])
+        for f in self.reg.glob("*.json"):
+            f.unlink()
+        spec = {"id": "minimax-h3", "served_name": "minimax-h3", "port": self.a.server_address[1], "engine": "comfyui"}
+        (self.reg / "minimax-h3.json").write_text(json.dumps(spec))
+        self.ollama_names = []
+        status, body = self.post_local()
+        self.assertEqual(status, 404)
+        self.assertIn(b"no model is running", body)
 
     def test_agent_credentials_are_not_forwarded(self):
         self.request("POST", "/v1/chat/completions", {"model": "qwen3.8-27b"},

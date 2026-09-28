@@ -10,6 +10,7 @@ import http.client
 import http.server
 import ipaddress
 import json
+import os
 import pathlib
 import threading
 import time
@@ -93,6 +94,38 @@ def _fetch_ollama_names():
 _ollama_names = Cached(_fetch_ollama_names, ttl=5)
 
 
+ALIAS = "local"
+# the model chosen as current (raytone-models writes it when a recipe or model starts, or on `use`)
+CURRENT = pathlib.Path(os.environ.get("XDG_STATE_HOME", pathlib.Path.home() / ".local/state")) / "raytone-models/current"
+
+
+def newest_instance(registry, ports):
+    """The chat instance registered last: what `local` means when no current model is chosen."""
+    names = instances(registry, ports)
+    best = None
+    for f in pathlib.Path(registry).glob("*.json"):
+        try:
+            name = json.loads(f.read_text()).get("served_name")
+            t = f.stat().st_mtime
+        except (OSError, ValueError, AttributeError):
+            continue
+        if name in names and (best is None or t > best[0]):
+            best = (t, name)
+    return best[1] if best else None
+
+
+def current_model(served_now, registry, ports, current_file):
+    """What the fixed name `local` points at: the model chosen as current if it runs, else the chat
+    instance started last. Agents know one address and one name; whatever runs, they use it."""
+    try:
+        chosen = pathlib.Path(current_file).read_text().strip()
+    except OSError:
+        chosen = ""
+    if chosen and chosen != ALIAS and chosen in served_now:
+        return chosen
+    return newest_instance(registry, ports)
+
+
 def served(server):
     """model name -> port: Ollama's models on its fixed port, then the registry's instances, which
     win over an Ollama model of the same name."""
@@ -109,8 +142,8 @@ def served(server):
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, addr, handler, registry, ports, ollama):
-        self.registry, self.ports, self.ollama = registry, ports, ollama
+    def __init__(self, addr, handler, registry, ports, ollama, current):
+        self.registry, self.ports, self.ollama, self.current = registry, ports, ollama, current
         self.request_timeout = REQUEST_TIMEOUT
         self.slots = threading.BoundedSemaphore(MAX_CONCURRENT)
         super().__init__(addr, handler)
@@ -165,6 +198,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if self.path.split("?")[0] in ("/v1/models", "/models"):
             names = served(self.server)
+            if current_model(names, self.server.registry, self.server.ports, self.server.current):
+                names = {**names, ALIAS: None}
             self._json(200, {"object": "list",
                              "data": [{"id": n, "object": "model", "owned_by": "raytone"} for n in sorted(names)]})
         elif self.path == "/health":
@@ -210,6 +245,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if model is not None and not isinstance(model, str):
             return self._error(400, "model is a string")
         served_now = served(self.server)
+        if model == ALIAS:
+            real = current_model(served_now, self.server.registry, self.server.ports, self.server.current)
+            if real is None:
+                return self._error(404, "no model is running: start one in Raytone Models", "model_not_found")
+            # the engine checks the name it serves: put the real one in
+            model = payload["model"] = real
+            body = json.dumps(payload).encode()
         if model is None and len(served_now) == 1:
             # the engine checks the name too: fill it in
             model = next(iter(served_now))
@@ -253,8 +295,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def make_server(host="127.0.0.1", port=DEFAULT_PORT, *, registry=DEFAULT_REGISTRY, ports=spec_mod.INSTANCE_PORTS,
-                ollama=(_ollama_names, ollama_mod.PORT)):
-    """ollama: (a callable naming Ollama's models, its port)."""
+                ollama=(_ollama_names, ollama_mod.PORT), current=CURRENT):
+    """ollama: (a callable naming Ollama's models, its port); current: the file naming the current model."""
     if not _loopback(host):
         raise ValueError("the router binds loopback only")
-    return Server((host, port), Handler, registry, ports, ollama)
+    return Server((host, port), Handler, registry, ports, ollama, current)
