@@ -192,6 +192,7 @@ class Codex(Adapter):
     id = "codex"
     # model_context_window: an older connect wrote it; the engine's own limit applies now
     KEYS = re.compile(r"^\s*(model|model_provider|model_context_window)\s*=")
+    NOTE = "# Raytone Models (raytone-models agent revert codex puts the original back)\n"
     HEADER = re.compile(r"^\s*\[")
     OURS = re.compile(r"^\s*\[\s*model_providers\s*\.\s*raytone\s*\]\s*(#.*)?$")
 
@@ -202,14 +203,14 @@ class Codex(Adapter):
     def _edit(self, text, base_url):
         lines = text.splitlines(keepends=True)
         first = next((i for i, l in enumerate(lines) if self.HEADER.match(l)), len(lines))
-        top = [l for l in lines[:first] if not self.KEYS.match(l)]
+        top = [l for l in lines[:first] if not self.KEYS.match(l) and l != self.NOTE]
         rest, skipping = [], False
         for l in lines[first:]:
             if self.HEADER.match(l):
                 skipping = bool(self.OURS.match(l))
             if not skipping:
                 rest.append(l)
-        mine = [f"# Raytone Models (raytone-models agent revert codex puts the original back)\n",
+        mine = [self.NOTE,
                 f"model = {json.dumps(MODEL)}\n", 'model_provider = "raytone"\n']
         table = ["\n[model_providers.raytone]\n", 'name = "Raytone Models"\n', f"base_url = {json.dumps(base_url)}\n",
                  'wire_api = "responses"\n']
