@@ -252,7 +252,7 @@ class CliTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             cli.elevate_argv({"RAYTONE_MODELS_ELEVATE": "sh -c"})
 
-    def signed_recipe(self):
+    def signed_recipe(self, **component):
         import shutil, subprocess
         from tests.test_recipes import recipe
         if not shutil.which("ssh-keygen"):
@@ -264,13 +264,42 @@ class CliTests(unittest.TestCase):
         d = t / "recipes"
         d.mkdir()
         c = recipe()["components"][0]
-        data = recipe(components=[{**c, "image": f"vllm/vllm-openai@{DIGEST}"}])
+        data = recipe(components=[{**c, "image": f"vllm/vllm-openai@{DIGEST}", **component}])
         (d / "qwen38-27b-coder.json").write_text(json.dumps(data))
         subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(t / "k"), "-n", "raytone-recipe",
                         str(d / "qwen38-27b-coder.json")], check=True, capture_output=True)
         (d / "tampered.json").write_text(json.dumps({**data, "id": "tampered"}))
         self.env.recipe_dirs = [d]
         self.env.allowed_signers = t / "allowed"
+
+    def test_a_model_downloaded_in_part_for_a_recipe_is_ready(self):
+        # seen on the Thor: MiniMax H3 holds about 500 GB of variants and the recipe takes 88 GB of
+        # them, so against the whole manifest it read "incomplete 19%" while the recipe was ready
+        root = self.hf / "hub" / "models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead"
+        (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {
+            "config.json": {"size": 2}, "m.safetensors": {"size": 1}, "other-variant.safetensors": {"size": 10**9}}}))
+        self.signed_recipe(model={"repo": "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "revision": SHA,
+                                  "include": ["config.json", "m.safetensors"]})
+        [m] = json.loads(self.run_cli("models", "--json")[1])
+        self.assertFalse(m["complete"])
+        self.assertEqual(m["download"], {"state": "done", "include": ["config.json", "m.safetensors"],
+                                         "recipe": "qwen38-27b-coder"})
+
+    def test_a_failed_download_does_not_hide_a_recipes_files(self):
+        # From Codex's review: an old failed or cancelled download of the whole repo must not win
+        root = self.hf / "hub" / "models--RadixArk--Qwen3.8-27B-NVFP4-BF16-LMHead"
+        (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {
+            "config.json": {"size": 2}, "m.safetensors": {"size": 1}, "other-variant.safetensors": {"size": 10**9}}}))
+        self.signed_recipe(model={"repo": "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "revision": SHA,
+                                  "include": ["config.json", "m.safetensors"]})
+        self.env.downloads_dir = pathlib.Path(self.tmp.name) / "downloads"
+        self.env.downloads_dir.mkdir()
+        (self.env.downloads_dir / "x.json").write_text(json.dumps({
+            "id": "x", "repo": "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "revision": SHA, "include": [],
+            "files": [{"path": "other-variant.safetensors", "size": 10**9}], "expected": 10**9, "pid": 1,
+            "state": "cancelled"}))
+        [m] = json.loads(self.run_cli("models", "--json")[1])
+        self.assertEqual(m["download"].get("recipe"), "qwen38-27b-coder")
 
     def test_recipes_json_lists_signed_recipes_with_their_state(self):
         self.signed_recipe()

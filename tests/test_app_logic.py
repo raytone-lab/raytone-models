@@ -68,6 +68,10 @@ class AppLogicTests(unittest.TestCase):
                                              "download": {"state": "done"}}), "ready")
         self.assertEqual(call("modelState", {"complete": False, "progress": 0.03, "incomplete": 1, "missing": ["x"],
                                              "download": {"state": "running", "progress": 0.4}}), "downloading 40%")
+        # From Codex's review: a recipe's files verified here are ready, whatever partial blobs of
+        # other variants lie in the repo
+        self.assertEqual(call("modelState", {"complete": False, "progress": 0.19, "incomplete": 1, "missing": ["x"],
+                                             "download": {"state": "done", "recipe": "raytone-studio"}}), "ready")
 
     def test_chat_models_leave_out_video_engines(self):
         inst = [{"served_name": "q", "ready": True, "chat": True}, {"served_name": "h3", "ready": True, "chat": False},
