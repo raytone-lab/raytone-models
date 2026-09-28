@@ -249,6 +249,8 @@ def load(data):
         raise SpecError("model: a snapshot in the store (models--ORG--NAME/snapshots/COMMIT)")
     if not isinstance(d["served_name"], str) or not NAME_RE.fullmatch(d["served_name"]):
         raise SpecError("served_name: letters, digits and ._:- only")
+    if d["served_name"] == "local":
+        raise SpecError("served_name: local is the router's name for the current model")
     if not isinstance(d["port"], int) or isinstance(d["port"], bool) or d["port"] not in INSTANCE_PORTS:
         raise SpecError(f"port: {INSTANCE_PORTS.start}-{INSTANCE_PORTS.stop - 1}")
     mem = d["memory_gib"]

@@ -32,10 +32,15 @@ through them in a desktop session is still to do.
   | Ollama | the system's own service (its own library) | qwen3:1.7b, about 100 tokens/s |
 
 - **A router** on `http://127.0.0.1:8090/v1`, OpenAI- and Anthropic-compatible (chat, completions,
-  embeddings, messages, responses), that sends each request to the instance serving its model.
-- **Agents**: OpenCode, Claude Code, Crush, Pi and Codex connect to the local models in one click
-  (their own config files, restored byte for byte by Revert; in Pi, pick the model with `/model` or
-  `--model raytone/<name>`); GitHub Copilot CLI, which reads its
+  embeddings, messages, responses), that sends each request to the instance serving its model. The
+  model name `local` is always the current model: the one started last (a model, a recipe, or
+  `ollama run`), or the one chosen with `raytone-models use NAME` (Running's "Use for agents").
+- **Agents** are connected once and never tied to a model: they get the router's address and the
+  name `local`, so switching models needs no change to them. The context length is the engine's,
+  set when the model starts; vLLM and SGLang refuse a longer request with an error the agent can act
+  on (Ollama instead drops the start of it). OpenCode, Claude Code, Crush, Pi and Codex connect in one
+  click (their own config files, restored byte for byte by Revert; in Pi, pick `raytone/local`
+  with `/model`); GitHub Copilot CLI, which reads its
   endpoint from the environment only, starts on them with `raytone-models agent-exec copilot` (the
   Agents page's Launch). Gemini, Cursor and Muse Code cannot use a local endpoint, nor could Grok's
   CLI as installed; Oh My Pi, Hermes and OpenClaw are not connected yet.

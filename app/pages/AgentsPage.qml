@@ -12,12 +12,12 @@ ColumnLayout {
     readonly property var later: page.backend.agents.filter(function (a) { return a.supported && !a.connectable })
     readonly property var unsupported: page.backend.agents.filter(function (a) { return !a.supported })
     readonly property var chatModels: Logic.chatModels(page.backend.instances)
-    readonly property bool modelReady: chatModels.length > 0
+    readonly property var current: chatModels.filter(function (i) { return i.current === true })[0] || null
     spacing: 14
 
     PageHeader {
         title: "Agents"
-        subtitle: "Point Omarchy's coding agents at your local models. Revert puts their settings back exactly."
+        subtitle: "Connect once: every agent uses whichever model runs. Revert puts their settings back exactly."
         Pill { text: page.backend.agents.length + " coding agents"; kind: "neutral" }
     }
 
@@ -26,8 +26,7 @@ ColumnLayout {
         padding: 16
         Text { text: "One local endpoint for every agent"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
         Text {
-            text: "http://127.0.0.1:8090/v1 · " + (page.modelReady ? page.chatModels.map(function (i) { return i.served_name }).join(", ")
-                                                 : "start a model first")
+            text: "http://127.0.0.1:8090/v1 · model local → " + (page.current ? page.current.served_name : "no model running yet")
             color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl
         }
     }
@@ -78,9 +77,7 @@ ColumnLayout {
                                 visible: !a.modelData.connected
                                 variant: "primary"
                                 text: page.backend.busy === "agent:" + a.modelData.id ? "Connecting…" : "Connect"
-                                enabled: page.backend.busy === "" && page.modelReady
-                                ToolTip.visible: hovered && !page.modelReady
-                                ToolTip.text: "Start a compatible model first"
+                                enabled: page.backend.busy === ""
                                 onClicked: page.backend.act("agent:" + a.modelData.id, ["agent", "connect", a.modelData.id, "--json"], a.modelData.name + " connected")
                             }
                         }

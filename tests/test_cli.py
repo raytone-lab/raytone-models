@@ -2,6 +2,7 @@
 through the privileged helper with the spec on stdin."""
 import io
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -24,7 +25,8 @@ class CliTests(unittest.TestCase):
         (root / "trees").mkdir()
         (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {"config.json": {"size": 2}, "m.safetensors": {"size": 1}}}))
         self.helper_calls = []
-        self.env = cli.Env(hf_home=self.hf, registry=self.reg, state=t / "state", home=t / "home",
+        self.current = t / "current"
+        self.env = cli.Env(hf_home=self.hf, registry=self.reg, state=t / "state", home=t / "home", current=self.current,
                            engines={"vllm": {"image": f"vllm/vllm-openai@{DIGEST}"}},
                            helper=lambda args, stdin=None: self.helper_calls.append((args, stdin)) or {"ok": True},
                            probe=lambda url: url.endswith(":18000/v1/models"),
@@ -57,6 +59,41 @@ class CliTests(unittest.TestCase):
         self.assertEqual(s["image"], f"vllm/vllm-openai@{DIGEST}")
         self.assertEqual(s["args"], {"gpu-memory-utilization": 0.6, "max-model-len": 131072, "enable-prefix-caching": True})
         self.assertEqual((s["id"], s["port"]), ("qwen3-8-27b", 18000))
+
+    def test_the_model_started_last_is_the_current_one(self):
+        # agents ask for "local": the router sends it to the current model
+        self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm", "--name", "qwen3.8-27b")
+        self.assertEqual(self.current.read_text().strip(), "qwen3.8-27b")
+
+    def test_a_refused_start_leaves_the_current_model(self):
+        self.current.write_text("muse\n")
+        self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm", "--name", "q", "--arg", "load-format=pt")
+        self.assertEqual(self.current.read_text(), "muse\n")
+
+    def test_use_chooses_the_current_model_among_those_running(self):
+        for n, (iid, name) in enumerate((("qwen", "qwen3.8-27b"), ("muse", "muse"))):
+            (self.reg / f"{iid}.json").write_text(json.dumps({"id": iid, "served_name": name, "port": 18000 + n, "engine": "vllm"}))
+        (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3", "port": 18002, "engine": "comfyui"}))
+        self.env.probe = lambda url: True
+        rc, out = self.run_cli("use", "qwen3.8-27b", "--json")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.current.read_text().strip(), "qwen3.8-27b")
+        rows = {i["served_name"]: i["current"] for i in json.loads(self.run_cli("instances", "--json")[1])}
+        self.assertEqual(rows, {"qwen3.8-27b": True, "muse": False, "minimax-h3": False})
+        # not running, or not a chat model: refused, the choice stays
+        for name in ("gpt-5", "minimax-h3", "local"):
+            with self.subTest(name=name):
+                rc, _ = self.run_cli("use", name)
+                self.assertNotEqual(rc, 0)
+                self.assertEqual(self.current.read_text().strip(), "qwen3.8-27b")
+
+    def test_without_a_choice_the_newest_instance_is_current(self):
+        for n, (iid, name) in enumerate((("qwen", "qwen3.8-27b"), ("muse", "muse"))):
+            f = self.reg / f"{iid}.json"
+            f.write_text(json.dumps({"id": iid, "served_name": name, "port": 18000 + n, "engine": "vllm"}))
+            os.utime(f, (1000 + n, 1000 + n))
+        rows = {i["served_name"]: i["current"] for i in json.loads(self.run_cli("instances", "--json")[1])}
+        self.assertEqual(rows, {"qwen3.8-27b": False, "muse": True})
 
     def test_start_picks_a_free_port(self):
         (self.reg / "a.json").write_text(json.dumps({"id": "a", "served_name": "a", "port": 18000}))
@@ -150,15 +187,12 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertIn("error", json.loads(out.splitlines()[-1]))
 
-    def test_a_video_engine_is_not_offered_to_agents(self):
+    def test_a_video_engine_is_not_a_chat_model(self):
         # From Codex's review of PR #5: a ready ComfyUI is not a chat model
         (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3", "port": 18000, "engine": "comfyui"}))
         self.env.probe = lambda url: True
         [i] = json.loads(self.run_cli("instances", "--json")[1])
         self.assertEqual((i["ready"], i["chat"]), (True, False))
-        rc, _ = self.run_cli("agent", "connect", "opencode", "--json")
-        self.assertNotEqual(rc, 0)
-        self.assertFalse((self.env.home / ".config/opencode/opencode.json").exists())
 
     def test_context_length_from_every_engine(self):
         for engine, args in (("vllm", {"max-model-len": 131072}), ("sglang", {"context-length": 262144}),
@@ -175,6 +209,28 @@ class CliTests(unittest.TestCase):
         self.addCleanup(fake.shutdown)
         self.env.ollama = ollama.Ollama(f"http://127.0.0.1:{fake.server_address[1]}")
         return fake
+
+    def test_running_an_ollama_model_makes_it_current(self):
+        self.ollama()
+        rc, out = self.run_cli("ollama", "run", "qwen3:1.7b", "--json")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.current.read_text().strip(), "qwen3:1.7b")
+
+    def test_an_ollama_name_without_a_tag_is_its_latest(self):
+        # From Codex's review: Ollama serves "qwen3" as "qwen3:latest"; the router matches exactly
+        self.ollama()
+        self.run_cli("ollama", "run", "qwen3", "--json")
+        self.assertEqual(self.current.read_text().strip(), "qwen3:latest")
+
+    def test_concurrent_choices_each_write_whole(self):
+        # From Codex's review: one shared temporary file let one writer commit another's choice
+        # another writer's temporary file in the way: ours must be our own
+        taken = self.current.with_name(".current.tmp")
+        taken.mkdir(parents=True)
+        cli._set_current(self.env, "a")
+        self.assertEqual(self.current.read_text(), "a\n")
+        self.assertEqual(sorted(f.name for f in self.current.parent.iterdir() if f.name.startswith(".current")),
+                         [".current.tmp"])
 
     def test_loaded_ollama_models_are_instances(self):
         self.ollama()
@@ -208,8 +264,8 @@ class CliTests(unittest.TestCase):
 
     def test_agent_options_still_parse(self):
         # an agent's own arguments must not swallow ours
-        a = cli.parse(["agent", "connect", "opencode", "--default", "x", "--json"])
-        self.assertEqual((a.action, a.default, a.json), ("connect", "x", True))
+        a = cli.parse(["agent", "connect", "opencode", "--json"])
+        self.assertEqual((a.action, a.json), ("connect", True))
         a = cli.parse(["agent-exec", "copilot", "-p", "hi", "--json"])
         self.assertEqual(a.rest, ["-p", "hi", "--json"])
 
@@ -224,27 +280,21 @@ class CliTests(unittest.TestCase):
         self.run_cli("agent-exec", "copilot", "-p", "hi")
         [(file, argv, env)] = ran
         self.assertEqual((file, argv), ("copilot", ["copilot", "-p", "hi"]))
-        self.assertEqual((env["COPILOT_MODEL"], env["COPILOT_OFFLINE"]), ("qwen3.8-27b", "true"))
+        self.assertEqual((env["COPILOT_MODEL"], env["COPILOT_OFFLINE"]), ("local", "true"))
         self.assertIn("PATH", env)                    # the rest of the environment stays
 
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")
         self.assertEqual(self.helper_calls, [(["stop", "qwen"], None)])
 
-    def test_agent_connect_uses_the_ready_models(self):
-        (self.reg / "qwen.json").write_text(json.dumps(
-            {"id": "qwen", "served_name": "qwen3.8-27b", "port": 18000, "engine": "vllm", "args": {"max-model-len": 131072}}))
+    def test_agent_connect_points_at_local_whatever_runs(self):
+        # no model running: the agent is still connected to the fixed name
         rc, out = self.run_cli("agent", "connect", "opencode", "--json")
         self.assertEqual(rc, 0, out)
         cfg = json.loads((self.env.home / ".config/opencode/opencode.json").read_text())
-        self.assertEqual(cfg["model"], "raytone/qwen3.8-27b")
-        self.assertEqual(cfg["provider"]["raytone"]["models"]["qwen3.8-27b"]["limit"]["context"], 131072)
+        self.assertEqual(cfg["model"], "raytone/local")
         rc, _ = self.run_cli("agent", "revert", "opencode")
         self.assertFalse((self.env.home / ".config/opencode/opencode.json").exists())
-
-    def test_agent_connect_needs_a_ready_model(self):
-        rc, _ = self.run_cli("agent", "connect", "opencode")
-        self.assertNotEqual(rc, 0)
 
     def test_elevation_is_pkexec_unless_told_otherwise(self):
         self.assertEqual(cli.elevate_argv({}), ["pkexec", cli.HELPER])
@@ -319,6 +369,7 @@ class CliTests(unittest.TestCase):
         s = json.loads(stdin)
         self.assertEqual((s["id"], s["served_name"], s["port"]), ("qwen3-8-27b", "qwen3.8-27b", 18000))
         self.assertEqual(s["args"]["max-model-len"], 262144)
+        self.assertEqual(self.current.read_text().strip(), "qwen3.8-27b")
 
     def register(self, served_name, **over):
         from tests.test_recipes import recipe

@@ -196,6 +196,9 @@ class SpecTests(unittest.TestCase):
         with self.assertRaises(spec.SpecError, msg=why):
             spec.load(good(**over))
 
+    def test_local_is_the_routers_name_not_a_models(self):
+        self.refused("local always means the current model", served_name="local")
+
     def test_identity_fields(self):
         for field, value in (("id", "qwen\n"), ("served_name", "q\n"), ("model", SNAPSHOT + "\n"),
                              ("image", f"vllm/vllm-openai@{DIGEST}\n")):
