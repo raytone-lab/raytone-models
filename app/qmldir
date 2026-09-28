@@ -1,1 +1,3 @@
 singleton Theme 1.0 Theme.qml
+Backend 1.0 Backend.qml
+MainView 1.0 MainView.qml
