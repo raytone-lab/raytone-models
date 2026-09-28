@@ -122,6 +122,11 @@ Item {
         copyProc.running = true
     }
 
+    // an agent's own web UI (Hermes, OpenClaw): the CLI starts what it needs and opens it
+    function launchWeb(id) {
+        Quickshell.execDetached([root.cli, "agent-web", id])
+    }
+
     function launchAgent(args) {
         launchProc.command = ["omarchy-launch-tui"].concat(args)
         launchProc.running = true
