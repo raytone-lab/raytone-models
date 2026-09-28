@@ -23,7 +23,7 @@ REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 REV_RE = re.compile(r"^[0-9a-f]{40}$")
 PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*?/-]{1,200}$")
 TOP = {"schema", "id", "title", "description", "platforms", "requires", "source", "components", "agents"}
-COMPONENT = {"role", "served_name", "model", "draft", "engine", "image", "args", "env"}
+COMPONENT = {"role", "served_name", "model", "draft", "engine", "image", "args", "env", "memory_gib"}
 ROLES = {"chat", "coder", "vision", "video", "embedding", "draft"}
 
 
@@ -44,6 +44,7 @@ class Component:
     env: dict
     draft_repo: str = None       # a speculative decoder's own weights (DFlash, DSpark drafts)
     draft_revision: str = None
+    memory_gib: int = None       # a hard memory limit for its container
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,20 +96,21 @@ def _component(c):
     image = c["image"]
     if isinstance(image, str) and image.endswith("@local"):
         engine = spec_mod.ENGINES.get(c["engine"]) or {}
-        if not engine.get("local") or image[:-len("@local")] not in engine["images"]:
+        repo = image[:-len("@local")]
+        if not spec_mod.is_local(repo) or not spec_mod._image_allowed(repo, engine.get("images", ())):
             raise RecipeError(f"{image}: only an engine built on the device is named @local")
         image = image[:-len("@local")] + "@sha256:" + "0" * 64
     # the engine, image, name, arguments and environment get the same checks as an instance spec
     probe = {"id": "recipe-check", "engine": c["engine"], "image": image,
              "model": f"models--x--y/snapshots/{'0' * 40}", "served_name": c["served_name"],
-             "port": spec_mod.INSTANCE_PORTS.start, "args": args, "env": c.get("env", {})}
+             "port": spec_mod.INSTANCE_PORTS.start, "args": args, "env": c.get("env", {}), "memory_gib": c.get("memory_gib")}
     try:
         spec_mod.load(probe)
     except spec_mod.SpecError as e:
         raise RecipeError(f"component {c.get('served_name')!r}: {e}") from None
     return Component(c["role"], c["served_name"], m["repo"], m["revision"], include, c["engine"], c["image"],
                      args, dict(c.get("env", {})),
-                     draft["repo"] if draft else None, draft["revision"] if draft else None)
+                     draft["repo"] if draft else None, draft["revision"] if draft else None, c.get("memory_gib"))
 
 
 def load(data):
@@ -224,11 +226,13 @@ def _image(c, images, strict):
     ID this machine recorded (scripts/build-engine)."""
     if not c.image.endswith("@local"):
         return c.image
-    built = ((images or {}).get(c.engine) or {}).get("image")
-    if isinstance(built, str) and built.startswith(c.image[:-len("@local")] + "@sha256:"):
-        return built
+    repo = c.image[:-len("@local")]
+    for e in (images or {}).values():
+        built = (e or {}).get("image") if isinstance(e, dict) else None
+        if isinstance(built, str) and built.startswith(repo + "@sha256:"):
+            return built
     if strict:
-        raise RecipeError(f"{c.image} is not built on this machine yet: raytone-models-build-engine {c.engine}")
+        raise RecipeError(f"{c.image} is not built on this machine yet: raytone-models-build-engine {repo.split('/', 1)[1]}")
     return c.image
 
 
@@ -246,12 +250,12 @@ def specs(recipe, hf_home=None, *, used_ports=(), images=None):
             _fill_draft(c.engine, args, f"/hf/hub/{s['draft_snapshot']}")
         out.append(spec_mod.load({"id": instance_id(c.served_name), "engine": c.engine, "image": _image(c, images, True),
                                   "model": s["snapshot"], "served_name": c.served_name, "port": port,
-                                  "args": args, "env": c.env}))
+                                  "args": args, "env": c.env, "memory_gib": c.memory_gib}))
     return out
 
 
 def expected(recipe, hf_home=None, *, images=None):
-    """What each downloaded component runs as: {served_name: (image, model, args, env)}."""
+    """What each downloaded component runs as: {served_name: (image, model, args, env, memory_gib)}."""
     st = status(recipe, hf_home)
     out = {}
     for c, s in zip(recipe.components, st["components"]):
@@ -260,7 +264,7 @@ def expected(recipe, hf_home=None, *, images=None):
         args = dict(c.args)
         if c.draft_repo:
             _fill_draft(c.engine, args, f"/hf/hub/{s['draft_snapshot']}")
-        out[c.served_name] = (_image(c, images, False), s["snapshot"], args, c.env)
+        out[c.served_name] = (_image(c, images, False), s["snapshot"], args, c.env, c.memory_gib)
     return out
 
 

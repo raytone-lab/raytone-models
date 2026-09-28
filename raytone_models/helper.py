@@ -47,7 +47,7 @@ def _engine_user():
 
 
 def local_images(path=LOCAL_ENGINES, *, lstat=os.lstat):
-    """engine -> the image build-engine recorded, from a root-owned file nobody else can write."""
+    """image repository -> the image build-engine recorded, from a root-owned file nobody else can write."""
     try:
         st = lstat(path)
         if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
@@ -55,14 +55,14 @@ def local_images(path=LOCAL_ENGINES, *, lstat=os.lstat):
         data = json.loads(pathlib.Path(path).read_text())
     except (OSError, ValueError):
         return {}
-    return {name: e["image"] for name, e in data.items() if isinstance(e, dict) and isinstance(e.get("image"), str)
-            and (spec_mod.ENGINES.get(name) or {}).get("local")}
+    return {e["image"].split("@", 1)[0]: e["image"] for e in data.values()
+            if isinstance(e, dict) and spec_mod.is_local(e.get("image"))}
 
 
 def _check_image(s, local_images):
     # a local engine runs by its bare image ID: only the ID built and recorded here may run
-    if spec_mod.ENGINES[s.engine].get("local") and local_images().get(s.engine) != s.image:
-        raise HelperError(f"{s.image} is not the {s.engine} image built on this machine (raytone-models-build-engine {s.engine})")
+    if spec_mod.is_local(s.image) and local_images().get(s.image.split("@", 1)[0]) != s.image:
+        raise HelperError(f"{s.image} is not the image built on this machine (raytone-models-build-engine)")
 
 
 def _registry(run_dir):

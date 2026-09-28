@@ -244,6 +244,24 @@ class StatusTests(unittest.TestCase):
               "args": {"gpu-only": True}}
         return recipes.load(recipe(components=[c, h3]))
 
+    def test_a_component_can_cap_its_memory(self):
+        c = recipe()["components"][0]
+        r = recipes.load(recipe(components=[{**c, "memory_gib": 99}]))
+        self.assertEqual(r.components[0].memory_gib, 99)
+        put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        self.tree(REPO, SHA, ["config.json"])
+        self.assertEqual(recipes.specs(r, self.hf)[0].memory_gib, 99)
+        with self.assertRaises(recipes.RecipeError):
+            recipes.load(recipe(components=[{**c, "memory_gib": 4}]))
+
+    def test_a_local_vllm_image_is_named_at_local(self):
+        c = recipe()["components"][0]
+        r = recipes.load(recipe(components=[{**c, "image": "raytone/vllm-flashnext@local"}]))
+        put(self.hf / "hub", REPO, SHA, {"config.json": b"{}"})
+        self.tree(REPO, SHA, ["config.json"])
+        built = {"vllm-flashnext": {"image": "raytone/vllm-flashnext@sha256:" + "e" * 64}}
+        self.assertEqual(recipes.specs(r, self.hf, images=built)[0].image, "raytone/vllm-flashnext@sha256:" + "e" * 64)
+
     def test_a_locally_built_engine_is_named_not_pinned(self):
         # its image ID differs from machine to machine: the recipe names it, the machine's own
         # engines file (scripts/build-engine) pins it
