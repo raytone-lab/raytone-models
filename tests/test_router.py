@@ -92,6 +92,22 @@ class RouterTests(unittest.TestCase):
         spec = {"id": name.replace(".", "-"), "served_name": name, "port": upstream.server_address[1], "engine": "vllm"}
         (self.reg / f"{spec['id']}.json").write_text(json.dumps(spec))
 
+    def test_an_engine_still_loading_says_so(self):
+        # seen on the Thor: OpenCode asked for local while Nemotron was loading and got "did not answer"
+        import socket
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]          # nothing listens here once closed
+        (self.reg / "loading.json").write_text(json.dumps({"id": "loading", "served_name": "nemotron-3.5-lightning",
+                                                             "port": port, "engine": "sglang"}))
+        self.current.write_text("nemotron-3.5-lightning\n")
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "local", "messages": []})
+        self.assertEqual(status, 503)                 # clients retry a 503
+        err = json.loads(body)["error"]
+        self.assertEqual(err["type"], "engine_starting")
+        self.assertIn("nemotron-3.5-lightning is still starting", err["message"])
+        self.assertIn("Ready", err["message"])
+
     def request(self, method, path, body=None, headers=None):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         h = {"Host": f"127.0.0.1:{self.port}", "Content-Type": "application/json", **(headers or {})}
