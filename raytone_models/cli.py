@@ -72,6 +72,15 @@ def _probe(url):
         return False
 
 
+def _page(url):
+    """The text of a small page on loopback, or None if nothing answers with 200."""
+    try:
+        with urllib.request.urlopen(url, timeout=1.5) as r:
+            return r.read(65536).decode(errors="replace") if r.status == 200 else None
+    except OSError:
+        return None
+
+
 def _engines(files=None):
     """The shipped engine images, with what scripts/build-engine built on this machine over them."""
     out = {}
@@ -95,6 +104,7 @@ class Env:
     engines: dict = None
     helper: object = _pkexec
     probe: object = _probe
+    page: object = _page
     recipe_dirs: list = None
     allowed_signers: pathlib.Path = recipes.ALLOWED_SIGNERS
     run: object = _run
@@ -249,12 +259,19 @@ def cmd_agent_web(a, env):
         return env.execvpe("omarchy-launch-openclaw", ["omarchy-launch-openclaw"], dict(os.environ))
     if a.agent != "hermes":
         raise SystemExit(f"{a.agent} has no web UI of its own: use Launch")
-    if not env.probe(HERMES_WEB):
+    def hermes():
+        # something else on 9119 is not Hermes's dashboard: never open it as one
+        text = env.page(HERMES_WEB)
+        if text is not None and "<title>Hermes Agent" not in text:
+            raise SystemExit(f"another service answers on {HERMES_WEB}; Hermes's dashboard needs that port")
+        return text is not None
+
+    if not hermes():
         env.run(["systemd-run", "--user", "--collect", "--unit=raytone-hermes-dashboard",
                  f"--setenv=PATH={os.environ.get('PATH', '')}", "hermes", "dashboard", "--no-open", "--skip-build",
                  "--host", "127.0.0.1", "--port", "9119"], dict(os.environ))
         for _ in range(60):
-            if env.probe(HERMES_WEB):
+            if hermes():
                 break
             time.sleep(env.web_poll)
         else:

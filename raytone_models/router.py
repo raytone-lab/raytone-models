@@ -66,6 +66,18 @@ def instances(registry, ports):
     return out
 
 
+def _answers(port):
+    """Whether an engine answers /v1/models (every chat engine serves it) right now."""
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+    try:
+        c.request("GET", "/v1/models")
+        return c.getresponse().status == 200
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        c.close()
+
+
 class Cached:
     """A value refreshed at most every ttl seconds, by one thread at a time: the others wait for
     that refresh and use it, so an older answer never replaces a newer one."""
@@ -270,11 +282,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             up.request("POST", self.path, body=body, headers=headers)
             resp = up.getresponse()
-        except (ConnectionRefusedError, ConnectionResetError):
-            # registered but not answering yet: an engine loads its model for a minute or two, and
-            # docker's port forward accepts meanwhile, then resets (RemoteDisconnected is a reset too)
-            return self._error(503, f"{model or 'the model'} is still starting: wait until Raytone Models shows it Ready, "
-                                    "then try again", "engine_starting")
+        except (ConnectionRefusedError, ConnectionResetError) as e:
+            # an engine loads its model for a minute or two, and docker's port forward accepts
+            # meanwhile, then resets (RemoteDisconnected is a reset too); one that lists its models is
+            # up, and its reset is a real failure
+            if _answers(port):
+                return self._error(502, f"the engine did not answer: {e}", "upstream_error")
+            return self._error(503, f"{model or 'the model'} is not answering yet: it may still be starting (wait until "
+                                    "Raytone Models shows it Ready, then try again) or have stopped", "engine_starting")
         except OSError as e:
             return self._error(502, f"the engine did not answer: {e}", "upstream_error")
         self.send_response(resp.status)

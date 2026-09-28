@@ -287,7 +287,9 @@ class CliTests(unittest.TestCase):
         ran, execs, probes = [], [], []
         self.env.run = lambda cmd, env: ran.append(cmd) or 0
         self.env.execvpe = lambda file, argv, env: execs.append(argv)
-        self.env.probe = lambda url: probes.append(url) or answering(len(ran))
+        # a page that answers is Hermes's unless the test says otherwise
+        self.env.page = lambda url: (probes.append(url) or self.page_text) if answering(len(ran)) else None
+        self.page_text = "<title>Hermes Agent - Dashboard</title>"
         self.env.web_poll = 0
         rc, out = self.run_cli("agent-web", agent)
         return rc, out, ran, execs
@@ -308,6 +310,16 @@ class CliTests(unittest.TestCase):
         rc, _, ran, execs = self.web("hermes", lambda started: False)
         self.assertNotEqual(rc, 0)
         self.assertEqual(execs, [])
+
+    def test_hermes_web_never_opens_another_service_on_its_port(self):
+        # From Codex's review: something else answering on 9119 is not Hermes's dashboard
+        ran, execs = [], []
+        self.env.run = lambda cmd, env: ran.append(cmd) or 0
+        self.env.execvpe = lambda file, argv, env: execs.append(argv)
+        self.env.page = lambda url: "<title>Grafana</title>"
+        rc, _ = self.run_cli("agent-web", "hermes")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual((ran, execs), ([], []))
 
     def test_openclaw_web_is_omarchys_launcher(self):
         # it starts the gateway if needed and opens the Control UI with a one-time sign-in
