@@ -71,6 +71,8 @@ function modelState(m) {
 function launchArgs(id) {
     if (id === "copilot") return ["--app-id=org.omarchy.copilot", "raytone-models", "agent-exec", "copilot"]
     if (id === "openclaw") return ["omarchy-launch-openclaw", "--tui"]
+    // Pi and Oh My Pi keep a saved default model (maybe a cloud one): name ours
+    if (id === "pi" || id === "omp") return [id, "--model", "raytone/local"]
     var c = agentCommand(id)
     return c ? [c] : null
 }

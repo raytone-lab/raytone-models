@@ -131,8 +131,10 @@ class JsonAdapterTests(unittest.TestCase):
 
     def test_hermes_gets_a_custom_provider(self):
         # ~/.hermes/config.yaml, written as JSON (which is YAML); Hermes needs no key on loopback
-        cfg = self.roundtrip("hermes", ".hermes/config.yaml", b'{"toolsets": ["hermes-cli"], "model": {"provider": "nous"}}\n')
-        self.assertEqual(cfg["model"], {"provider": "custom", "base_url": BASE, "default": "local"})
+        cfg = self.roundtrip("hermes", ".hermes/config.yaml",
+                             b'{"toolsets": ["hermes-cli"], "model": {"provider": "nous", "aliases": {"q": "x"}, "api_key": "k", "api_mode": "anthropic_messages"}}\n')
+        # From Codex's review: only the endpoint's keys change; the rest of model stays
+        self.assertEqual(cfg["model"], {"provider": "custom", "base_url": BASE, "default": "local", "aliases": {"q": "x"}})
         self.assertEqual(cfg["toolsets"], ["hermes-cli"])
 
     def test_a_hermes_config_in_yaml_is_left_alone(self):

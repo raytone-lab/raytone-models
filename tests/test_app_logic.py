@@ -139,6 +139,9 @@ class AppLogicTests(unittest.TestCase):
         self.assertIsNone(call("launchArgs", "gemini"))
         # OpenClaw's terminal UI attaches to its gateway, which Omarchy's launcher starts if needed
         self.assertEqual(call("launchArgs", "openclaw"), ["omarchy-launch-openclaw", "--tui"])
+        # From Codex's review: Pi and Oh My Pi keep a saved default model, which may be a cloud one
+        for agent in ("pi", "omp"):
+            self.assertEqual(call("launchArgs", agent), [agent, "--model", "raytone/local"])
 
     def test_agent_command(self):
         self.assertEqual(call("agentCommand", "claude"), "claude")

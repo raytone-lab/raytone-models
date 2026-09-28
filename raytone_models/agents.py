@@ -218,7 +218,10 @@ class Hermes(JsonAdapter):
     id, rel = "hermes", ".hermes/config.yaml"
 
     def merge(self, cfg, base_url):
-        cfg["model"] = {"provider": "custom", "base_url": base_url, "default": MODEL}
+        # the rest of model (aliases, ...) stays; the old endpoint's key and wire format do not
+        model = {k: v for k, v in (cfg.get("model") if isinstance(cfg.get("model"), dict) else {}).items()
+                 if k not in ("api_key", "api_mode")}
+        cfg["model"] = {**model, "provider": "custom", "base_url": base_url, "default": MODEL}
 
 
 class Codex(Adapter):
