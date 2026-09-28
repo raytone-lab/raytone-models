@@ -23,11 +23,22 @@ class SystemFilesTests(unittest.TestCase):
     def test_the_app_opens_one_window(self):
         launcher = (ROOT / "bin/raytone-models-app").read_text()
         self.assertIn("pgrep -f", launcher)
+        # Omarchy 4's Hyprland is configured in Lua, where dispatch takes a Lua expression; the
+        # classic dispatcher stays as the fallback (seen on the Thor: "')' expected near ...")
+        self.assertIn('hl.dsp.focus({ window = ', launcher)
         self.assertIn("focuswindow", launcher)
         self.assertIn('exec qs -p "$APP"', launcher)
         desktop = (ROOT / "packaging/raytone-models.desktop").read_text()
         self.assertIn("Exec=raytone-models-app", desktop)
         self.assertIn("Icon=raytone-models", desktop)
+
+    def test_the_apps_types_are_in_its_qmldir(self):
+        # seen on the Thor, in a desktop session: with a qmldir, a folder exports only what it lists,
+        # and the installed app failed with "MainView is not a type"
+        listed = {l.split()[-1] for l in (ROOT / "app/qmldir").read_text().splitlines() if l.strip()}
+        for qml in (ROOT / "app").glob("*.qml"):
+            if qml.name != "shell.qml":
+                self.assertIn(qml.name, listed)
 
     def test_the_package_installs_the_app(self):
         pkg = (ROOT / "packaging/PKGBUILD").read_text()

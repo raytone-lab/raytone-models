@@ -2,6 +2,9 @@
 # Raytone Models: one window. If it is already open, bring it to the front instead of opening another.
 APP=${RAYTONE_MODELS_APP:-/usr/share/raytone-models/app}
 if pgrep -f "qs -p $APP" > /dev/null; then
-  exec hyprctl dispatch focuswindow "title:^Raytone Models$"
+  # Omarchy 4 configures Hyprland in Lua, where dispatch takes a Lua expression; else the classic one
+  hyprctl dispatch 'hl.dsp.focus({ window = "title:^Raytone Models$" })' > /dev/null 2>&1 ||
+    hyprctl dispatch focuswindow "title:^Raytone Models$"
+  exit 0
 fi
 exec qs -p "$APP"

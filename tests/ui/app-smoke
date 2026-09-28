@@ -1,0 +1,16 @@
+#!/bin/bash
+# The app exactly as installed (qs -p on its own folder, with the real backend), offscreen: it must
+# still be running after 10 s with no load error. tests/ui/render copies app/ into its own harness,
+# so it cannot catch what only the app's own folder gets wrong (a qmldir that leaves a type out).
+#   tests/ui/app-smoke [APP_DIR]      (default: this repository's app/)
+set -uo pipefail
+app=${1:-$(cd "$(dirname "$0")/../.." && pwd)/app}
+command -v qs > /dev/null || { echo "app-smoke: qs (Quickshell) is not installed"; exit 2; }
+out=$(QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software timeout 10 qs -p "$app" 2>&1)
+rc=$?
+if [[ $rc -ne 124 ]] || grep -qE "ERROR|Failed to load" <<< "$out"; then
+  grep -E "ERROR|caused by" <<< "$out" | head -5
+  echo "app-smoke: FAILED (exit $rc)"
+  exit 1
+fi
+echo "app-smoke: loaded"
