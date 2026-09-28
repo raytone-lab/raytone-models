@@ -118,8 +118,9 @@ def current_model(served_now, registry, ports, current_file):
     """What the fixed name `local` points at: the model chosen as current if it runs, else the chat
     instance started last. Agents know one address and one name; whatever runs, they use it."""
     try:
-        chosen = pathlib.Path(current_file).read_text().strip()
-    except OSError:
+        with open(current_file, "rb") as f:
+            chosen = f.read(1024).decode().strip()    # longer than any served name: never a whole big file
+    except (OSError, UnicodeDecodeError):
         chosen = ""
     if chosen and chosen != ALIAS and chosen in served_now:
         return chosen

@@ -200,6 +200,15 @@ class RouterTests(unittest.TestCase):
         self.current.write_text("stopped-model\n")            # not running: the newest one instead
         self.assertEqual(self.post_local()[0], 200)
 
+    def test_a_garbled_current_file_falls_back(self):
+        # From Codex's review: invalid UTF-8 (or a huge file) is no choice, not a failed request
+        for data in (b"\xff\xfe\x00", b"x" * 1_000_000):
+            with self.subTest(size=len(data)):
+                self.current.write_bytes(data)
+                status, got = self.post_local()
+                self.assertEqual(status, 200)
+                self.assertEqual(got["served_by"], self.b.server_address[1])
+
     def test_local_is_listed_and_never_a_video_engine(self):
         status, _, body = self.request("GET", "/v1/models")
         self.assertIn("local", [m["id"] for m in json.loads(body)["data"]])

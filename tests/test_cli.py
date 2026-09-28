@@ -216,6 +216,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.current.read_text().strip(), "qwen3:1.7b")
 
+    def test_an_ollama_name_without_a_tag_is_its_latest(self):
+        # From Codex's review: Ollama serves "qwen3" as "qwen3:latest"; the router matches exactly
+        self.ollama()
+        self.run_cli("ollama", "run", "qwen3", "--json")
+        self.assertEqual(self.current.read_text().strip(), "qwen3:latest")
+
+    def test_concurrent_choices_each_write_whole(self):
+        # From Codex's review: one shared temporary file let one writer commit another's choice
+        # another writer's temporary file in the way: ours must be our own
+        taken = self.current.with_name(".current.tmp")
+        taken.mkdir(parents=True)
+        cli._set_current(self.env, "a")
+        self.assertEqual(self.current.read_text(), "a\n")
+        self.assertEqual(sorted(f.name for f in self.current.parent.iterdir() if f.name.startswith(".current")),
+                         [".current.tmp"])
+
     def test_loaded_ollama_models_are_instances(self):
         self.ollama()
         rc, out = self.run_cli("instances", "--json")

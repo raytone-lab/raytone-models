@@ -172,10 +172,7 @@ def _instances(env):
 
 def _set_current(env, name):
     """The model the router's fixed name (local) goes to, until another is started or chosen."""
-    env.current.parent.mkdir(parents=True, exist_ok=True)
-    tmp = env.current.with_name(f".{env.current.name}.tmp")
-    tmp.write_text(name + "\n")
-    os.replace(tmp, env.current)
+    agents._atomic_write(env.current, (name + "\n").encode(), 0o644)    # a temporary file of its own
 
 
 def cmd_use(a, env):
@@ -434,7 +431,8 @@ def cmd_ollama(a, env):
         else:
             {"run": env.ollama.load, "stop": env.ollama.unload, "delete": env.ollama.delete}[a.action](a.name)
             if a.action == "run":
-                _set_current(env, a.name)
+                # Ollama serves a name without a tag as NAME:latest, and the router matches exactly
+                _set_current(env, a.name if ":" in a.name else a.name + ":latest")
             _print({a.action: a.name}, a.json)
     except ollama_mod.OllamaError as e:
         print(json.dumps({"error": str(e)}), flush=True)
