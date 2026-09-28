@@ -55,6 +55,13 @@ while [ $# -gt 0 ]; do [ "$1" = --iidfile ] && echo -n {ID} > "$2"; shift; done
         self.assertIn(f"-t raytone/vllm-flashnext:local {d}", self.log.read_text())
         self.assertEqual(json.loads(self.engines.read_text())["vllm-flashnext"]["image"], f"raytone/vllm-flashnext@{ID}")
 
+    def test_names_follow_the_spec(self):
+        # From Codex's review of PR #13: a name the spec refuses must not build
+        d = pathlib.Path(self.tmp.name) / "x"
+        d.mkdir()
+        (d / "Dockerfile").write_text("FROM x\n")
+        self.assertNotEqual(self.run_script("vllm-flashnext.v1", str(d)).returncode, 0)
+
     def test_an_unknown_engine_is_refused(self):
         r = self.run_script("../../etc")
         self.assertNotEqual(r.returncode, 0)

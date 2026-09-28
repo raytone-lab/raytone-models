@@ -7,7 +7,7 @@ set -euo pipefail
 name=${1:?usage: build-engine NAME}
 here=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)   # also through /usr/bin/raytone-models-build-engine
 dir=${2:-$here/engines/$name}
-[[ $name =~ ^[a-z0-9][a-z0-9.-]*$ && -f $dir/Dockerfile ]] || { echo "no Dockerfile for $name in $dir" >&2; exit 1; }
+[[ $name =~ ^[a-z0-9][a-z0-9-]*$ && -f $dir/Dockerfile ]] || { echo "no Dockerfile for $name in $dir" >&2; exit 1; }
 docker=${RAYTONE_DOCKER:-docker} sudo=${RAYTONE_SUDO-sudo}
 file=${RAYTONE_ENGINES_FILE:-/etc/raytone-models/engines.json}
 # a directory of ours: root's docker writes the iidfile, and we can still remove it from here

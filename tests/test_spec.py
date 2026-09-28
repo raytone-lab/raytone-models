@@ -139,6 +139,26 @@ class LocalVllmTests(unittest.TestCase):
             with self.subTest(over=over), self.assertRaises(spec.SpecError):
                 spec.load(self.flashnext(**over))
 
+    def test_json_arguments_have_a_schema(self):
+        # From Codex's review of PR #13: vLLM reads paths and importable names from these objects
+        base = self._flashnext()["args"]
+        for key, bad in (("compilation-config", {"mode": 1, "backend": "os.system"}),
+                         ("compilation-config", {"cache_dir": "/tmp/x"}),
+                         ("compilation-config", {"mode": "0"}),
+                         ("engram-config", {"cpu_offload": True, "path": "/x"}),
+                         ("speculative-config", {"method": "mtp", "model": "/cache/evil"}),
+                         ("speculative-config", {"method": "mtp", "num_speculative_tokens": 3, "draft_model_config": {}}),
+                         ("limit-mm-per-prompt", {"image": "all"})):
+            with self.subTest(key=key, bad=bad), self.assertRaises(spec.SpecError):
+                spec.load(self.flashnext(args={**base, key: bad}))
+        ok = {"method": "mtp", "num_speculative_tokens": 3, "use_local_argmax_reduction": True,
+              "disable_eagle_block_drop": True, "index_share_for_mtp_iteration": True}
+        spec.load(self.flashnext(args={**base, "speculative-config": ok}))
+        spec.load(good(args={"speculative-config": {"method": "dflash", "num_speculative_tokens": 7,
+                                                    "model": "/hf/hub/models--a--b/snapshots/" + "c" * 40}}))
+        spec.load(good(args={"speculative-config": '{"method":"mtp","num_speculative_tokens":3}'}))
+        spec.load(good(args={"limit-mm-per-prompt": {"image": 2, "video": 0}}))
+
     def test_memory_is_optional(self):
         self.assertIsNone(spec.load(good()).memory_gib)
 

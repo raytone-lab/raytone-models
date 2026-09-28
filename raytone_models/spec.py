@@ -41,15 +41,6 @@ def _choice(*values):
     return lambda v: v in values
 
 
-def _json_object(v):
-    if isinstance(v, str):
-        try:
-            v = json.loads(v)
-        except ValueError:
-            return False
-    return isinstance(v, dict) and all(isinstance(k, str) for k in v)
-
-
 # a GGUF file inside the model's snapshot: path components that start with a letter, digit or _
 # (so never "..", never an option), ending in .gguf
 GGUF_FILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*\.gguf$")
@@ -65,6 +56,32 @@ def _draft_path(v):
 
 
 _BIT = re.compile(r"^[01]$")
+
+def _bool(v):
+    return isinstance(v, bool)
+
+
+def _schema(fields):
+    """A JSON object (or a string holding one) with only these keys, each passing its check: vLLM
+    reads paths and importable names from some of its config objects, so no free-form ones."""
+    def check(v):
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                return False
+        return isinstance(v, dict) and all(k in fields and fields[k](x) for k, x in v.items())
+    return check
+
+
+SPECULATIVE = _schema({"method": _choice("mtp", "dflash", "eagle", "eagle3", "ngram", "draft_model"),
+                       "num_speculative_tokens": _int(1, 32), "model": lambda v: _draft_path(v),
+                       "use_local_argmax_reduction": _bool, "disable_eagle_block_drop": _bool,
+                       "index_share_for_mtp_iteration": _bool})
+COMPILATION = _schema({"mode": _int(0, 3),
+                       "cudagraph_mode": _choice("NONE", "PIECEWISE", "FULL", "FULL_DECODE_ONLY", "FULL_AND_PIECEWISE")})
+ENGRAM = _schema({"cpu_offload": _bool, "embedding_across_dp": _bool, "dp_shared_memory": _bool})
+LIMIT_MM = _schema({"image": _int(0, 64), "video": _int(0, 64), "audio": _int(0, 64)})
 
 # Per engine: the image repositories it may come from, its arguments with their checks, and the
 # environment variables it may receive.
@@ -86,11 +103,11 @@ ENGINES = {
             "enforce-eager": _flag,
             "no-enable-flashinfer-autotune": _flag,
             "trust-remote-code": _flag,
-            "speculative-config": _json_object,
-            "limit-mm-per-prompt": _json_object,
+            "speculative-config": SPECULATIVE,
+            "limit-mm-per-prompt": LIMIT_MM,
             # Qwen3.8 Flash Next's single-device lane
-            "engram-config": _json_object,
-            "compilation-config": _json_object,
+            "engram-config": ENGRAM,
+            "compilation-config": COMPILATION,
             "kv-cache-memory-bytes": lambda v: isinstance(v, str) and bool(re.fullmatch(r"[1-9][0-9]{0,3}[MG]", v)),
             "mamba-ssm-cache-dtype": _choice("auto", "float16", "bfloat16", "float32"),
             "load-format": _choice("auto", "safetensors"),
