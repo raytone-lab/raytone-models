@@ -83,12 +83,10 @@ backend and `logic.js` in Quickshell's own engine.
 
 ## Known limits on the Thor
 
-- **768p video** held the SoC near 89 C and peaked at 96 C, where the Thor edition's thermal guard
-  (95 C) reboots; the app offers 480p only for now.
-- **Codex** answers, but its own sandbox cannot run commands: the L4T kernel restricts unprivileged
-  user namespaces through AppArmor and Arch ships no profiles.
-- **Ollama** can start before the GPU after a boot and then stay on the CPU; `systemctl restart ollama`
-  brings it to the GPU (the Thor edition's unit ordering, to be fixed there).
+- **768p video** needs the Thor edition's fan curve (raytone-thor-omarchy 0.1.0-11): with JetPack's the
+  SoC peaked at 96 C, where the thermal guard (95 C) reboots; with it, 86 C (711 s for 5 s of video).
+- **Codex** runs commands in its sandbox only with the Thor edition's user-namespace setting
+  (raytone-thor-omarchy 0.1.0-11); the L4T kernel refuses unprivileged user namespaces otherwise.
 - **Laguna S 2.1** (95.6 GiB of weights) failed with Mia's settings and started once on vLLM v0.25.1
   with 90% of memory, a 64K context and an FP8 KV cache (21 minutes the first time, 24-38 tokens/s),
   leaving about 6 GiB free, its reasoning in the answer text: an unsigned draft with those settings.

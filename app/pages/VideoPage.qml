@@ -91,9 +91,9 @@ ColumnLayout {
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
-            // 768p held the SoC near 89 C and peaked at 96 C on the Thor, past the thermal guard's
-            // 95 C, which rebooted it: 480p only until the fan curve is settled (docs/evidence/p4-video.md)
-            RComboBox { id: size; model: ["480p"]; implicitWidth: 110 }
+            // 768p needs the Thor edition's fan curve (raytone-thor-omarchy 0.1.0-11): with JetPack's it
+            // passed the thermal guard's 95 C (docs/evidence/p4-video.md)
+            RComboBox { id: size; model: ["480p", "768p"]; implicitWidth: 110 }
             RComboBox { id: seconds; model: ["5 s", "10 s"]; implicitWidth: 100 }
             CheckBox {
                 id: turbo
