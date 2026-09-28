@@ -33,8 +33,12 @@ def memory(meminfo="/proc/meminfo"):
 def video_sizes(fan_conf="/etc/nvfancontrol.conf"):
     """768p held a Thor at 96 C with JetPack's fan curve, past the thermal guard's 95 C: offered only
     where nvfancontrol uses the Thor edition's curve, or where there is no nvfancontrol at all."""
-    if not os.path.lexists(fan_conf):
+    try:
+        os.lstat(fan_conf)
+    except FileNotFoundError:
         return ["480p", "768p"]
+    except OSError:           # cannot even tell: the safe choice
+        return ["480p"]
     try:
         text = pathlib.Path(fan_conf).read_text()
     except OSError:           # there, but unreadable (or a link to nothing): the safe choice

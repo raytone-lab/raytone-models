@@ -83,6 +83,9 @@ class LiveTests(unittest.TestCase):
         (t / "dangling.conf").symlink_to(t / "removed.conf")
         self.assertEqual(live.video_sizes(t / "dangling.conf"), ["480p"])
         self.assertEqual(live.video_sizes(t), ["480p"])                        # a directory: unreadable
+        from unittest import mock
+        with mock.patch("os.lstat", side_effect=PermissionError("denied")):
+            self.assertEqual(live.video_sizes(conf), ["480p"])                 # cannot tell: 480p
 
     def test_memory_of_the_unified_pool(self):
         m = live.memory(self.meminfo)
