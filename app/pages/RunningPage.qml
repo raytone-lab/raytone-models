@@ -52,6 +52,14 @@ ColumnLayout {
                 }
                 Item { Layout.fillWidth: true }
                 Pill { text: inst.modelData.ready ? "Ready" : "Starting"; kind: inst.modelData.ready ? "ready" : "pending" }
+                Pill { text: "Agents use this"; kind: "ready"; visible: inst.modelData.current === true }
+                RButton {
+                    // agents ask for "local"; the router sends it to the current model
+                    visible: inst.modelData.chat !== false && inst.modelData.current !== true && inst.modelData.ready
+                    text: "Use for agents"
+                    enabled: page.backend.busy === ""
+                    onClicked: page.backend.act("use:" + inst.modelData.id, ["use", inst.modelData.served_name, "--json"], "Agents now use " + inst.modelData.served_name)
+                }
                 RButton {
                     variant: "danger"
                     text: page.backend.busy === "stop:" + inst.modelData.id ? "Stopping…" : "Stop"
@@ -134,6 +142,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Text { text: "LOCAL ROUTER · OPENAI- AND ANTHROPIC-COMPATIBLE"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold }
                 Text { text: "http://127.0.0.1:8090/v1"; color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeCard; font.weight: Font.DemiBold }
+                Text { text: "model \"local\" is always the current model"; color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl }
             }
             Item { Layout.fillWidth: true }
             RButton { text: "Copy"; onClicked: page.backend.copy("http://127.0.0.1:8090/v1") }
