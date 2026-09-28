@@ -91,9 +91,9 @@ ColumnLayout {
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
-            // 768p needs the Thor edition's fan curve (raytone-thor-omarchy 0.1.0-11): with JetPack's it
-            // passed the thermal guard's 95 C (docs/evidence/p4-video.md)
-            RComboBox { id: size; model: ["480p", "768p"]; implicitWidth: 110 }
+            // 768p only where the CLI allows it: with JetPack's fan curve it passed the Thor's thermal
+            // guard (docs/evidence/p4-video.md); the Thor edition's curve (raytone-thor-omarchy) allows it
+            RComboBox { id: size; model: page.backend.stats && page.backend.stats.video_sizes ? page.backend.stats.video_sizes : ["480p"]; implicitWidth: 110 }
             RComboBox { id: seconds; model: ["5 s", "10 s"]; implicitWidth: 100 }
             CheckBox {
                 id: turbo

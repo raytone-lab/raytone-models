@@ -127,6 +127,19 @@ class CliTests(unittest.TestCase):
         h3 = next(n for n in wf.values() if n["class_type"] == "MiniMaxH3ImageToVideo")
         self.assertEqual((h3["inputs"]["length"], h3["inputs"]["width"]), (73, 864))
 
+    def test_768p_only_where_the_fan_allows_it(self):
+        from tests.test_video import FakeComfy
+        fake = FakeComfy()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+        (self.reg / "h3.json").write_text(json.dumps({"id": "minimax-h3", "served_name": "minimax-h3",
+                                                     "port": fake.server_address[1], "engine": "comfyui"}))
+        self.env.video_sizes = lambda: ["480p"]
+        rc, out = self.run_cli("video", "--prompt", "a fox", "--size", "768p")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("fan", json.loads(out.splitlines()[-1])["error"])
+        self.assertEqual(fake.prompts, [])
+
     def test_video_without_a_video_engine_running(self):
         rc, out = self.run_cli("video", "--prompt", "a fox")
         self.assertNotEqual(rc, 0)

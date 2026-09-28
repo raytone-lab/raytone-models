@@ -70,6 +70,16 @@ class LiveTests(unittest.TestCase):
         self.engine.server_close()
         self.tmp.cleanup()
 
+    def test_video_sizes_follow_the_fan_curve(self):
+        # From Codex's review of PR #12: 768p passed the thermal guard with JetPack's fan curve
+        t = pathlib.Path(self.tmp.name)
+        conf = t / "nvfancontrol.conf"
+        conf.write_text("<FAN 1>\n\tFAN_DEFAULT_PROFILE cool\n")
+        self.assertEqual(live.video_sizes(conf), ["480p"])
+        conf.write_text("<FAN 1>\n\tFAN_DEFAULT_PROFILE raytone\n")
+        self.assertEqual(live.video_sizes(conf), ["480p", "768p"])
+        self.assertEqual(live.video_sizes(t / "none.conf"), ["480p", "768p"])   # no nvfancontrol: not a Thor
+
     def test_memory_of_the_unified_pool(self):
         m = live.memory(self.meminfo)
         self.assertEqual((m["total"], m["available"]), (127535088 * 1024, 86523904 * 1024))
