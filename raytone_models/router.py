@@ -261,15 +261,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if model not in served_now:
             return self._error(404, f"model {model!r} is not running; running: {', '.join(sorted(served_now)) or 'none'}",
                                "model_not_found")
-        self._relay(served_now[model], body)
+        self._relay(served_now[model], body, model)
 
-    def _relay(self, port, body):
+    def _relay(self, port, body, model=None):
         headers = {k: v for k, v in self.headers.items() if k.lower() in FORWARD_HEADERS}
         headers["Content-Length"] = str(len(body))
         up = http.client.HTTPConnection("127.0.0.1", port, timeout=3600)
         try:
             up.request("POST", self.path, body=body, headers=headers)
             resp = up.getresponse()
+        except ConnectionRefusedError:
+            # registered but not listening yet: an engine loads its model for a minute or two
+            return self._error(503, f"{model or 'the model'} is still starting: wait until Raytone Models shows it Ready, "
+                                    "then try again", "engine_starting")
         except OSError as e:
             return self._error(502, f"the engine did not answer: {e}", "upstream_error")
         self.send_response(resp.status)
