@@ -322,6 +322,9 @@ class EnvAdapterTests(unittest.TestCase):
 
 
 class CatalogTests(unittest.TestCase):
+    def test_the_agents_with_a_web_ui(self):
+        self.assertEqual(sorted(a["id"] for a in agents.catalog() if a["web"]), ["hermes", "openclaw"])
+
     def test_unsupported_agents_say_why(self):
         info = {a["id"]: a for a in agents.catalog()}
         for name in ("gemini", "cursor-agent", "muse"):
