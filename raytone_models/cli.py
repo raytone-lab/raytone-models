@@ -5,7 +5,8 @@
     raytone-models start REPO[@REVISION] --engine vllm --name SERVED [--image REPO@sha256:D] [--arg KEY[=VALUE]]... [--json]
     raytone-models stop ID
     raytone-models agents [--json]
-    raytone-models agent connect|revert AGENT [--default SERVED] [--json]
+    raytone-models agent connect|revert AGENT [--json]
+    raytone-models use SERVED [--json]          the model agents get when they ask for "local"
     raytone-models hub search QUERY [--kind video|image|speech] [--json]
     raytone-models hub files REPO [--revision COMMIT] [--json]
     raytone-models download REPO[@COMMIT] [--variant NAME | --include PATTERN...] [--json]
@@ -106,6 +107,7 @@ class Env:
     execvpe: object = os.execvpe
     videos_dir: pathlib.Path = video.OUT_DIR
     video_poll: float = 1.0
+    current: pathlib.Path = router.CURRENT
 
     def __post_init__(self):
         self.hf_home = pathlib.Path(self.hf_home or store.home())
@@ -161,7 +163,26 @@ def _instances(env):
                                      for k in ("max-model-len", "context-length", "ctx-size") if k in a), None),
                     "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}{engines.health_path(d.get('engine'))}")})
     names = {o["served_name"] for o in out}          # an instance wins over an Ollama model, as in the router
-    return out + [o for o in _ollama_instances(env) if o["served_name"] not in names]
+    out += [o for o in _ollama_instances(env) if o["served_name"] not in names]
+    now = router.current_model({o["served_name"] for o in out if o["chat"]}, env.registry, spec_mod.INSTANCE_PORTS, env.current)
+    for o in out:
+        o["current"] = o["served_name"] == now
+    return out
+
+
+def _set_current(env, name):
+    """The model the router's fixed name (local) goes to, until another is started or chosen."""
+    env.current.parent.mkdir(parents=True, exist_ok=True)
+    tmp = env.current.with_name(f".{env.current.name}.tmp")
+    tmp.write_text(name + "\n")
+    os.replace(tmp, env.current)
+
+
+def cmd_use(a, env):
+    if a.name not in {i["served_name"] for i in _instances(env) if i["chat"]}:
+        raise SystemExit(f"{a.name} is not a running chat model")
+    _set_current(env, a.name)
+    return {"current": a.name}
 
 
 def _ollama_instances(env):
@@ -201,7 +222,10 @@ def cmd_start(a, env):
         s = spec_mod.load(data)
     except spec_mod.SpecError as e:
         raise SystemExit(f"refused: {e}") from None
-    return env.helper(["start"], stdin=s.to_json())
+    out = env.helper(["start"], stdin=s.to_json())
+    if s.engine not in engines.NOT_CHAT:
+        _set_current(env, s.served_name)
+    return out
 
 
 def cmd_agent_exec(a, env):
@@ -220,12 +244,8 @@ def cmd_agent(a, env):
     if a.action == "revert":
         ad.revert()
         return ad.status()
-    ready = [i for i in _instances(env) if i["ready"] and i["chat"]]
-    if not ready:
-        raise SystemExit("no model is running and ready")
-    models = [{"id": i["served_name"], "context": i["context"] or 32768, "output": min(32768, (i["context"] or 32768) // 4)}
-              for i in ready]
-    ad.connect(models, default=a.default or models[0]["id"])
+    # one fixed name: the router sends it to whatever model runs, so nothing here depends on one
+    ad.connect()
     return ad.status()
 
 
@@ -286,7 +306,11 @@ def cmd_recipe(a, env):
             other = by_id.get(s.id)
             if other is not None and other != s.served_name:
                 raise SystemExit(f"instance {s.id} serves {other}, not {s.served_name}; stop it first")
-        return [env.helper(["start"], stdin=s.to_json()) for s in specs]
+        out = [env.helper(["start"], stdin=s.to_json()) for s in specs]
+        chat = [s.served_name for s in specs if s.engine not in engines.NOT_CHAT]
+        if chat:
+            _set_current(env, chat[0])
+        return out
     if a.action == "stop":
         # only the instances that run as this recipe; another instance with the same name stays
         matching, _ = _matching(r, env)
@@ -409,6 +433,8 @@ def cmd_ollama(a, env):
             env.ollama.pull(a.name, emit=lambda o: print(json.dumps(o), flush=True))
         else:
             {"run": env.ollama.load, "stop": env.ollama.unload, "delete": env.ollama.delete}[a.action](a.name)
+            if a.action == "run":
+                _set_current(env, a.name)
             _print({a.action: a.name}, a.json)
     except ollama_mod.OllamaError as e:
         print(json.dumps({"error": str(e)}), flush=True)
@@ -451,8 +477,10 @@ def parse(argv):
     ag = sub.add_parser("agent")
     ag.add_argument("action", choices=["connect", "revert"])
     ag.add_argument("agent")
-    ag.add_argument("--default")
     ag.add_argument("--json", action="store_true")
+    u = sub.add_parser("use")
+    u.add_argument("name")
+    u.add_argument("--json", action="store_true")
     # its own command: everything after the agent's name is the agent's
     ax = sub.add_parser("agent-exec")
     ax.add_argument("agent")
@@ -567,6 +595,8 @@ def main(argv=None, env=None):
             _print(env.helper(["stop", a.id]), a.json)
         elif a.command == "ollama":
             return cmd_ollama(a, env)
+        elif a.command == "use":
+            _print(cmd_use(a, env), a.json)
         elif a.command == "agent-exec":
             return cmd_agent_exec(a, env)
         elif a.command == "agent":

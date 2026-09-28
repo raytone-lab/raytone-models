@@ -3,6 +3,10 @@
 An adapter writes only its agent's own config file. Before its first change it saves the file
 as it was (or notes that there was none), in the manager's state directory; revert() puts that
 back byte for byte. A config it cannot parse is left alone rather than rewritten.
+
+An agent is never tied to a model: it gets the router's address and one fixed name, local, which
+the router points at the model running now. The context length belongs to the engine (set when the
+model starts), so none is written here.
 """
 import json
 import os
@@ -14,6 +18,8 @@ import tomllib
 
 STATE = pathlib.Path(os.environ.get("XDG_STATE_HOME", pathlib.Path.home() / ".local/state")) / "raytone-models/agents"
 ROUTER = "http://127.0.0.1:8090/v1"
+MODEL = "local"                        # router.ALIAS
+LABEL = "Local model (Raytone Models)"
 
 # Omarchy 4.0.4's agents (omarchy-default-agent) and whether they can use a local endpoint.
 CATALOG = [
@@ -97,12 +103,10 @@ class JsonAdapter(Adapter):
     def path(self):
         return self.home / self.rel
 
-    def merge(self, cfg, models, default, base_url):
+    def merge(self, cfg, base_url):
         raise NotImplementedError
 
-    def connect(self, models, *, default, base_url=ROUTER):
-        if default not in {m["id"] for m in models}:
-            raise AgentError(f"{default} is not one of the running models")
+    def connect(self, *, base_url=ROUTER):
         cfg = {}
         if self.path.exists():
             try:
@@ -113,7 +117,7 @@ class JsonAdapter(Adapter):
                 raise AgentError(f"{self.path} is not a JSON object; left as it is")
         mode = self.path.stat().st_mode & 0o7777 if self.path.exists() else 0o600
         self._save_original()
-        self.merge(cfg, models, default, base_url)
+        self.merge(cfg, base_url)
         _atomic_write(self.path, (json.dumps(cfg, indent=2) + "\n").encode(), mode)
 
 
@@ -121,33 +125,32 @@ class Opencode(JsonAdapter):
     """~/.config/opencode/opencode.json: a provider through @ai-sdk/openai-compatible (chat completions)."""
     id, rel = "opencode", ".config/opencode/opencode.json"
 
-    def merge(self, cfg, models, default, base_url):
+    def merge(self, cfg, base_url):
         cfg.setdefault("$schema", "https://opencode.ai/config.json")
         cfg.setdefault("provider", {})["raytone"] = {
             "npm": "@ai-sdk/openai-compatible",
             "name": "Raytone Models (local)",
             "options": {"baseURL": base_url},
-            "models": {m["id"]: {"name": m["id"], "limit": {"context": m["context"], "output": m["output"]}}
-                       for m in models},
+            "models": {MODEL: {"name": LABEL}},
         }
-        cfg["model"] = f"raytone/{default}"
+        cfg["model"] = f"raytone/{MODEL}"
 
 
 class Claude(JsonAdapter):
     """~/.claude/settings.json env: the Anthropic Messages API, which the engines serve natively."""
     id, rel = "claude", ".claude/settings.json"
 
-    def merge(self, cfg, models, default, base_url):
+    def merge(self, cfg, base_url):
         # an explicit model (settings or ANTHROPIC_MODEL) wins over the aliases: point it here too
-        cfg["model"] = default
+        cfg["model"] = MODEL
         env = cfg.setdefault("env", {})
         env.update({
-            "ANTHROPIC_MODEL": default,
+            "ANTHROPIC_MODEL": MODEL,
             "ANTHROPIC_BASE_URL": base_url.removesuffix("/v1"),
             "ANTHROPIC_AUTH_TOKEN": "raytone-local",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": default,
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": default,
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": default,
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": MODEL,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": MODEL,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": MODEL,
             # a per-request hash in the system prompt would defeat the engine's prefix cache
             "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
             "API_TIMEOUT_MS": "3000000",
@@ -160,26 +163,25 @@ class Crush(JsonAdapter):
     """~/.config/crush/crush.json: an openai-compat provider, used for the large and small models."""
     id, rel = "crush", ".config/crush/crush.json"
 
-    def merge(self, cfg, models, default, base_url):
+    def merge(self, cfg, base_url):
         cfg.setdefault("$schema", "https://charm.land/crush.json")
         cfg.setdefault("providers", {})["raytone"] = {
             "type": "openai-compat", "name": "Raytone Models (local)", "base_url": base_url, "api_key": "raytone-local",
-            "models": [{"id": m["id"], "name": m["id"], "context_window": m["context"], "default_max_tokens": m["output"]}
-                       for m in models],
+            "models": [{"id": MODEL, "name": LABEL}],
         }
         cfg.setdefault("models", {})
         for size in ("large", "small"):
-            cfg["models"][size] = {"model": default, "provider": "raytone"}
+            cfg["models"][size] = {"model": MODEL, "provider": "raytone"}
 
 
 class Pi(JsonAdapter):
     """~/.pi/agent/models.json: a provider with the openai-completions API; pick it in /model."""
     id, rel = "pi", ".pi/agent/models.json"
 
-    def merge(self, cfg, models, default, base_url):
+    def merge(self, cfg, base_url):
         cfg.setdefault("providers", {})["raytone"] = {
             "baseUrl": base_url, "api": "openai-completions", "apiKey": "raytone-local",
-            "models": [{"id": m["id"], "contextWindow": m["context"], "maxTokens": m["output"]} for m in models],
+            "models": [{"id": MODEL, "name": LABEL}],
         }
 
 
@@ -188,6 +190,7 @@ class Codex(Adapter):
     standard library, so the file is edited as text: our top-level keys and our provider table are
     replaced, everything else stays, and the result must parse to exactly what was meant."""
     id = "codex"
+    # model_context_window: an older connect wrote it; the engine's own limit applies now
     KEYS = re.compile(r"^\s*(model|model_provider|model_context_window)\s*=")
     HEADER = re.compile(r"^\s*\[")
     OURS = re.compile(r"^\s*\[\s*model_providers\s*\.\s*raytone\s*\]\s*(#.*)?$")
@@ -196,7 +199,7 @@ class Codex(Adapter):
     def path(self):
         return self.home / ".codex/config.toml"
 
-    def _edit(self, text, default, base_url, context):
+    def _edit(self, text, base_url):
         lines = text.splitlines(keepends=True)
         first = next((i for i, l in enumerate(lines) if self.HEADER.match(l)), len(lines))
         top = [l for l in lines[:first] if not self.KEYS.match(l)]
@@ -207,17 +210,13 @@ class Codex(Adapter):
             if not skipping:
                 rest.append(l)
         mine = [f"# Raytone Models (raytone-models agent revert codex puts the original back)\n",
-                f"model = {json.dumps(default)}\n", 'model_provider = "raytone"\n',
-                f"model_context_window = {int(context)}\n"]
+                f"model = {json.dumps(MODEL)}\n", 'model_provider = "raytone"\n']
         table = ["\n[model_providers.raytone]\n", 'name = "Raytone Models"\n', f"base_url = {json.dumps(base_url)}\n",
                  'wire_api = "responses"\n']
         body = "".join(top + rest)
         return "".join(mine) + ("\n" if body.strip() else "") + body.rstrip("\n") + ("\n" if body.strip() else "") + "".join(table)
 
-    def connect(self, models, *, default, base_url=ROUTER):
-        chosen = next((m for m in models if m["id"] == default), None)
-        if chosen is None:
-            raise AgentError(f"{default} is not one of the running models")
+    def connect(self, *, base_url=ROUTER):
         text = self.path.read_text() if self.path.exists() else ""
         try:
             before = tomllib.loads(text)
@@ -225,10 +224,11 @@ class Codex(Adapter):
             raise AgentError(f"{self.path} is not valid TOML; left as it is") from None
         if not isinstance(before.get("model_providers", {}), dict):
             raise AgentError(f"{self.path}: model_providers is not a table; left as it is")
-        new = self._edit(text, default, base_url, chosen["context"])
+        new = self._edit(text, base_url)
         # the whole configuration afterwards must be the one before with our settings in it and
         # nothing else changed (a line inside a multi-line string only looks like a key)
-        expected = dict(before, model=default, model_provider="raytone", model_context_window=int(chosen["context"]))
+        expected = dict(before, model=MODEL, model_provider="raytone")
+        expected.pop("model_context_window", None)
         expected["model_providers"] = dict(before.get("model_providers", {}),
                                            raytone={"name": "Raytone Models", "base_url": base_url, "wire_api": "responses"})
         try:
@@ -253,14 +253,11 @@ class EnvAdapter(Adapter):
     def path(self):
         return self.home / ".config/raytone-models/agents" / f"{self.id}.env"
 
-    def variables(self, default, base_url, context):
+    def variables(self, base_url):
         raise NotImplementedError
 
-    def connect(self, models, *, default, base_url=ROUTER):
-        chosen = next((m for m in models if m["id"] == default), None)
-        if chosen is None:
-            raise AgentError(f"{default} is not one of the running models")
-        values = self.variables(default, base_url, chosen["context"])
+    def connect(self, *, base_url=ROUTER):
+        values = self.variables(base_url)
         if any(not re.fullmatch(r"[A-Za-z0-9._:/@+-]+", str(v)) for v in values.values()):
             raise AgentError("a value this adapter would write is not a plain word")
         mode = 0o600
@@ -282,9 +279,9 @@ class Copilot(EnvAdapter):
     """GitHub Copilot CLI's BYOK variables, offline: it talks to the router only."""
     id, command = "copilot", "copilot"
 
-    def variables(self, default, base_url, context):
-        return {"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BASE_URL": base_url, "COPILOT_MODEL": default,
-                "COPILOT_OFFLINE": "true", "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": int(context)}
+    def variables(self, base_url):
+        return {"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BASE_URL": base_url, "COPILOT_MODEL": MODEL,
+                "COPILOT_OFFLINE": "true"}
 
 
 ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Codex, Copilot)}
