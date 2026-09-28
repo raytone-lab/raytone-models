@@ -517,6 +517,12 @@ def _models(env):
     complete for what was asked even while the revision's full manifest is not."""
     rank = {"running": 0, "done": 1}
     rows = downloads.listing(hf_home=env.hf_home, state_dir=env.downloads_dir)
+    # a recipe may take only some of a repo's files (MiniMax H3: 88 of about 500 GB): with those
+    # here, the model is ready for it, whatever the rest of the manifest says
+    try:
+        wanted = [(r.id, c) for r in _recipes(env)[0] for c in r.components if c.include]
+    except OSError:
+        wanted = []
     out = []
     for m in store.list_models(env.hf_home):
         d = m.to_dict()
@@ -524,6 +530,11 @@ def _models(env):
         mine.sort(key=lambda r: rank.get(r["state"], 2))
         if mine:
             d["download"] = mine[0]
+        else:
+            for rid, c in wanted:
+                if c.repo == m.repo and c.revision == m.revision and recipes._complete(m, c.include):
+                    d["download"] = {"state": "done", "include": list(c.include), "recipe": rid}
+                    break
         out.append(d)
     return out
 
