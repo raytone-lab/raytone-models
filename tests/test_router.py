@@ -108,6 +108,26 @@ class RouterTests(unittest.TestCase):
         self.assertIn("nemotron-3.5-lightning is still starting", err["message"])
         self.assertIn("Ready", err["message"])
 
+    def test_an_engine_behind_docker_still_loading_says_so(self):
+        # seen on the Thor: docker's port forward accepts, then resets while the engine inside loads
+        import socket, threading
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        self.addCleanup(srv.close)
+
+        def reset():
+            conn, _ = srv.accept()
+            conn.recv(65536)
+            conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00")
+            conn.close()
+        threading.Thread(target=reset, daemon=True).start()
+        (self.reg / "loading.json").write_text(json.dumps({"id": "loading", "served_name": "nemotron-3.5-lightning",
+                                                             "port": srv.getsockname()[1], "engine": "sglang"}))
+        self.current.write_text("nemotron-3.5-lightning\n")
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "local", "messages": []})
+        self.assertEqual((status, json.loads(body)["error"]["type"]), (503, "engine_starting"))
+
     def request(self, method, path, body=None, headers=None):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         h = {"Host": f"127.0.0.1:{self.port}", "Content-Type": "application/json", **(headers or {})}

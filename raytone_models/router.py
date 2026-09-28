@@ -270,8 +270,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             up.request("POST", self.path, body=body, headers=headers)
             resp = up.getresponse()
-        except ConnectionRefusedError:
-            # registered but not listening yet: an engine loads its model for a minute or two
+        except (ConnectionRefusedError, ConnectionResetError):
+            # registered but not answering yet: an engine loads its model for a minute or two, and
+            # docker's port forward accepts meanwhile, then resets (RemoteDisconnected is a reset too)
             return self._error(503, f"{model or 'the model'} is still starting: wait until Raytone Models shows it Ready, "
                                     "then try again", "engine_starting")
         except OSError as e:
