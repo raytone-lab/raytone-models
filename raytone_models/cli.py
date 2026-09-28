@@ -6,6 +6,7 @@
     raytone-models stop ID
     raytone-models agents [--json]
     raytone-models agent connect|revert AGENT [--json]
+    raytone-models agent-web hermes|openclaw        open the agent's own web UI
     raytone-models use SERVED [--json]          the model agents get when they ask for "local"
     raytone-models hub search QUERY [--kind video|image|speech] [--json]
     raytone-models hub files REPO [--revision COMMIT] [--json]
@@ -30,6 +31,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 import urllib.request
 
 from . import agents, downloads, engines, hf, live, ollama as ollama_mod, recipes, router, spec as spec_mod, store, video
@@ -70,6 +72,15 @@ def _probe(url):
         return False
 
 
+def _page(url):
+    """The text of a small page on loopback, or None if nothing answers with 200."""
+    try:
+        with urllib.request.urlopen(url, timeout=1.5) as r:
+            return r.read(65536).decode(errors="replace") if r.status == 200 else None
+    except OSError:
+        return None
+
+
 def _engines(files=None):
     """The shipped engine images, with what scripts/build-engine built on this machine over them."""
     out = {}
@@ -93,6 +104,7 @@ class Env:
     engines: dict = None
     helper: object = _pkexec
     probe: object = _probe
+    page: object = _page
     recipe_dirs: list = None
     allowed_signers: pathlib.Path = recipes.ALLOWED_SIGNERS
     run: object = _run
@@ -107,6 +119,7 @@ class Env:
     execvpe: object = os.execvpe
     videos_dir: pathlib.Path = video.OUT_DIR
     video_poll: float = 1.0
+    web_poll: float = 0.5
     current: pathlib.Path = router.CURRENT
 
     def __post_init__(self):
@@ -234,6 +247,36 @@ def cmd_agent_exec(a, env):
     if not variables:
         raise SystemExit(f"{a.agent} is not connected: raytone-models agent connect {a.agent}")
     env.execvpe(ad.command, [ad.command, *a.rest], {**os.environ, **variables})
+
+
+HERMES_WEB = "http://127.0.0.1:9119/"
+
+
+def cmd_agent_web(a, env):
+    """Open an agent's own web UI. OpenClaw's through Omarchy's launcher, which starts its gateway
+    if needed; Hermes's dashboard is started once as a user service (loopback only) and opened."""
+    if a.agent == "openclaw":
+        return env.execvpe("omarchy-launch-openclaw", ["omarchy-launch-openclaw"], dict(os.environ))
+    if a.agent != "hermes":
+        raise SystemExit(f"{a.agent} has no web UI of its own: use Launch")
+    def hermes():
+        # something else on 9119 is not Hermes's dashboard: never open it as one
+        text = env.page(HERMES_WEB)
+        if text is not None and "<title>Hermes Agent" not in text:
+            raise SystemExit(f"another service answers on {HERMES_WEB}; Hermes's dashboard needs that port")
+        return text is not None
+
+    if not hermes():
+        env.run(["systemd-run", "--user", "--collect", "--unit=raytone-hermes-dashboard",
+                 f"--setenv=PATH={os.environ.get('PATH', '')}", "hermes", "dashboard", "--no-open", "--skip-build",
+                 "--host", "127.0.0.1", "--port", "9119"], dict(os.environ))
+        for _ in range(60):
+            if hermes():
+                break
+            time.sleep(env.web_poll)
+        else:
+            raise SystemExit("Hermes's dashboard did not come up: journalctl --user -u raytone-hermes-dashboard")
+    return env.execvpe("omarchy-launch-webapp", ["omarchy-launch-webapp", HERMES_WEB], dict(os.environ))
 
 
 def cmd_agent(a, env):
@@ -413,7 +456,6 @@ def cmd_video(a, env):
 
 
 def cmd_stats(env):
-    import time
     out = []
     for d in _registered(env):
         if isinstance(d.get("port"), int):
@@ -480,6 +522,8 @@ def parse(argv):
     u.add_argument("name")
     u.add_argument("--json", action="store_true")
     # its own command: everything after the agent's name is the agent's
+    aw = sub.add_parser("agent-web")
+    aw.add_argument("agent")
     ax = sub.add_parser("agent-exec")
     ax.add_argument("agent")
     ax.add_argument("rest", nargs=argparse.REMAINDER)
@@ -597,6 +641,8 @@ def main(argv=None, env=None):
             _print(cmd_use(a, env), a.json)
         elif a.command == "agent-exec":
             return cmd_agent_exec(a, env)
+        elif a.command == "agent-web":
+            cmd_agent_web(a, env)
         elif a.command == "agent":
             _print(cmd_agent(a, env), a.json)
         elif a.command == "hub":

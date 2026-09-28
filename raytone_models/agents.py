@@ -43,8 +43,12 @@ class AgentError(RuntimeError):
     pass
 
 
+# agents with a web UI of their own, besides their terminal one (raytone-models agent-web ID)
+WEB = {"hermes", "openclaw"}
+
+
 def catalog():
-    return [{"id": i, "name": n, "supported": s, "connectable": i in ADAPTERS,
+    return [{"id": i, "name": n, "supported": s, "connectable": i in ADAPTERS, "web": i in WEB,
              "reason": r if not s else "", "note": r if s else ""} for i, n, s, r in CATALOG]
 
 

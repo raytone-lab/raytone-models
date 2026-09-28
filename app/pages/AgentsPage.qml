@@ -70,8 +70,13 @@ ColumnLayout {
                             }
                             RButton {
                                 visible: a.modelData.connected && a.command !== null
-                                text: "Launch"
+                                text: a.modelData.web ? "TUI" : "Launch"
                                 onClicked: page.backend.launchAgent(a.command)
+                            }
+                            RButton {
+                                visible: a.modelData.connected && a.modelData.web === true
+                                text: "Web"
+                                onClicked: page.backend.launchWeb(a.modelData.id)
                             }
                             RButton {
                                 visible: !a.modelData.connected

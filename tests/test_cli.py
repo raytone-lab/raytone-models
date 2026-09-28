@@ -283,6 +283,54 @@ class CliTests(unittest.TestCase):
         self.assertEqual((env["COPILOT_MODEL"], env["COPILOT_OFFLINE"]), ("local", "true"))
         self.assertIn("PATH", env)                    # the rest of the environment stays
 
+    def web(self, agent, answering):
+        ran, execs, probes = [], [], []
+        self.env.run = lambda cmd, env: ran.append(cmd) or 0
+        self.env.execvpe = lambda file, argv, env: execs.append(argv)
+        # a page that answers is Hermes's unless the test says otherwise
+        self.env.page = lambda url: (probes.append(url) or self.page_text) if answering(len(ran)) else None
+        self.page_text = "<title>Hermes Agent - Dashboard</title>"
+        self.env.web_poll = 0
+        rc, out = self.run_cli("agent-web", agent)
+        return rc, out, ran, execs
+
+    def test_hermes_web_starts_its_dashboard_once_and_opens_it(self):
+        rc, _, ran, execs = self.web("hermes", lambda started: started > 0)
+        self.assertEqual(rc, 0)
+        [cmd] = ran
+        self.assertEqual(cmd[:4], ["systemd-run", "--user", "--collect", "--unit=raytone-hermes-dashboard"])
+        self.assertEqual(cmd[-7:], ["dashboard", "--no-open", "--skip-build", "--host", "127.0.0.1", "--port", "9119"])
+        self.assertEqual(execs, [["omarchy-launch-webapp", "http://127.0.0.1:9119/"]])
+        # already answering: nothing more is started
+        rc, _, ran, execs = self.web("hermes", lambda started: True)
+        self.assertEqual((rc, ran), (0, []))
+        self.assertEqual(execs, [["omarchy-launch-webapp", "http://127.0.0.1:9119/"]])
+
+    def test_hermes_web_that_never_answers_says_so(self):
+        rc, _, ran, execs = self.web("hermes", lambda started: False)
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(execs, [])
+
+    def test_hermes_web_never_opens_another_service_on_its_port(self):
+        # From Codex's review: something else answering on 9119 is not Hermes's dashboard
+        ran, execs = [], []
+        self.env.run = lambda cmd, env: ran.append(cmd) or 0
+        self.env.execvpe = lambda file, argv, env: execs.append(argv)
+        self.env.page = lambda url: "<title>Grafana</title>"
+        rc, _ = self.run_cli("agent-web", "hermes")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual((ran, execs), ([], []))
+
+    def test_openclaw_web_is_omarchys_launcher(self):
+        # it starts the gateway if needed and opens the Control UI with a one-time sign-in
+        rc, _, ran, execs = self.web("openclaw", lambda started: False)
+        self.assertEqual((ran, execs), ([], [["omarchy-launch-openclaw"]]))
+
+    def test_an_agent_without_a_web_ui(self):
+        rc, _, ran, execs = self.web("crush", lambda started: False)
+        self.assertNotEqual(rc, 0)
+        self.assertEqual((ran, execs), ([], []))
+
     def test_stop_goes_through_the_helper(self):
         self.run_cli("stop", "qwen")
         self.assertEqual(self.helper_calls, [(["stop", "qwen"], None)])

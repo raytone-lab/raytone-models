@@ -105,8 +105,55 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(status, 503)                 # clients retry a 503
         err = json.loads(body)["error"]
         self.assertEqual(err["type"], "engine_starting")
-        self.assertIn("nemotron-3.5-lightning is still starting", err["message"])
+        self.assertIn("nemotron-3.5-lightning is not answering yet", err["message"])
         self.assertIn("Ready", err["message"])
+
+    def test_an_engine_behind_docker_still_loading_says_so(self):
+        # seen on the Thor: docker's port forward accepts, then resets while the engine inside loads
+        import socket, threading
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        self.addCleanup(srv.close)
+
+        def reset():
+            conn, _ = srv.accept()
+            conn.recv(65536)
+            conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00")
+            conn.close()
+        threading.Thread(target=reset, daemon=True).start()
+        (self.reg / "loading.json").write_text(json.dumps({"id": "loading", "served_name": "nemotron-3.5-lightning",
+                                                             "port": srv.getsockname()[1], "engine": "sglang"}))
+        self.current.write_text("nemotron-3.5-lightning\n")
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "local", "messages": []})
+        self.assertEqual((status, json.loads(body)["error"]["type"]), (503, "engine_starting"))
+
+    def test_a_reset_from_a_running_engine_is_an_upstream_error(self):
+        # From Codex's review: an engine that answers /v1/models is up; its reset is not "starting"
+        import socket, threading
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        self.addCleanup(srv.close)
+
+        def serve():
+            while True:
+                try:
+                    conn, _ = srv.accept()
+                except OSError:
+                    return
+                req = conn.recv(65536)
+                if req.startswith(b"GET /v1/models"):
+                    conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                else:
+                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00")
+                conn.close()
+        threading.Thread(target=serve, daemon=True).start()
+        (self.reg / "up.json").write_text(json.dumps({"id": "up", "served_name": "nemotron-3.5-lightning",
+                                                        "port": srv.getsockname()[1], "engine": "sglang"}))
+        self.current.write_text("nemotron-3.5-lightning\n")
+        status, _, body = self.request("POST", "/v1/chat/completions", {"model": "local", "messages": []})
+        self.assertEqual((status, json.loads(body)["error"]["type"]), (502, "upstream_error"))
 
     def request(self, method, path, body=None, headers=None):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
