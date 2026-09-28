@@ -1,11 +1,13 @@
 #!/bin/bash
 # Build an engine image on this machine and record its image ID for Raytone Models:
 #   scripts/build-engine comfyui      (engines/comfyui/Dockerfile -> raytone/comfyui:local)
+#   scripts/build-engine NAME DIR     (DIR/Dockerfile, kept outside this repository -> raytone/NAME:local)
 # The engine then runs that exact image by ID (the spec pins raytone/NAME@<image ID>).
 set -euo pipefail
 name=${1:?usage: build-engine NAME}
 here=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)   # also through /usr/bin/raytone-models-build-engine
-[[ $name =~ ^[a-z0-9.-]+$ && -f $here/engines/$name/Dockerfile ]] || { echo "no engine $name in $here/engines" >&2; exit 1; }
+dir=${2:-$here/engines/$name}
+[[ $name =~ ^[a-z0-9][a-z0-9.-]*$ && -f $dir/Dockerfile ]] || { echo "no Dockerfile for $name in $dir" >&2; exit 1; }
 docker=${RAYTONE_DOCKER:-docker} sudo=${RAYTONE_SUDO-sudo}
 file=${RAYTONE_ENGINES_FILE:-/etc/raytone-models/engines.json}
 # a directory of ours: root's docker writes the iidfile, and we can still remove it from here
@@ -13,7 +15,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 tmp=$work/engines.json iid=$work/iid
 # the ID of this build (the tag may be moved by another build in the meantime)
-$sudo "$docker" build --iidfile "$iid" -t "raytone/$name:local" "$here/engines/$name"
+$sudo "$docker" build --iidfile "$iid" -t "raytone/$name:local" "$dir"
 id=$(cat "$iid")
 [[ $id =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "unexpected image ID: $id" >&2; exit 1; }
 # one writer of the engines file at a time

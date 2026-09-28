@@ -45,6 +45,16 @@ while [ $# -gt 0 ]; do [ "$1" = --iidfile ] && echo -n {ID} > "$2"; shift; done
         self.assertIn("built", d["comfyui"])
         self.assertIn("llamacpp", d)                  # other engines stay
 
+    def test_an_image_built_from_a_directory_of_its_own(self):
+        # e.g. a vLLM image with a model's own patches, which are not ours to ship
+        d = pathlib.Path(self.tmp.name) / "flashnext"
+        d.mkdir()
+        (d / "Dockerfile").write_text("FROM x\n")
+        r = self.run_script("vllm-flashnext", str(d))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"-t raytone/vllm-flashnext:local {d}", self.log.read_text())
+        self.assertEqual(json.loads(self.engines.read_text())["vllm-flashnext"]["image"], f"raytone/vllm-flashnext@{ID}")
+
     def test_an_unknown_engine_is_refused(self):
         r = self.run_script("../../etc")
         self.assertNotEqual(r.returncode, 0)

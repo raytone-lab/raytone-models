@@ -80,6 +80,11 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(rc, 0)            # a tag is not a pin: the spec refuses it
         self.assertEqual(self.helper_calls, [])
 
+    def test_start_with_a_memory_limit(self):
+        rc, _ = self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm", "--name", "q", "--memory-gib", "99")
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(self.helper_calls[0][1])["memory_gib"], 99)
+
     def test_a_model_not_in_the_store_is_refused(self):
         rc, _ = self.run_cli("start", "nobody/nothing", "--engine", "vllm", "--name", "q")
         self.assertNotEqual(rc, 0)

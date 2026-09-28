@@ -195,7 +195,8 @@ def cmd_start(a, env):
         k, eq, v = item.partition("=")
         args[k] = _value(v if eq else None)
     data = {"id": re.sub(r"[^a-z0-9-]+", "-", a.name.lower()).strip("-")[:64], "engine": a.engine, "image": image,
-            "model": m.snapshot, "served_name": a.name, "port": a.port or _free_port(env), "args": args, "env": {}}
+            "model": m.snapshot, "served_name": a.name, "port": a.port or _free_port(env), "args": args, "env": {},
+            "memory_gib": a.memory_gib}
     try:
         s = spec_mod.load(data)
     except spec_mod.SpecError as e:
@@ -250,7 +251,8 @@ def _matching(r, env):
         name = d.get("served_name")
         if name not in {c.served_name for c in r.components}:
             continue
-        if name in want and (d.get("image"), d.get("model"), d.get("args") or {}, d.get("env") or {}) == want[name]:
+        if name in want and (d.get("image"), d.get("model"), d.get("args") or {}, d.get("env") or {},
+                             d.get("memory_gib")) == want[name]:
             matching[name] = d.get("id")
         else:
             conflicts.append(name)
@@ -440,6 +442,7 @@ def parse(argv):
     s.add_argument("--name", required=True)
     s.add_argument("--port", type=int)
     s.add_argument("--image", help="another image of the engine, pinned by digest (default: the configured one)")
+    s.add_argument("--memory-gib", type=int, help="a hard memory limit for the container")
     s.add_argument("--arg", action="append")
     s.add_argument("--json", action="store_true")
     st = sub.add_parser("stop")
