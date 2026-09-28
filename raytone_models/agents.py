@@ -99,6 +99,7 @@ class JsonAdapter(Adapter):
     """An agent whose settings are one JSON file: parse it (or refuse), keep the original, merge."""
     rel = ""
     seed = ""       # read instead while the config does not exist yet (that file itself is left as it is)
+    setup = ""      # set when the agent's own setup must have written the config first: how to run it
 
     @property
     def path(self):
@@ -108,6 +109,8 @@ class JsonAdapter(Adapter):
         raise NotImplementedError
 
     def connect(self, *, base_url=ROUTER):
+        if self.setup and not self.path.exists():
+            raise AgentError(f"{self.id} is not set up yet: {self.setup}")
         cfg = {}
         source = self.path if self.path.exists() else self.home / self.seed if self.seed else None
         if source is not None and source.exists():
@@ -191,6 +194,22 @@ class Omp(Pi):
     """Oh My Pi, Pi's fork: ~/.omp/agent/models.yml, written as JSON (which is YAML). It converts a
     models.json to models.yml once and then reads only the YAML, so a models.json is carried over."""
     id, rel, seed = "omp", ".omp/agent/models.yml", ".omp/agent/models.json"
+
+
+class Openclaw(JsonAdapter):
+    """~/.openclaw/openclaw.json (JSON5; a file with comments is left alone): a provider and the
+    default model. OpenClaw's agent runs in its gateway, which its own onboarding installs."""
+    id, rel = "openclaw", ".openclaw/openclaw.json"
+    setup = "run omarchy-openclaw-onboard (or openclaw onboard) first"
+
+    def merge(self, cfg, base_url):
+        cfg.setdefault("models", {}).setdefault("providers", {})["raytone"] = {
+            "baseUrl": base_url, "apiKey": "raytone-local", "api": "openai-completions",
+            "models": [{"id": MODEL, "name": LABEL}],
+        }
+        defaults = cfg.setdefault("agents", {}).setdefault("defaults", {})
+        model = defaults.get("model")
+        defaults["model"] = {**(model if isinstance(model, dict) else {}), "primary": f"raytone/{MODEL}"}
 
 
 class Hermes(JsonAdapter):
@@ -302,7 +321,7 @@ class Copilot(EnvAdapter):
                 "COPILOT_OFFLINE": "true"}
 
 
-ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Omp, Hermes, Codex, Copilot)}
+ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Omp, Hermes, Openclaw, Codex, Copilot)}
 
 
 def get(agent_id, **kw):

@@ -165,9 +165,26 @@ class JsonAdapterTests(unittest.TestCase):
         self.assertFalse((self.home / ".omp/agent/models.yml").exists())
         self.assertEqual(old.read_bytes(), b'{"providers": {"mine": {"baseUrl": "http://x"}}}')
 
+    def test_openclaw_gets_a_provider_and_the_default_model(self):
+        cfg = self.roundtrip("openclaw", ".openclaw/openclaw.json",
+                             b'{"gateway": {"mode": "local", "port": 18789}, "agents": {"defaults": {"workspace": "/w", "model": {"fallbacks": ["x/y"]}}}}\n')
+        p = cfg["models"]["providers"]["raytone"]
+        self.assertEqual((p["baseUrl"], p["api"]), (BASE, "openai-completions"))
+        self.assertEqual(p["models"], [{"id": "local", "name": "Local model (Raytone Models)"}])
+        self.assertEqual(cfg["agents"]["defaults"]["model"], {"primary": "raytone/local", "fallbacks": ["x/y"]})
+        self.assertEqual(cfg["agents"]["defaults"]["workspace"], "/w")
+        self.assertEqual(cfg["gateway"], {"mode": "local", "port": 18789})
+
+    def test_openclaw_must_be_set_up_first(self):
+        # its own onboarding installs the gateway the agent runs in; a config of ours alone would not
+        with self.assertRaises(agents.AgentError) as e:
+            agents.get("openclaw", home=self.home, state=self.state).connect(base_url=BASE)
+        self.assertIn("onboard", str(e.exception))
+        self.assertFalse((self.home / ".openclaw").exists())
+
     def test_catalog_marks_the_agents_with_adapters(self):
         info = {a["id"]: a for a in agents.catalog()}
-        for name in ("opencode", "claude", "crush", "pi", "hermes", "omp"):
+        for name in ("opencode", "claude", "crush", "pi", "hermes", "omp", "openclaw"):
             self.assertTrue(info[name]["connectable"], name)
         self.assertFalse(info["gemini"]["connectable"])
 

@@ -70,6 +70,7 @@ function modelState(m) {
 // from the environment, raytone-models starting it with the variables connect wrote.
 function launchArgs(id) {
     if (id === "copilot") return ["--app-id=org.omarchy.copilot", "raytone-models", "agent-exec", "copilot"]
+    if (id === "openclaw") return ["omarchy-launch-openclaw", "--tui"]
     var c = agentCommand(id)
     return c ? [c] : null
 }

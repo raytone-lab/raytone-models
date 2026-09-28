@@ -137,6 +137,8 @@ class AppLogicTests(unittest.TestCase):
         self.assertEqual(call("launchArgs", "copilot"),
                          ["--app-id=org.omarchy.copilot", "raytone-models", "agent-exec", "copilot"])
         self.assertIsNone(call("launchArgs", "gemini"))
+        # OpenClaw's terminal UI attaches to its gateway, which Omarchy's launcher starts if needed
+        self.assertEqual(call("launchArgs", "openclaw"), ["omarchy-launch-openclaw", "--tui"])
 
     def test_agent_command(self):
         self.assertEqual(call("agentCommand", "claude"), "claude")
