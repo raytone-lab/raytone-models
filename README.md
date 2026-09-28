@@ -90,8 +90,8 @@ backend and `logic.js` in Quickshell's own engine.
 - **Laguna S 2.1** (95.6 GiB of weights) failed with Mia's settings and started once on vLLM v0.25.1
   with 90% of memory, a 64K context and an FP8 KV cache (21 minutes the first time, 24-38 tokens/s),
   leaving about 6 GiB free, its reasoning in the answer text: an unsigned draft with those settings.
-- **Qwen3.8 Flash Next** was not tried: its checkpoint is 123.6 GiB and upstream vLLM keeps its PLE
-  table in pinned memory ([details](docs/evidence/p2-vllm-models.md)). **Ling 3.0 Flash** loads but writes stray tokens into code on sm_110.
+- **Qwen3.8 Flash Next** runs only from a vLLM image built on the Thor with Mia's AI Lab's AGPL patches
+  (not part of this repository, never published) and a Thor-local recipe ([details](docs/evidence/p2-vllm-models.md)).
 
 ## Models' own terms
 
