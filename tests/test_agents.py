@@ -180,6 +180,9 @@ class CodexTests(unittest.TestCase):
         # connecting again replaces our own lines, it does not repeat them
         self.a.connect(base_url=BASE)
         self.assertEqual(self.path.read_text().count("[model_providers.raytone]"), 1)
+        once = self.path.read_bytes()
+        self.a.connect(base_url=BASE)
+        self.assertEqual(self.path.read_bytes(), once)             # reconnecting changes nothing
         self.assertEqual(self.path.read_text().count("# Raytone Models"), 1)
         self.a.revert()
         self.assertEqual(self.path.read_bytes(), original)

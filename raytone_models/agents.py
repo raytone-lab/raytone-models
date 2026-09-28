@@ -214,7 +214,7 @@ class Codex(Adapter):
                 f"model = {json.dumps(MODEL)}\n", 'model_provider = "raytone"\n']
         table = ["\n[model_providers.raytone]\n", 'name = "Raytone Models"\n', f"base_url = {json.dumps(base_url)}\n",
                  'wire_api = "responses"\n']
-        body = "".join(top + rest)
+        body = "".join(top + rest).lstrip("\n")        # the blank line after our lines is ours
         return "".join(mine) + ("\n" if body.strip() else "") + body.rstrip("\n") + ("\n" if body.strip() else "") + "".join(table)
 
     def connect(self, *, base_url=ROUTER):
