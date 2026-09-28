@@ -76,7 +76,7 @@ function launchArgs(id) {
 
 // The command each connectable agent starts with (in a terminal, from the Agents page).
 function agentCommand(id) {
-    var commands = { "opencode": "opencode", "claude": "claude", "crush": "crush", "pi": "pi", "codex": "codex", "hermes": "hermes", "copilot": "copilot" }
+    var commands = { "opencode": "opencode", "claude": "claude", "crush": "crush", "pi": "pi", "omp": "omp", "codex": "codex", "hermes": "hermes", "copilot": "copilot" }
     return commands[id] || null
 }
 

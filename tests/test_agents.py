@@ -143,9 +143,31 @@ class JsonAdapterTests(unittest.TestCase):
             agents.get("hermes", home=self.home, state=self.state).connect(base_url=BASE)
         self.assertEqual(path.read_bytes(), b"model:\n  provider: nous\n")
 
+    def test_oh_my_pi_gets_a_provider_in_models_yml(self):
+        # Oh My Pi reads models.yml (it converts a models.json once, then reads only the YAML);
+        # written as JSON, which is YAML
+        cfg = self.roundtrip("omp", ".omp/agent/models.yml", b'{"providers": {"other": {}}}\n')
+        p = cfg["providers"]["raytone"]
+        self.assertEqual((p["baseUrl"], p["api"]), (BASE, "openai-completions"))
+        self.assertEqual(p["models"], [{"id": "local", "name": "Local model (Raytone Models)"}])
+        self.assertIn("other", cfg["providers"])
+
+    def test_oh_my_pi_keeps_the_providers_of_a_models_json(self):
+        # with no models.yml yet, the YAML we write replaces models.json for Oh My Pi: carry it over
+        old = self.home / ".omp/agent/models.json"
+        old.parent.mkdir(parents=True)
+        old.write_bytes(b'{"providers": {"mine": {"baseUrl": "http://x"}}}')
+        a = agents.get("omp", home=self.home, state=self.state)
+        a.connect(base_url=BASE)
+        cfg = json.loads((self.home / ".omp/agent/models.yml").read_text())
+        self.assertEqual(sorted(cfg["providers"]), ["mine", "raytone"])
+        a.revert()
+        self.assertFalse((self.home / ".omp/agent/models.yml").exists())
+        self.assertEqual(old.read_bytes(), b'{"providers": {"mine": {"baseUrl": "http://x"}}}')
+
     def test_catalog_marks_the_agents_with_adapters(self):
         info = {a["id"]: a for a in agents.catalog()}
-        for name in ("opencode", "claude", "crush", "pi", "hermes"):
+        for name in ("opencode", "claude", "crush", "pi", "hermes", "omp"):
             self.assertTrue(info[name]["connectable"], name)
         self.assertFalse(info["gemini"]["connectable"])
 

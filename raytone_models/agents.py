@@ -98,6 +98,7 @@ class Adapter:
 class JsonAdapter(Adapter):
     """An agent whose settings are one JSON file: parse it (or refuse), keep the original, merge."""
     rel = ""
+    seed = ""       # read instead while the config does not exist yet (that file itself is left as it is)
 
     @property
     def path(self):
@@ -108,13 +109,14 @@ class JsonAdapter(Adapter):
 
     def connect(self, *, base_url=ROUTER):
         cfg = {}
-        if self.path.exists():
+        source = self.path if self.path.exists() else self.home / self.seed if self.seed else None
+        if source is not None and source.exists():
             try:
-                cfg = json.loads(self.path.read_text())
+                cfg = json.loads(source.read_text())
             except ValueError:
-                raise AgentError(f"{self.path} is not plain JSON; left as it is") from None
+                raise AgentError(f"{source} is not plain JSON; left as it is") from None
             if not isinstance(cfg, dict):
-                raise AgentError(f"{self.path} is not a JSON object; left as it is")
+                raise AgentError(f"{source} is not a JSON object; left as it is")
         mode = self.path.stat().st_mode & 0o7777 if self.path.exists() else 0o600
         self._save_original()
         self.merge(cfg, base_url)
@@ -183,6 +185,12 @@ class Pi(JsonAdapter):
             "baseUrl": base_url, "api": "openai-completions", "apiKey": "raytone-local",
             "models": [{"id": MODEL, "name": LABEL}],
         }
+
+
+class Omp(Pi):
+    """Oh My Pi, Pi's fork: ~/.omp/agent/models.yml, written as JSON (which is YAML). It converts a
+    models.json to models.yml once and then reads only the YAML, so a models.json is carried over."""
+    id, rel, seed = "omp", ".omp/agent/models.yml", ".omp/agent/models.json"
 
 
 class Hermes(JsonAdapter):
@@ -294,7 +302,7 @@ class Copilot(EnvAdapter):
                 "COPILOT_OFFLINE": "true"}
 
 
-ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Hermes, Codex, Copilot)}
+ADAPTERS = {a.id: a for a in (Opencode, Claude, Crush, Pi, Omp, Hermes, Codex, Copilot)}
 
 
 def get(agent_id, **kw):
