@@ -167,6 +167,23 @@ class JsonAdapterTests(unittest.TestCase):
         self.assertFalse((self.home / ".omp/agent/models.yml").exists())
         self.assertEqual(old.read_bytes(), b'{"providers": {"mine": {"baseUrl": "http://x"}}}')
 
+    def test_oh_my_pi_never_hides_a_models_yaml(self):
+        # From Codex's review: Oh My Pi reads models.yml before models.yaml before models.json
+        yaml = self.home / ".omp/agent/models.yaml"
+        yaml.parent.mkdir(parents=True)
+        (yaml.parent / "models.json").write_text('{"providers": {"old": {}}}')
+        yaml.write_text('{"providers": {"mine": {}}}')
+        a = agents.get("omp", home=self.home, state=self.state)
+        a.connect(base_url=BASE)
+        cfg = json.loads((self.home / ".omp/agent/models.yml").read_text())
+        self.assertEqual(sorted(cfg["providers"]), ["mine", "raytone"])
+        a.revert()
+        # in YAML proper it cannot be carried over: nothing is written
+        yaml.write_text("providers:\n  mine: {}\n")
+        with self.assertRaises(agents.AgentError):
+            a.connect(base_url=BASE)
+        self.assertFalse((self.home / ".omp/agent/models.yml").exists())
+
     def test_openclaw_gets_a_provider_and_the_default_model(self):
         cfg = self.roundtrip("openclaw", ".openclaw/openclaw.json",
                              b'{"gateway": {"mode": "local", "port": 18789}, "agents": {"defaults": {"workspace": "/w", "model": {"fallbacks": ["x/y"]}}}}\n')

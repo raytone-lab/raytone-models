@@ -98,7 +98,7 @@ class Adapter:
 class JsonAdapter(Adapter):
     """An agent whose settings are one JSON file: parse it (or refuse), keep the original, merge."""
     rel = ""
-    seed = ""       # read instead while the config does not exist yet (that file itself is left as it is)
+    seeds = ()      # read instead, the first that exists, while the config does not (they are left as they are)
     setup = ""      # set when the agent's own setup must have written the config first: how to run it
 
     @property
@@ -112,8 +112,8 @@ class JsonAdapter(Adapter):
         if self.setup and not self.path.exists():
             raise AgentError(f"{self.id} is not set up yet: {self.setup}")
         cfg = {}
-        source = self.path if self.path.exists() else self.home / self.seed if self.seed else None
-        if source is not None and source.exists():
+        source = next((f for f in (self.path, *(self.home / s for s in self.seeds)) if f.exists()), None)
+        if source is not None:
             try:
                 cfg = json.loads(source.read_text())
             except ValueError:
@@ -191,9 +191,10 @@ class Pi(JsonAdapter):
 
 
 class Omp(Pi):
-    """Oh My Pi, Pi's fork: ~/.omp/agent/models.yml, written as JSON (which is YAML). It converts a
-    models.json to models.yml once and then reads only the YAML, so a models.json is carried over."""
-    id, rel, seed = "omp", ".omp/agent/models.yml", ".omp/agent/models.json"
+    """Oh My Pi, Pi's fork: ~/.omp/agent/models.yml, written as JSON (which is YAML). It reads
+    models.yml before models.yaml before models.json (converting a models.json once), so the
+    first of those it would read is carried over; one in YAML proper is refused."""
+    id, rel, seeds = "omp", ".omp/agent/models.yml", (".omp/agent/models.yaml", ".omp/agent/models.json")
 
 
 class Openclaw(JsonAdapter):
