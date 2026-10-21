@@ -647,8 +647,19 @@ class CliTests(unittest.TestCase):
         (self.reg / "qwen.json").write_text(json.dumps(
             {"id": "qwen", "served_name": "qwen3.8-27b", "port": 18000, "engine": "vllm", "args": {"max-model-len": 131072}}))
         self.run_cli("agent", "connect", "crush")
-        got = {a["id"]: a.get("connected") for a in json.loads(self.run_cli("agents", "--json")[1])}
-        self.assertEqual((got["crush"], got["opencode"], got["gemini"]), (True, False, None))
+        rows = json.loads(self.run_cli("agents", "--json")[1])
+        got = {a["id"]: a.get("connected") for a in rows}
+        # gemini has no adapter, so there is nothing to ask -- but it still answers False rather
+        # than going missing. Only the first grid on the Agents page reads this key, but the rows
+        # it reads are chosen by a filter, so which rows those are is not fixed: the contract is
+        # that every row carries a bool (see cmd for what a missing one did).
+        self.assertEqual((got["crush"], got["opencode"], got["gemini"]), (True, False, False))
+        self.assertEqual([a["id"] for a in rows if "connected" not in a], [])
+        # isinstance, not truthiness: an int would pass a truthiness check and reach QML as a number
+        self.assertEqual([a["id"] for a in rows if not isinstance(a["connected"], bool)], [])
+        # and nothing without an adapter may claim to be connected -- the assertions above only
+        # pin the shape, so a row wrongly set True would still satisfy them
+        self.assertEqual([a["id"] for a in rows if not a["connectable"] and a["connected"]], [])
 
 
 if __name__ == "__main__":

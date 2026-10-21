@@ -636,8 +636,13 @@ def main(argv=None, env=None):
         elif a.command == "agents":
             rows = agents.catalog()
             for r in rows:
-                if r["connectable"]:
-                    r["connected"] = agents.get(r["id"], home=env.home, state=env.state).status()["connected"]
+                # every row carries "connected", including the ones with no adapter to ask. The
+                # Agents page binds button visibility to it, and a missing key reaches QML as
+                # undefined: "visible: connected && ..." then fails to assign and the button stays
+                # at its default, which is visible. That is how Raytone Codesphere -- web-only, so
+                # no adapter -- came to show Revert and TUI, the two buttons web_only removes.
+                r["connected"] = (agents.get(r["id"], home=env.home, state=env.state).status()["connected"]
+                                  if r["connectable"] else False)
             _print(rows, a.json)
         elif a.command == "start":
             _print(cmd_start(a, env), a.json)
