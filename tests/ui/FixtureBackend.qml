@@ -13,7 +13,11 @@ Item {
     property var ollamaModels: [{ name: "qwen3:1.7b", size: 1359293444, family: "qwen3", parameters: "2.0B", quant: "Q4_K_M", context: 40960, loaded: true },
                                 { name: "gemma4:e4b", size: 9608350718, family: "gemma4", parameters: "8.0B", quant: "Q4_K_M", context: 131072, loaded: false }]
     property var instances: parse(instancesFile.text()) || []
-    property var agents: (parse(agentsFile.text()) || []).map(function (a) { return Object.assign({ connected: a.id === "opencode" || a.id === "claude" }, a) })
+    // No default for "connected": Object.assign put it behind the row's own value, so a row that
+    // omitted the key kept the default and this fixture answered for the CLI. That is why the
+    // Agents page shipped buttons on a card whose row had no "connected" at all and no render here
+    // caught it. The dump in RAYTONE_UI_DATA comes from `agents --json`, which now always has it.
+    property var agents: parse(agentsFile.text()) || []
     property var downloads: [{ id: "d1", repo: "unsloth/Qwen3.8-27B-GGUF", revision: "4ca72078", state: "running", done: 8.1e9, expected: 19.3e9, progress: 0.42 }]
     property var engines: [
         { engine: "vllm", image: "vllm/vllm-openai@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90", tag: "v0.30.0", checked: "2026-09-27, Jetson AGX Thor: sm_110", configured: true },
