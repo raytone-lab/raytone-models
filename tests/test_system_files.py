@@ -32,6 +32,15 @@ class SystemFilesTests(unittest.TestCase):
         self.assertIn("Exec=raytone-models-app", desktop)
         self.assertIn("Icon=raytone-models", desktop)
 
+    def test_the_window_closes_on_the_platform_close_shortcut(self):
+        """Seen on the Thor: SUPER + W did nothing on this window while SUPER + Q closed it.
+        Omarchy's raytone_actions["Close"] is chord("CTRL", "W"), which injects Ctrl+W into the
+        focused app, and this window handled no keys at all -- SUPER + Q works because it closes by
+        window address and needs no cooperation from the app. StandardKey.Close is asked for rather
+        than the chord spelled out, so the window follows whatever the platform's close sequence is."""
+        shell = (ROOT / "app/shell.qml").read_text()
+        self.assertRegex(shell, r"Shortcut\s*\{[^}]*StandardKey\.Close[^}]*onActivated:\s*Qt\.quit\(\)[^}]*\}")
+
     def test_the_apps_types_are_in_its_qmldir(self):
         # seen on the Thor, in a desktop session: with a qmldir, a folder exports only what it lists,
         # and the installed app failed with "MainView is not a type"
