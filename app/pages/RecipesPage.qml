@@ -87,13 +87,30 @@ ColumnLayout {
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
                     }
-                    RowLayout {
+                    Flow {
+                        id: facts
+                        // A Flow, not a RowLayout: the component list is the widest thing on the
+                        // card -- monospace, one entry per component -- and a RowLayout at its
+                        // implicit width pushed the card's content column past the card, which has
+                        // no implicitWidth and does not clip, so the text drew over its neighbour;
+                        // the ScrollView fixes contentWidth to availableWidth, so there was no
+                        // horizontal scroll to reach it either. Narrowing the window made it worse
+                        // rather than better: nothing could shrink, so the memory and disk figures
+                        // were pushed out of sight. Letting the list fill the row instead squeezes
+                        // it to a sliver and breaks inside identifiers; a Flow moves the two figures
+                        // to the next line whole and leaves the list its own full width.
+                        Layout.fillWidth: true
                         spacing: 18
                         Text {
+                            // width, not Layout.fillWidth: a Flow child keeps its implicit width,
+                            // and capping it here is what lets the list wrap at its "  +  "
+                            // separators rather than widen the card.
+                            width: Math.min(implicitWidth, facts.width)
                             text: (card.modelData.components || []).map(function (c) { return c.served_name + " / " + c.role }).join("  +  ")
                             color: Theme.text
                             font.family: Theme.mono
                             font.pixelSize: Theme.sizeControl
+                            wrapMode: Text.Wrap
                         }
                         Text { text: "<b>" + card.modelData.memory_gib + " GiB</b> memory"; textFormat: Text.StyledText; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
                         Text { text: "<b>" + card.modelData.disk_gib + " GiB</b> disk"; textFormat: Text.StyledText; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
