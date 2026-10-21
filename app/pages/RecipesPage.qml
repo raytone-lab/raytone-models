@@ -89,31 +89,44 @@ ColumnLayout {
                     }
                     Flow {
                         id: facts
-                        // A Flow, not a RowLayout: the component list is the widest thing on the
-                        // card -- monospace, one entry per component -- and a RowLayout at its
-                        // implicit width pushed the card's content column past the card, which has
-                        // no implicitWidth and does not clip, so the text drew over its neighbour;
-                        // the ScrollView fixes contentWidth to availableWidth, so there was no
-                        // horizontal scroll to reach it either. Narrowing the window made it worse
-                        // rather than better: nothing could shrink, so the memory and disk figures
-                        // were pushed out of sight. Letting the list fill the row instead squeezes
-                        // it to a sliver and breaks inside identifiers; a Flow moves the two figures
-                        // to the next line whole and leaves the list its own full width.
+                        // A Flow, not a RowLayout. Card's content column is anchored to both sides
+                        // of the card, so the column cannot be widened by what is in it -- what
+                        // overflowed was this row: without Layout.fillWidth a RowLayout takes its
+                        // implicit width and the layout cannot shrink it below that, and the
+                        // component list is the widest thing on a card (monospace, one entry per
+                        // component). Nothing here clips, so it simply drew on top of the next
+                        // card, and the ScrollView pins contentWidth to availableWidth, so there
+                        // was no horizontal scroll to reach it either. Narrowing the window made it
+                        // worse rather than better: still nothing could shrink, so the memory and
+                        // disk figures went off the edge instead.
+                        //
+                        // Giving the list Layout.fillWidth also stops the overflow, but then the
+                        // two figures keep their implicit widths and the list gets whatever is
+                        // left -- a sliver, two or three characters wide on a half-width card. A
+                        // Flow instead moves the figures to the next line whole and leaves the list
+                        // the full width, which is also the existing look when it all fits.
                         Layout.fillWidth: true
                         spacing: 18
                         Text {
-                            // width, not Layout.fillWidth: a Flow child keeps its implicit width,
-                            // and capping it here is what lets the list wrap at its "  +  "
-                            // separators rather than widen the card.
+                            // width, not Layout.fillWidth: a Flow positions its children at their
+                            // own widths rather than distributing space, so capping it here is what
+                            // makes the list wrap instead of overflow. implicitWidth is the
+                            // unwrapped width and does not depend on width, so this is not a loop.
                             width: Math.min(implicitWidth, facts.width)
                             text: (card.modelData.components || []).map(function (c) { return c.served_name + " / " + c.role }).join("  +  ")
                             color: Theme.text
                             font.family: Theme.mono
                             font.pixelSize: Theme.sizeControl
+                            // Wrap, not WordWrap: it prefers the "  +  " separators and falls back
+                            // to breaking inside an entry only when one does not fit at all, which
+                            // is the right order but is not a promise that entries stay whole.
                             wrapMode: Text.Wrap
                         }
-                        Text { text: "<b>" + card.modelData.memory_gib + " GiB</b> memory"; textFormat: Text.StyledText; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
-                        Text { text: "<b>" + card.modelData.disk_gib + " GiB</b> disk"; textFormat: Text.StyledText; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
+                        // capped the same way: a Flow does not shrink its children either, so
+                        // without this the figures are what hangs over the next card once the row
+                        // is narrow enough -- which is the thing this page must not do again
+                        Text { width: Math.min(implicitWidth, facts.width); text: "<b>" + card.modelData.memory_gib + " GiB</b> memory"; textFormat: Text.StyledText; wrapMode: Text.Wrap; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
+                        Text { width: Math.min(implicitWidth, facts.width); text: "<b>" + card.modelData.disk_gib + " GiB</b> disk"; textFormat: Text.StyledText; wrapMode: Text.Wrap; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
                     }
                     RowLayout {
                         Layout.fillWidth: true
