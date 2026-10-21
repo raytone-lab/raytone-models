@@ -16,7 +16,11 @@ ColumnLayout {
     property bool failed: false
     property string lastVideo: ""
     property real started: 0
-    readonly property var videoModels: page.backend.instances.filter(function (i) { return i.engine === "comfyui" && i.ready })
+    // i.role, not the engine: comfyui serves video and stills both, and with only a text-to-image
+    // instance running this page used to show it as ready, enable Generate, and hide the "no video
+    // model" card -- then the CLI refused the request it had just invited. The CLI sends the role
+    // already resolved (cli._role), so there is one answer rather than a default on each side.
+    readonly property var videoModels: page.backend.instances.filter(function (i) { return i.role === "video" && i.ready })
     readonly property string folder: Quickshell.env("HOME") + "/Videos/Raytone"
     spacing: 14
 

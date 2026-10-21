@@ -166,11 +166,20 @@ def _registered(env):
     return out
 
 
+def _role(d):
+    """What a registered instance is for. An entry carrying no role was started by `start` without
+    --role, or written before the field existed, and then its engine is all there is to go on:
+    comfyui keeps meaning video, because that is the only thing it could have meant before image
+    was a role. Every caller asks here, so the CLI and the app cannot drift into two defaults."""
+    return d.get("role") or ("video" if d.get("engine") == "comfyui" else "")
+
+
 def _instances(env):
     out = []
     for d in _registered(env):
         port = d.get("port")
         out.append({"id": d.get("id"), "served_name": d.get("served_name"), "engine": d.get("engine"), "port": port,
+                    "role": _role(d),
                     "chat": d.get("engine") not in engines.NOT_CHAT,
                     "context": next((a[k] for a in [d.get("args") or {}]
                                      for k in ("max-model-len", "context-length", "ctx-size") if k in a), None),
@@ -198,7 +207,7 @@ def cmd_use(a, env):
 def _ollama_instances(env):
     # Ollama is its own service: the models it holds in memory are running instances
     return [{"id": f"ollama:{m['name']}", "served_name": m["name"], "engine": "ollama", "port": ollama_mod.PORT,
-             "chat": True, "context": m["context"], "ready": True} for m in env.ollama.running()]
+             "role": "", "chat": True, "context": m["context"], "ready": True} for m in env.ollama.running()]
 
 
 def _find_model(env, ref):
@@ -227,7 +236,7 @@ def cmd_start(a, env):
         args[k] = _value(v if eq else None)
     data = {"id": re.sub(r"[^a-z0-9-]+", "-", a.name.lower()).strip("-")[:64], "engine": a.engine, "image": image,
             "model": m.snapshot, "served_name": a.name, "port": a.port or _free_port(env), "args": args, "env": {},
-            "memory_gib": a.memory_gib}
+            "memory_gib": a.memory_gib, "role": a.role}
     try:
         s = spec_mod.load(data)
     except spec_mod.SpecError as e:
@@ -438,7 +447,7 @@ def cmd_video(a, env):
     # `start` rather than a recipe, or written before the field existed) still has nothing but its
     # engine to go on, so it keeps counting as a video instance.
     found = [d for d in _registered(env) if d.get("engine") == "comfyui" and isinstance(d.get("port"), int)
-             and (d.get("role") or "video") == "video"
+             and _role(d) == "video"
              and (a.model is None or d.get("served_name") == a.model)]
     if len(found) != 1:
         emit({"error": "no video model is running; start one on Recipes" if not found
@@ -516,6 +525,11 @@ def parse(argv):
     s.add_argument("--port", type=int)
     s.add_argument("--image", help="another image of the engine, pinned by digest (default: the configured one)")
     s.add_argument("--memory-gib", type=int, help="a hard memory limit for the container")
+    # Without this, nothing started by hand could say what it was for, and an engine that serves
+    # more than one kind of thing -- comfyui serves video and stills -- would be picked for the
+    # wrong one. A recipe says it per component; this is the same field, said by hand.
+    s.add_argument("--role", default="", choices=sorted(recipes.ROLES),
+                   help="what this instance is for (default: inferred from the engine)")
     s.add_argument("--arg", action="append")
     s.add_argument("--json", action="store_true")
     st = sub.add_parser("stop")
