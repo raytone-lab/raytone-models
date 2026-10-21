@@ -323,7 +323,35 @@ class EnvAdapterTests(unittest.TestCase):
 
 class CatalogTests(unittest.TestCase):
     def test_the_agents_with_a_web_ui(self):
-        self.assertEqual(sorted(a["id"] for a in agents.catalog() if a["web"]), ["hermes", "openclaw"])
+        self.assertEqual(sorted(a["id"] for a in agents.catalog() if a["web"]),
+                         ["codesphere", "hermes", "openclaw"])
+
+    def test_codesphere_is_first_and_has_nothing_to_connect(self):
+        """Raytone Codesphere is this machine's own workspace, reached over the LAN name rather than
+        started or configured here. So it is first, it is web-only, and it deliberately has no
+        adapter: the page must not offer Connect or Revert for it, and asking for one is an error
+        rather than a silent no-op that would look like a connect that did nothing."""
+        rows = agents.catalog()
+        self.assertEqual(rows[0]["id"], "codesphere")
+        self.assertEqual(rows[0]["name"], "Raytone Codesphere")
+        self.assertTrue(rows[0]["supported"])
+        self.assertTrue(rows[0]["web"])
+        self.assertTrue(rows[0]["web_only"])
+        self.assertFalse(rows[0]["connectable"])
+        # the card shows this line where a connectable agent shows its Connected pill
+        self.assertTrue(rows[0]["note"])
+        self.assertNotIn("codesphere", agents.ADAPTERS)
+        with self.assertRaises(agents.AgentError):
+            agents.get("codesphere")
+
+    def test_having_a_web_ui_is_not_the_same_as_being_web_only(self):
+        # Hermes and OpenClaw have one besides their terminal UI: their cards keep every button
+        info = {a["id"]: a for a in agents.catalog()}
+        for name in ("hermes", "openclaw"):
+            self.assertTrue(info[name]["web"], name)
+            self.assertFalse(info[name]["web_only"], name)
+        self.assertFalse(info["opencode"]["web"])
+        self.assertFalse(info["opencode"]["web_only"])
 
     def test_unsupported_agents_say_why(self):
         info = {a["id"]: a for a in agents.catalog()}

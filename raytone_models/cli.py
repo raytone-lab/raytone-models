@@ -6,7 +6,7 @@
     raytone-models stop ID
     raytone-models agents [--json]
     raytone-models agent connect|revert AGENT [--json]
-    raytone-models agent-web hermes|openclaw        open the agent's own web UI
+    raytone-models agent-web codesphere|hermes|openclaw      open that entry's web UI
     raytone-models use SERVED [--json]          the model agents get when they ask for "local"
     raytone-models hub search QUERY [--kind video|image|speech] [--json]
     raytone-models hub files REPO [--revision COMMIT] [--json]
@@ -251,10 +251,25 @@ def cmd_agent_exec(a, env):
 
 HERMES_WEB = "http://127.0.0.1:9119/"
 
+# Raytone Codesphere: this machine's own workspace, behind the LAN name the local resolver answers
+# for. Unlike Hermes's dashboard it is not ours to start -- it is already serving or it is not.
+CODESPHERE_WEB = "https://raytone.lan"
+
 
 def cmd_agent_web(a, env):
-    """Open an agent's own web UI. OpenClaw's through Omarchy's launcher, which starts its gateway
-    if needed; Hermes's dashboard is started once as a user service (loopback only) and opened."""
+    """Open an entry's web UI. Codesphere is already serving on this machine and only gets opened;
+    OpenClaw's goes through Omarchy's launcher, which starts its gateway if needed; Hermes's
+    dashboard is started once as a user service (loopback only) and opened."""
+    if a.agent == "codesphere":
+        # Checked before opening: an empty browser window says less than naming the URL that went
+        # unanswered. The certificate's validity rides on the clock, and this machine's clock falls
+        # back to 1970 on a cold power loss -- then nothing answers here and the browser would only
+        # have shown NET::ERR_CERT_DATE_INVALID, so the clock is worth naming in the message.
+        if env.page(CODESPHERE_WEB) is None:
+            raise SystemExit(f"nothing answers on {CODESPHERE_WEB}: the workspace is not serving on "
+                             "this machine, or the clock is wrong and its certificate is not yet valid "
+                             "(check: timedatectl)")
+        return env.execvpe("omarchy-launch-webapp", ["omarchy-launch-webapp", CODESPHERE_WEB], dict(os.environ))
     if a.agent == "openclaw":
         return env.execvpe("omarchy-launch-openclaw", ["omarchy-launch-openclaw"], dict(os.environ))
     if a.agent != "hermes":

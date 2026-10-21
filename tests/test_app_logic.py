@@ -143,6 +143,11 @@ class AppLogicTests(unittest.TestCase):
         for agent in ("pi", "omp"):
             self.assertEqual(call("launchArgs", agent), [agent, "--model", "raytone/local"])
 
+    def test_a_web_only_entry_has_no_command_to_launch(self):
+        # Raytone Codesphere is opened in a browser; a null command is what keeps Launch off its card
+        self.assertIsNone(call("launchArgs", "codesphere"))
+        self.assertIsNone(call("agentCommand", "codesphere"))
+
     def test_agent_command(self):
         self.assertEqual(call("agentCommand", "claude"), "claude")
         self.assertEqual(call("agentCommand", "opencode"), "opencode")

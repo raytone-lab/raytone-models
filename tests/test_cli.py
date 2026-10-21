@@ -6,7 +6,7 @@ import os
 import pathlib
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 
 from raytone_models import cli
 from raytone_models import ollama as ollama_mod
@@ -325,6 +325,28 @@ class CliTests(unittest.TestCase):
         # it starts the gateway if needed and opens the Control UI with a one-time sign-in
         rc, _, ran, execs = self.web("openclaw", lambda started: False)
         self.assertEqual((ran, execs), ([], [["omarchy-launch-openclaw"]]))
+
+    def test_codesphere_web_opens_the_workspace_rather_than_starting_it(self):
+        # it is already serving on this machine: nothing is started, the URL is just opened
+        rc, _, ran, execs = self.web("codesphere", lambda started: True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(ran, [])
+        self.assertEqual(execs, [["omarchy-launch-webapp", "https://raytone.lan"]])
+
+    def test_codesphere_web_that_does_not_answer_names_the_url_and_the_clock(self):
+        """Checked before opening, because an empty browser window says less than the URL that went
+        unanswered -- and on this machine the likeliest reason is the clock: its certificate is not
+        yet valid when the clock falls back to 1970 after a cold power loss."""
+        err, ran, execs = io.StringIO(), [], []
+        self.env.run = lambda cmd, env: ran.append(cmd) or 0
+        self.env.execvpe = lambda file, argv, env: execs.append(argv)
+        self.env.page = lambda url: None
+        with redirect_stderr(err):
+            rc, _ = self.run_cli("agent-web", "codesphere")
+        self.assertNotEqual(rc, 0)
+        self.assertEqual((ran, execs), ([], []))      # never opened on a guess
+        self.assertIn("raytone.lan", err.getvalue())
+        self.assertIn("clock", err.getvalue())
 
     def test_an_agent_without_a_web_ui(self):
         rc, _, ran, execs = self.web("crush", lambda started: False)
