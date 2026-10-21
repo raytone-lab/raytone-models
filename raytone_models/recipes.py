@@ -101,7 +101,7 @@ def _component(c):
             raise RecipeError(f"{image}: only an engine built on the device is named @local")
         image = image[:-len("@local")] + "@sha256:" + "0" * 64
     # the engine, image, name, arguments and environment get the same checks as an instance spec
-    probe = {"id": "recipe-check", "engine": c["engine"], "image": image,
+    probe = {"id": "recipe-check", "engine": c["engine"], "image": image, "role": c["role"],
              "model": f"models--x--y/snapshots/{'0' * 40}", "served_name": c["served_name"],
              "port": spec_mod.INSTANCE_PORTS.start, "args": args, "env": c.get("env", {}), "memory_gib": c.get("memory_gib")}
     try:
@@ -250,7 +250,8 @@ def specs(recipe, hf_home=None, *, used_ports=(), images=None):
             _fill_draft(c.engine, args, f"/hf/hub/{s['draft_snapshot']}")
         out.append(spec_mod.load({"id": instance_id(c.served_name), "engine": c.engine, "image": _image(c, images, True),
                                   "model": s["snapshot"], "served_name": c.served_name, "port": port,
-                                  "args": args, "env": c.env, "memory_gib": c.memory_gib}))
+                                  "args": args, "env": c.env, "memory_gib": c.memory_gib,
+                                  "role": c.role}))
     return out
 
 

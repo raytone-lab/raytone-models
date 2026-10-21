@@ -182,6 +182,33 @@ class CliTests(unittest.TestCase):
         self.assertIn("fan", json.loads(out.splitlines()[-1])["error"])
         self.assertEqual(fake.prompts, [])
 
+    def test_video_does_not_hand_a_prompt_to_a_text_to_image_model(self):
+        """Z-Image Turbo runs on ComfyUI too, so the engine stopped being enough to say what an
+        instance is for. Without the role, `video` would send a prompt to a stills model -- and with
+        both running it would refuse as "several video models are running" when only one of them is
+        one, which naming it with --model could not fix."""
+        (self.reg / "z.json").write_text(json.dumps({"id": "z-image", "served_name": "z-image-turbo",
+                                                     "port": 18003, "engine": "comfyui", "role": "image"}))
+        rc, out = self.run_cli("video", "--prompt", "a fox")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("no video model", json.loads(out.splitlines()[-1])["error"])
+        # naming it does not make it one either
+        rc, out = self.run_cli("video", "--prompt", "a fox", "--model", "z-image-turbo")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("no video model", json.loads(out.splitlines()[-1])["error"])
+
+    def test_an_instance_with_no_role_still_counts_as_a_video_one(self):
+        """Started by `start` rather than a recipe, or written before the field existed: its engine
+        is the only signal there is, so it must keep working as it did."""
+        (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3",
+                                                      "port": 18002, "engine": "comfyui"}))
+        (self.reg / "e.json").write_text(json.dumps({"id": "h4", "served_name": "other-h3",
+                                                     "port": 18004, "engine": "comfyui", "role": ""}))
+        rc, out = self.run_cli("video", "--prompt", "a fox")
+        # both count, so this is the "name one" refusal and not "none is running"
+        self.assertNotEqual(rc, 0)
+        self.assertIn("several video models", json.loads(out.splitlines()[-1])["error"])
+
     def test_video_without_a_video_engine_running(self):
         rc, out = self.run_cli("video", "--prompt", "a fox")
         self.assertNotEqual(rc, 0)

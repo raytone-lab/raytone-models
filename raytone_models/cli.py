@@ -431,7 +431,14 @@ def cmd_video(a, env):
     """JSON lines, like chat: {"state"}..., then {"done": PATH, "seconds"} or {"error"}."""
     def emit(obj):
         print(json.dumps(obj), flush=True)
+    # ComfyUI serves video and stills both: with the image role, Z-Image Turbo runs on this same
+    # engine, so the engine alone no longer says what an instance is for -- without this, `video`
+    # would hand a prompt to a text-to-image model, and with both running would refuse as
+    # "several video models" when only one of them is one. An entry carrying no role (started by
+    # `start` rather than a recipe, or written before the field existed) still has nothing but its
+    # engine to go on, so it keeps counting as a video instance.
     found = [d for d in _registered(env) if d.get("engine") == "comfyui" and isinstance(d.get("port"), int)
+             and (d.get("role") or "video") == "video"
              and (a.model is None or d.get("served_name") == a.model)]
     if len(found) != 1:
         emit({"error": "no video model is running; start one on Recipes" if not found

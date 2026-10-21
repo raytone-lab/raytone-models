@@ -180,6 +180,10 @@ class StatusTests(unittest.TestCase):
         r = recipes.load(recipe())
         [s] = recipes.specs(r, self.hf, used_ports={18000})
         self.assertEqual((s.id, s.port, s.served_name), ("qwen3-8-27b", 18001, "qwen3.8-27b"))
+        # the component's role reaches the instance: on one engine that serves both video and
+        # stills, it is the only thing that says which of the two an instance is
+        self.assertEqual(s.role, r.components[0].role)
+        self.assertTrue(s.role)
 
     def tree(self, repo, sha, files):
         root = self.hf / "hub" / ("models--" + repo.replace("/", "--"))
