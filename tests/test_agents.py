@@ -353,6 +353,28 @@ class CatalogTests(unittest.TestCase):
         self.assertFalse(info["opencode"]["web"])
         self.assertFalse(info["opencode"]["web_only"])
 
+    def test_every_agent_falls_in_exactly_one_section_of_the_page(self):
+        """The Agents page splits the catalog with three filters -- connectable or web_only, then
+        supported and neither, then not supported -- and nothing in catalog() makes those disjoint.
+        A row that is connectable but not supported, or both connectable and web_only, would be
+        drawn twice or drawn with a Connect button it can never use. These are the invariants the
+        filters assume, asserted where the rows are made rather than where they are read."""
+        rows = agents.catalog()
+        for a in rows:
+            if a["connectable"]:
+                self.assertTrue(a["supported"], a["id"])
+                self.assertFalse(a["web_only"], a["id"])   # else: claims Connect, can never show it
+            if a["web_only"]:
+                self.assertTrue(a["supported"], a["id"])
+                self.assertTrue(a["web"], a["id"])
+        sections = {"available": [a["id"] for a in rows if a["connectable"] or a["web_only"]],
+                    "later": [a["id"] for a in rows if a["supported"] and not a["connectable"]
+                              and not a["web_only"]],
+                    "unsupported": [a["id"] for a in rows if not a["supported"]]}
+        placed = sum(sections.values(), [])
+        self.assertEqual(sorted(placed), sorted(a["id"] for a in rows))   # none missing
+        self.assertEqual(len(placed), len(set(placed)))                   # none drawn twice
+
     def test_unsupported_agents_say_why(self):
         info = {a["id"]: a for a in agents.catalog()}
         for name in ("gemini", "cursor-agent", "muse"):

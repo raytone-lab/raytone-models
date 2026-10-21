@@ -333,20 +333,24 @@ class CliTests(unittest.TestCase):
         self.assertEqual(ran, [])
         self.assertEqual(execs, [["omarchy-launch-webapp", "https://raytone.lan"]])
 
-    def test_codesphere_web_that_does_not_answer_names_the_url_and_the_clock(self):
-        """Checked before opening, because an empty browser window says less than the URL that went
-        unanswered -- and on this machine the likeliest reason is the clock: its certificate is not
-        yet valid when the clock falls back to 1970 after a cold power loss."""
+    def test_codesphere_web_that_does_not_answer_says_so_and_opens_it_anyway(self):
+        """The probe says what it can and does not decide. It asks anonymously over Python's trust
+        store and counts only a 200, so a private CA the browser accepts, a login, or a 204 all look
+        like silence -- refusing on that would keep a working workspace shut. The clock is named
+        because it falls back to 1970 here on a cold power loss and the browser's certificate error
+        does not say so."""
         err, ran, execs = io.StringIO(), [], []
         self.env.run = lambda cmd, env: ran.append(cmd) or 0
         self.env.execvpe = lambda file, argv, env: execs.append(argv)
         self.env.page = lambda url: None
         with redirect_stderr(err):
             rc, _ = self.run_cli("agent-web", "codesphere")
-        self.assertNotEqual(rc, 0)
-        self.assertEqual((ran, execs), ([], []))      # never opened on a guess
+        self.assertEqual(rc, 0)
+        self.assertEqual(ran, [])                     # still starts no service of ours
+        self.assertEqual(execs, [["omarchy-launch-webapp", "https://raytone.lan"]])
         self.assertIn("raytone.lan", err.getvalue())
         self.assertIn("clock", err.getvalue())
+        self.assertIn("timedatectl", err.getvalue())
 
     def test_an_agent_without_a_web_ui(self):
         rc, _, ran, execs = self.web("crush", lambda started: False)

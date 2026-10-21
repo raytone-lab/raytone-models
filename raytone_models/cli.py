@@ -261,14 +261,18 @@ def cmd_agent_web(a, env):
     OpenClaw's goes through Omarchy's launcher, which starts its gateway if needed; Hermes's
     dashboard is started once as a user service (loopback only) and opened."""
     if a.agent == "codesphere":
-        # Checked before opening: an empty browser window says less than naming the URL that went
-        # unanswered. The certificate's validity rides on the clock, and this machine's clock falls
-        # back to 1970 on a cold power loss -- then nothing answers here and the browser would only
-        # have shown NET::ERR_CERT_DATE_INVALID, so the clock is worth naming in the message.
+        # A hint, not a gate. What this probe can establish is narrower than it looks: it asks
+        # anonymously, trusts what Python's OpenSSL trust store trusts, and counts only a 200 --
+        # so a workspace behind a CA the browser does accept, or one that wants a login, or one
+        # that answers 204, all read as "nothing answers" while opening it would have worked.
+        # Refusing on that is worse than the blank window the check was added to replace, so say
+        # the useful part and open it regardless. The part worth saying is the clock: it falls
+        # back to 1970 here on a cold power loss, and NET::ERR_CERT_DATE_INVALID does not name
+        # that as the cause.
         if env.page(CODESPHERE_WEB) is None:
-            raise SystemExit(f"nothing answers on {CODESPHERE_WEB}: the workspace is not serving on "
-                             "this machine, or the clock is wrong and its certificate is not yet valid "
-                             "(check: timedatectl)")
+            print(f"nothing answered on {CODESPHERE_WEB}; opening it anyway. If the browser shows a "
+                  "certificate date error, this machine's clock is wrong (check: timedatectl).",
+                  file=sys.stderr, flush=True)
         return env.execvpe("omarchy-launch-webapp", ["omarchy-launch-webapp", CODESPHERE_WEB], dict(os.environ))
     if a.agent == "openclaw":
         return env.execvpe("omarchy-launch-openclaw", ["omarchy-launch-openclaw"], dict(os.environ))
