@@ -70,22 +70,41 @@ ColumnLayout {
                         }
                     }
                     Text {
+                        // Bounded, like the description and the source line below. A card has to
+                        // keep room for its Apply button whatever the recipe says, and these three
+                        // are the only unbounded text on it -- the trio's title is 69 characters,
+                        // which is three lines on a half-width card. What is cut is on hover, so
+                        // the bound costs nothing that cannot be got back.
+                        id: titleText
                         text: card.modelData.title
                         color: Theme.text
                         font.family: Theme.font
                         font.pixelSize: card.index === 0 ? Theme.sizeFeatured : Theme.sizeCard
                         font.weight: Font.Bold
                         wrapMode: Text.Wrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
                         Layout.fillWidth: true
+                        HoverHandler { id: titleHover }
+                        ToolTip.visible: titleHover.hovered && titleText.truncated
+                        ToolTip.text: titleText.text
                     }
                     Text {
+                        // Only the featured card shows this, and it runs to 917 characters on the
+                        // trio -- a wall of text where the card is meant to be a summary.
+                        id: descriptionText
                         text: card.modelData.description || ""
                         visible: text !== "" && card.index === 0
                         color: Theme.muted
                         font.family: Theme.font
                         font.pixelSize: Theme.sizeBody
                         wrapMode: Text.Wrap
+                        maximumLineCount: 3
+                        elide: Text.ElideRight
                         Layout.fillWidth: true
+                        HoverHandler { id: descriptionHover }
+                        ToolTip.visible: descriptionHover.hovered && descriptionText.truncated
+                        ToolTip.text: descriptionText.text
                     }
                     Flow {
                         id: facts
@@ -131,6 +150,9 @@ ColumnLayout {
                     RowLayout {
                         Layout.fillWidth: true
                         Text {
+                            // Shares its row with Apply, and runs to 164 characters, so left to
+                            // itself it is what pushes the button off the card.
+                            id: sourceText
                             text: card.action === "conflict"
                                 ? "Another instance serves " + card.modelData.conflicts.join(", ") + ". Stop it on Running, then apply."
                                 : (card.modelData.source || "")
@@ -138,7 +160,12 @@ ColumnLayout {
                             font.family: Theme.font
                             font.pixelSize: Theme.sizeCaption
                             wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
                             Layout.fillWidth: true
+                            HoverHandler { id: sourceHover }
+                            ToolTip.visible: sourceHover.hovered && sourceText.truncated
+                            ToolTip.text: sourceText.text
                         }
                         RButton {
                             variant: card.action === "stop" ? "danger" : "primary"
