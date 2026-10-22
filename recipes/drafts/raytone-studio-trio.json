@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "id": "raytone-studio-trio",
-  "title": "Raytone Studio (trio): Nemotron 3.5 Lightning, MiniMax H3 and Z-Image",
-  "description": "Three models on the one unified pool: Nemotron 3.5 Lightning (NVFP4, DSpark, mem-fraction-static 0.25, context 65536, one running request) for chat and agents, MiniMax H3 resident for text to video, and Z-Image Turbo loaded per request for text to image, with about 20 GiB left for the control plane. Why 0.25 is enough rather than tight: the instance running at 0.6 reports a KV cache of 2652921 tokens (float8_e4m3fn 3.80+3.80 GB and bfloat16 7.59+7.59 GB), because the pool is sized to fill the fraction for max_running_requests=48 and the model default context. One stream at 65536 tokens needs 2.5 percent of that, so the binding constraint at 0.25 is weights plus the auto-sized Mamba state cache, not the KV pool. DERIVED, NOT MEASURED HERE: the 0.6 figures are read from the running instance log and scaled; no instance was started at 0.25, because that needs GPU work and would interrupt the one now serving.",
+  "title": "Raytone Studio (trio): chat, video and stills",
+  "description": "Chat, video and stills on the one unified pool: Nemotron 3.5 Lightning for chat and agents, MiniMax H3 resident for text to video, and Z-Image Turbo loaded per request for text to image. Nemotron is held to one concurrent request against a 65536-token context limit rather than many short ones, which is what budgets room for the other two, leaving an estimated 20 GiB for the control plane. That estimate is derived from the running instance's log at mem-fraction-static 0.6 and scaled; nothing was measured at 0.25.",
   "platforms": [
     "thor-t5000"
   ],
