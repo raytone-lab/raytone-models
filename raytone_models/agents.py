@@ -22,7 +22,10 @@ MODEL = "local"                        # router.ALIAS
 LABEL = "Local model (Raytone Models)"
 
 # Omarchy 4.0.4's agents (omarchy-default-agent) and whether they can use a local endpoint.
+# Raytone Codesphere comes first and is not one of Omarchy's: it is this machine's own workspace,
+# reached over the LAN name rather than started here, so it has no config of ours to write.
 CATALOG = [
+    ("codesphere", "Raytone Codesphere", True, "this machine's workspace, opened in a browser"),
     ("opencode", "OpenCode", True, ""),
     ("claude", "Claude Code", True, ""),
     ("codex", "Codex", True, "through the Responses API, which vLLM and SGLang serve"),
@@ -43,12 +46,18 @@ class AgentError(RuntimeError):
     pass
 
 
+# entries that are only a web UI: nothing of theirs is configured here, so there is no connect and
+# no revert, and the card carries a single button. Kept apart from WEB because the difference is
+# not "has a web UI" but "has nothing else" -- the Agents page has to know which buttons to leave out.
+WEB_ONLY = {"codesphere"}
+
 # agents with a web UI of their own, besides their terminal one (raytone-models agent-web ID)
-WEB = {"hermes", "openclaw"}
+WEB = {"hermes", "openclaw"} | WEB_ONLY
 
 
 def catalog():
     return [{"id": i, "name": n, "supported": s, "connectable": i in ADAPTERS, "web": i in WEB,
+             "web_only": i in WEB_ONLY,
              "reason": r if not s else "", "note": r if s else ""} for i, n, s, r in CATALOG]
 
 

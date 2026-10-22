@@ -394,6 +394,32 @@ class CliTests(unittest.TestCase):
         rc, _, ran, execs = self.web("openclaw", lambda started: False)
         self.assertEqual((ran, execs), ([], [["omarchy-launch-openclaw"]]))
 
+    def test_codesphere_web_opens_the_workspace_rather_than_starting_it(self):
+        # it is already serving on this machine: nothing is started, the URL is just opened
+        rc, _, ran, execs = self.web("codesphere", lambda started: True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(ran, [])
+        self.assertEqual(execs, [["omarchy-launch-webapp", "https://raytone.lan"]])
+
+    def test_codesphere_web_that_does_not_answer_says_so_and_opens_it_anyway(self):
+        """The probe says what it can and does not decide. It asks anonymously over Python's trust
+        store and counts only a 200, so a private CA the browser accepts, a login, or a 204 all look
+        like silence -- refusing on that would keep a working workspace shut. The clock is named
+        because it falls back to 1970 here on a cold power loss and the browser's certificate error
+        does not say so."""
+        err, ran, execs = io.StringIO(), [], []
+        self.env.run = lambda cmd, env: ran.append(cmd) or 0
+        self.env.execvpe = lambda file, argv, env: execs.append(argv)
+        self.env.page = lambda url: None
+        with redirect_stderr(err):
+            rc, _ = self.run_cli("agent-web", "codesphere")
+        self.assertEqual(rc, 0)
+        self.assertEqual(ran, [])                     # still starts no service of ours
+        self.assertEqual(execs, [["omarchy-launch-webapp", "https://raytone.lan"]])
+        self.assertIn("raytone.lan", err.getvalue())
+        self.assertIn("clock", err.getvalue())
+        self.assertIn("timedatectl", err.getvalue())
+
     def test_an_agent_without_a_web_ui(self):
         rc, _, ran, execs = self.web("crush", lambda started: False)
         self.assertNotEqual(rc, 0)
@@ -693,8 +719,19 @@ class CliTests(unittest.TestCase):
         (self.reg / "qwen.json").write_text(json.dumps(
             {"id": "qwen", "served_name": "qwen3.8-27b", "port": 18000, "engine": "vllm", "args": {"max-model-len": 131072}}))
         self.run_cli("agent", "connect", "crush")
-        got = {a["id"]: a.get("connected") for a in json.loads(self.run_cli("agents", "--json")[1])}
-        self.assertEqual((got["crush"], got["opencode"], got["gemini"]), (True, False, None))
+        rows = json.loads(self.run_cli("agents", "--json")[1])
+        got = {a["id"]: a.get("connected") for a in rows}
+        # gemini has no adapter, so there is nothing to ask -- but it still answers False rather
+        # than going missing. Only the first grid on the Agents page reads this key, but the rows
+        # it reads are chosen by a filter, so which rows those are is not fixed: the contract is
+        # that every row carries a bool (see cmd for what a missing one did).
+        self.assertEqual((got["crush"], got["opencode"], got["gemini"]), (True, False, False))
+        self.assertEqual([a["id"] for a in rows if "connected" not in a], [])
+        # isinstance, not truthiness: an int would pass a truthiness check and reach QML as a number
+        self.assertEqual([a["id"] for a in rows if not isinstance(a["connected"], bool)], [])
+        # and nothing without an adapter may claim to be connected -- the assertions above only
+        # pin the shape, so a row wrongly set True would still satisfy them
+        self.assertEqual([a["id"] for a in rows if not a["connectable"] and a["connected"]], [])
 
 
 if __name__ == "__main__":

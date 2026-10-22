@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import Quickshell.Io
 
 // Everything the app knows comes from `raytone-models ... --json`; the app keeps no model state of
@@ -124,7 +123,17 @@ Item {
 
     // an agent's own web UI (Hermes, OpenClaw): the CLI starts what it needs and opens it
     function launchWeb(id) {
-        Quickshell.execDetached([root.cli, "agent-web", id])
+        // Not execDetached: that discards stderr, and checking before opening is the whole reason
+        // cmd_agent_web probes first -- naming the URL that went unanswered, and the clock, which
+        // on this machine falls back to 1970 on a cold power loss and invalidates the certificate.
+        // Detached, none of that could ever reach anyone: a workspace that was not serving made
+        // the button do nothing at all, visibly. The chain ends in "exec setsid uwsm-app", which
+        // returns once the browser is handed to systemd, so this exits promptly either way.
+        // busy is left alone on purpose: opening a browser is not something the other buttons
+        // should have to wait on, and a success notice for it would be noise.
+        lastError = ""
+        webProc.command = [root.cli, "agent-web", id]
+        webProc.running = true
     }
 
     function launchAgent(args) {
@@ -278,6 +287,12 @@ Item {
         }
     }
     Process { id: openProc }
+    Process {
+        id: webProc
+        stderr: StdioCollector { waitForEnd: true; onStreamFinished: if (String(text).trim()) root.lastError = String(text).trim().split("
+").pop() }
+        onExited: function(exitCode) { if (exitCode !== 0 && !root.lastError) root.lastError = "That did not work (exit " + exitCode + ")" }
+    }
     Process { id: copyProc; onExited: function(code) { if (code === 0) root.notice = "Endpoint copied" } }
     Process { id: launchProc }
 

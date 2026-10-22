@@ -8,8 +8,11 @@ import "../logic.js" as Logic
 ColumnLayout {
     id: page
     property var backend
-    readonly property var connectable: page.backend.agents.filter(function (a) { return a.connectable })
-    readonly property var later: page.backend.agents.filter(function (a) { return a.supported && !a.connectable })
+    // A web-only entry (Raytone Codesphere) has no adapter, so it is not "connectable" -- but it
+    // belongs in this grid, first and with its one button, not under "Supported later", which is
+    // where an agent still waiting for an adapter goes.
+    readonly property var connectable: page.backend.agents.filter(function (a) { return a.connectable || a.web_only })
+    readonly property var later: page.backend.agents.filter(function (a) { return a.supported && !a.connectable && !a.web_only })
     readonly property var unsupported: page.backend.agents.filter(function (a) { return !a.supported })
     readonly property var chatModels: Logic.chatModels(page.backend.instances)
     readonly property var current: chatModels.filter(function (i) { return i.current === true })[0] || null
@@ -50,6 +53,13 @@ ColumnLayout {
                         id: a
                         required property var modelData
                         readonly property var command: Logic.launchArgs(modelData.id)
+                        // === true, like every other bool read off a row in this app: a row the CLI
+                        // has no adapter to ask used to omit this key, which reaches QML as
+                        // undefined, fails to assign to bool, and leaves a button at its default --
+                        // visible. The CLI now always sends it, but the app resolves the CLI through
+                        // PATH, so a checkout's QML can still meet an older installed CLI. Reading
+                        // it once here makes the destructive button fail closed instead.
+                        readonly property bool connected: modelData.connected === true
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         padding: 16
@@ -59,27 +69,42 @@ ColumnLayout {
                                 spacing: 6
                                 Layout.fillWidth: true
                                 Text { text: a.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold }
-                                Pill { text: a.modelData.connected ? "Connected" : "Not connected"; kind: a.modelData.connected ? "ready" : "neutral" }
+                                // Nothing of a web-only entry is configured here, so "Connected"
+                                // would be a claim about a state that does not exist: say what it is.
+                                Pill {
+                                    visible: a.modelData.web_only !== true
+                                    text: a.connected ? "Connected" : "Not connected"
+                                    kind: a.connected ? "ready" : "neutral"
+                                }
+                                Text {
+                                    visible: a.modelData.web_only === true
+                                    text: a.modelData.note
+                                    color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption
+                                    wrapMode: Text.Wrap
+                                    Layout.fillWidth: true
+                                }
                             }
                             Item { Layout.fillWidth: true }
                             RButton {
-                                visible: a.modelData.connected
+                                visible: a.connected && a.modelData.web_only !== true
                                 text: "Revert"
                                 enabled: page.backend.busy === ""
                                 onClicked: page.backend.act("agent:" + a.modelData.id, ["agent", "revert", a.modelData.id, "--json"], a.modelData.name + " settings restored")
                             }
                             RButton {
-                                visible: a.modelData.connected && a.command !== null
+                                visible: a.connected && a.command !== null && a.modelData.web_only !== true
                                 text: a.modelData.web ? "TUI" : "Launch"
                                 onClicked: page.backend.launchAgent(a.command)
                             }
                             RButton {
-                                visible: a.modelData.connected && a.modelData.web === true
+                                // the only button a web-only entry has, so it is the primary one
+                                visible: a.modelData.web === true && (a.modelData.web_only === true || a.connected)
+                                variant: a.modelData.web_only === true ? "primary" : "secondary"
                                 text: "Web"
                                 onClicked: page.backend.launchWeb(a.modelData.id)
                             }
                             RButton {
-                                visible: !a.modelData.connected
+                                visible: a.modelData.connectable === true && !a.connected
                                 variant: "primary"
                                 text: page.backend.busy === "agent:" + a.modelData.id ? "Connecting…" : "Connect"
                                 enabled: page.backend.busy === ""

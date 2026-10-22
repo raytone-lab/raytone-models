@@ -6,7 +6,7 @@
     raytone-models stop ID
     raytone-models agents [--json]
     raytone-models agent connect|revert AGENT [--json]
-    raytone-models agent-web hermes|openclaw        open the agent's own web UI
+    raytone-models agent-web codesphere|hermes|openclaw      open that entry's web UI
     raytone-models use SERVED [--json]          the model agents get when they ask for "local"
     raytone-models hub search QUERY [--kind video|image|speech] [--json]
     raytone-models hub files REPO [--revision COMMIT] [--json]
@@ -260,10 +260,29 @@ def cmd_agent_exec(a, env):
 
 HERMES_WEB = "http://127.0.0.1:9119/"
 
+# Raytone Codesphere: this machine's own workspace, behind the LAN name the local resolver answers
+# for. Unlike Hermes's dashboard it is not ours to start -- it is already serving or it is not.
+CODESPHERE_WEB = "https://raytone.lan"
+
 
 def cmd_agent_web(a, env):
-    """Open an agent's own web UI. OpenClaw's through Omarchy's launcher, which starts its gateway
-    if needed; Hermes's dashboard is started once as a user service (loopback only) and opened."""
+    """Open an entry's web UI. Codesphere is already serving on this machine and only gets opened;
+    OpenClaw's goes through Omarchy's launcher, which starts its gateway if needed; Hermes's
+    dashboard is started once as a user service (loopback only) and opened."""
+    if a.agent == "codesphere":
+        # A hint, not a gate. What this probe can establish is narrower than it looks: it asks
+        # anonymously, trusts what Python's OpenSSL trust store trusts, and counts only a 200 --
+        # so a workspace behind a CA the browser does accept, or one that wants a login, or one
+        # that answers 204, all read as "nothing answers" while opening it would have worked.
+        # Refusing on that is worse than the blank window the check was added to replace, so say
+        # the useful part and open it regardless. The part worth saying is the clock: it falls
+        # back to 1970 here on a cold power loss, and NET::ERR_CERT_DATE_INVALID does not name
+        # that as the cause.
+        if env.page(CODESPHERE_WEB) is None:
+            print(f"nothing answered on {CODESPHERE_WEB}; opening it anyway. If the browser shows a "
+                  "certificate date error, this machine's clock is wrong (check: timedatectl).",
+                  file=sys.stderr, flush=True)
+        return env.execvpe("omarchy-launch-webapp", ["omarchy-launch-webapp", CODESPHERE_WEB], dict(os.environ))
     if a.agent == "openclaw":
         return env.execvpe("omarchy-launch-openclaw", ["omarchy-launch-openclaw"], dict(os.environ))
     if a.agent != "hermes":
@@ -642,8 +661,13 @@ def main(argv=None, env=None):
         elif a.command == "agents":
             rows = agents.catalog()
             for r in rows:
-                if r["connectable"]:
-                    r["connected"] = agents.get(r["id"], home=env.home, state=env.state).status()["connected"]
+                # every row carries "connected", including the ones with no adapter to ask. The
+                # Agents page binds button visibility to it, and a missing key reaches QML as
+                # undefined: "visible: connected && ..." then fails to assign and the button stays
+                # at its default, which is visible. That is how Raytone Codesphere -- web-only, so
+                # no adapter -- came to show Revert and TUI, the two buttons web_only removes.
+                r["connected"] = (agents.get(r["id"], home=env.home, state=env.state).status()["connected"]
+                                  if r["connectable"] else False)
             _print(rows, a.json)
         elif a.command == "start":
             _print(cmd_start(a, env), a.json)
