@@ -171,6 +171,7 @@ def load(data):
 # id: a file called "recipes@raytone.ai" would otherwise verify and be reported as the Lab's own
 # key, which is the single thing this whole arrangement exists to prevent (codex review).
 LOCAL_SIGNER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+KEY_TYPE_RE = re.compile(r"^(ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)[A-Za-z0-9@.+-]+$")
 MAX_LOCAL_SIGNERS = 16          # bounds recipes x signers, and ssh-keygen runs, per read
 MAX_SIGNERS_BYTES = 64 * 1024
 VERIFY_TIMEOUT = 20
@@ -182,29 +183,48 @@ def local_signers(d=LOCAL_SIGNERS_DIR):
     if d is None:
         return []
     d = pathlib.Path(d)
+    # Check the directory BEFORE listing it. Reading it first would follow a directory symlink into
+    # wherever it points, enumerate a user-writable directory of any size, and -- for a dangling
+    # link -- report "not configured on this machine" when what is really there is a planted link.
     try:
-        entries = sorted(d.iterdir())
+        st = d.lstat()
     except FileNotFoundError:
         return []                               # not configured on this machine: not an error
     except OSError as e:
         raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
-    # the directory itself has to be root's, or its contents are whatever a local user put there
-    _require_root_owned(d)
+    if not stat.S_ISDIR(st.st_mode):
+        raise RecipeError(f"{d}: is not a directory, so the keys in it are not root's to pin")
+    _require_root_owned(d, st)
+    try:
+        entries = sorted(d.iterdir())
+    except OSError as e:
+        raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
     out = []
     for f in entries:
         if f.name.startswith("."):
             continue
         if not LOCAL_SIGNER_RE.fullmatch(f.name) or f.name == SIGNER:
             raise RecipeError(f"{f.name}: a signer file is named like an id, and never {SIGNER!r}")
-        st = f.lstat()                          # lstat, so a symlink is refused rather than followed
-        if not stat.S_ISREG(st.st_mode):
-            raise RecipeError(f"{f.name}: a signer file is a regular file, not a link or device")
-        _require_root_owned(f)
-        if not 0 < st.st_size <= MAX_SIGNERS_BYTES:
-            raise RecipeError(f"{f.name}: a signer file holds one key, and is not empty")
-        # exactly one record, and its principal is the file name -- so the name is the whole truth
-        lines = [l for l in f.read_text(encoding="utf-8", errors="strict").splitlines() if l.strip()]
-        if len(lines) != 1 or lines[0].split(None, 1)[0] != f.name:
+        try:
+            st = f.lstat()                      # lstat, so a symlink is refused rather than followed
+            if not stat.S_ISREG(st.st_mode):
+                raise RecipeError(f"{f.name}: a signer file is a regular file, not a link or device")
+            _require_root_owned(f, st)
+            if not 0 < st.st_size <= MAX_SIGNERS_BYTES:
+                raise RecipeError(f"{f.name}: a signer file holds one key, and is not empty")
+            text = f.read_text(encoding="utf-8", errors="strict")
+        except OSError as e:
+            # a key we cannot read is not a key we can trust, and the page should say which file
+            raise RecipeError(f"{f.name}: cannot be read ({e.strerror})") from None
+        except UnicodeDecodeError:
+            raise RecipeError(f"{f.name}: is not text, so it is not an allowed_signers line") from None
+        # exactly one record: its principal is the file name, and it names a key type and a key,
+        # so a file holding only a principal fails here rather than as "the signature does not verify"
+        lines = [l for l in text.splitlines() if l.strip()]
+        if len(lines) != 1:
+            raise RecipeError(f"{f.name}: holds exactly one key, whose principal is {f.name!r}")
+        fields = lines[0].split()
+        if len(fields) < 3 or fields[0] != f.name or not KEY_TYPE_RE.fullmatch(fields[1]):
             raise RecipeError(f"{f.name}: holds exactly one key, whose principal is {f.name!r}")
         out.append((f.name, f))
         if len(out) > MAX_LOCAL_SIGNERS:
@@ -212,8 +232,11 @@ def local_signers(d=LOCAL_SIGNERS_DIR):
     return out
 
 
-def _require_root_owned(path):
-    st = path.lstat()
+def _require_root_owned(path, st=None):
+    """Root's, and only root's, to rewrite. `st` is the caller's own lstat() when it already has
+    one, so the check reads the same inode the caller type-checked rather than racing it."""
+    if st is None:
+        st = path.lstat()
     if st.st_uid != 0:
         raise RecipeError(f"{path.name}: trusting a signing key is root's to decide, and this is not root's")
     if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):

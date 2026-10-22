@@ -5,8 +5,10 @@ import json
 import os
 import pathlib
 import shutil
+import stat
 import subprocess
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -146,7 +148,7 @@ class LocalSignerFileTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.d = pathlib.Path(self.tmp.name) / "signers.d"
         self.d.mkdir()
-        self.patch = mock.patch.object(recipes, "_require_root_owned", lambda p: None)
+        self.patch = mock.patch.object(recipes, "_require_root_owned", lambda p, st=None: None)
         self.patch.start()
         self.addCleanup(self.patch.stop)
         self.addCleanup(self.tmp.cleanup)
@@ -212,18 +214,79 @@ class LocalSignerFileTests(unittest.TestCase):
         self.assertEqual(recipes.local_signers(pathlib.Path(self.tmp.name) / "absent"), [])
         self.assertEqual(recipes.local_signers(None), [])
 
-    def test_ownership_is_required(self):
-        # the check itself, against a file this test owns -- which is exactly what it must reject
-        self.patch.stop()
-        f = self.d / "thor-2"
+    def test_a_file_must_name_a_key_and_not_just_a_principal(self):
+        # otherwise this lands as "the signature does not verify", which blames the wrong thing
+        for bad in ("thor-2", "thor-2 AAAA", "thor-2 not-a-keytype AAAA"):
+            self._write("thor-2", bad + chr(10))
+            with self.assertRaises(recipes.RecipeError, msg=bad):
+                recipes.local_signers(self.d)
+
+    def test_the_directory_is_checked_before_it_is_listed(self):
+        """A directory symlink would be followed, and a dangling one reported as "not configured on
+        this machine" -- which reads as "no local keys" when something was in fact planted."""
+        elsewhere = pathlib.Path(self.tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "thor-2").write_text("thor-2 ssh-ed25519 AAAA" + chr(10))
+        link = pathlib.Path(self.tmp.name) / "linked.d"
+        try:
+            link.symlink_to(elsewhere, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("cannot create a symlink here")
+        self.patch.stop()                       # the subject is the type check, which runs first
+        try:
+            with self.assertRaises(recipes.RecipeError):
+                recipes.local_signers(link)
+            dangling = pathlib.Path(self.tmp.name) / "dangling.d"
+            dangling.symlink_to(pathlib.Path(self.tmp.name) / "nothing", target_is_directory=True)
+            with self.assertRaises(recipes.RecipeError):
+                recipes.local_signers(dangling)
+        finally:
+            self.patch.start()
+
+    def test_a_file_that_cannot_be_decoded_is_an_error_not_a_crash(self):
+        (self.d / "thor-2").write_bytes(bytes([0xff, 0xfe, 0x0a]))
+        with self.assertRaises(recipes.RecipeError):
+            recipes.local_signers(self.d)
+
+
+class RootOwnedTests(unittest.TestCase):
+    """_require_root_owned on its own. A test process is not root and cannot create a root-owned
+    file, so the four branches are driven through an lstat() result rather than a real inode --
+    which also covers the two writability branches that a real temp file never reaches."""
+
+    @staticmethod
+    def _st(uid, mode):
+        return types.SimpleNamespace(st_uid=uid, st_mode=mode)
+
+    def _check(self, uid, mode):
+        recipes._require_root_owned(pathlib.PurePath("thor-2"), self._st(uid, mode))
+
+    def test_a_file_someone_else_owns_is_refused(self):
+        with self.assertRaises(recipes.RecipeError):
+            self._check(1000, stat.S_IFREG | 0o644)
+
+    def test_a_group_writable_file_is_refused(self):
+        with self.assertRaises(recipes.RecipeError):
+            self._check(0, stat.S_IFREG | 0o664)
+
+    def test_a_world_writable_file_is_refused(self):
+        with self.assertRaises(recipes.RecipeError):
+            self._check(0, stat.S_IFREG | 0o646)
+
+    def test_root_owned_and_not_writable_by_anyone_else_is_accepted(self):
+        self._check(0, stat.S_IFREG | 0o644)
+
+    def test_it_lstats_for_itself_when_the_caller_has_no_stat(self):
+        # the no-argument path still works, so callers that have not already stat()ed are covered
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        f = pathlib.Path(tmp.name) / "thor-2"
         f.write_text("thor-2 ssh-ed25519 AAAA" + chr(10))
         if os.name != "posix":
-            # every file reports st_uid == 0 here, so the check has nothing to refuse
             self.skipTest("file ownership is a posix idea; the code this guards only runs on Linux")
         self.assertNotEqual(f.lstat().st_uid, 0, "run the suite as a normal user, not root")
         with self.assertRaises(recipes.RecipeError):
             recipes._require_root_owned(f)
-        self.patch.start()
 
 
 class LocalSignerTests(unittest.TestCase):
@@ -248,7 +311,7 @@ class LocalSignerTests(unittest.TestCase):
         # these tests are about which key vouches for a recipe, not about who owns the key file.
         # A test cannot create a root-owned directory, so the ownership rule is lifted here and
         # checked on its own in LocalSignerFileTests.test_ownership_is_required.
-        self.owner = mock.patch.object(recipes, "_require_root_owned", lambda p: None)
+        self.owner = mock.patch.object(recipes, "_require_root_owned", lambda p, st=None: None)
         self.owner.start()
         self.addCleanup(self.owner.stop)
 
