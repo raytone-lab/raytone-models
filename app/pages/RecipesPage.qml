@@ -54,7 +54,14 @@ ColumnLayout {
                     RowLayout {
                         Layout.fillWidth: true
                         Text {
-                            text: "RAYTONE AI LAB · SIGNED RECIPE"
+                            // Not a fixed string: a recipe signed by a key this machine added must
+                            // not carry the Lab's name. An absent field means the CLI predates
+                            // signed_by, and then which key verified it is simply not known here --
+                            // so say only what was checked, rather than guessing the Lab.
+                            readonly property string signer: String(card.modelData.signed_by || "")
+                            text: signer === "recipes@raytone.ai" ? "RAYTONE AI LAB · SIGNED RECIPE"
+                                : signer === "" ? "SIGNED RECIPE"
+                                : "SIGNED ON THIS MACHINE · " + signer.toUpperCase()
                             color: Theme.muted
                             font.family: Theme.font
                             font.pixelSize: Theme.sizeDense

@@ -2,17 +2,25 @@
 applied only when its signature verifies; its components go through the same spec checks as any
 instance, and its models must be in the store at the pinned revision."""
 import json
+import os
 import pathlib
 import shutil
+import stat
 import subprocess
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 from raytone_models import recipes
 from tests.test_spec import DIGEST
 from tests.test_store import SHA, put
 
 REPO = "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead"
+
+# a real key, because a drop-in file now has to hold one ssh-keygen recognises rather than
+# a key type with anything behind it. Its private half was thrown away on generation.
+REAL_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJ1JXbaDqpobKyWtp9XpQvOFyxtOouJ5VMXfIUwGOtJ"
 
 
 def recipe(**over):
@@ -133,6 +141,295 @@ class SignatureTests(unittest.TestCase):
         pathlib.Path(str(self.file) + ".sig").unlink()
         with self.assertRaises(recipes.RecipeError):
             recipes.read(self.file, allowed_signers=self.t / "allowed")
+
+
+@unittest.skipUnless(os.name == "posix", "the signers directory is read through O_NOFOLLOW/dir_fd")
+class LocalSignerFileTests(unittest.TestCase):
+    """What a dropped-in signer file is allowed to be. A problem with one FILE skips that file and
+    is reported through `problems`; a problem with the DIRECTORY raises, because that is root's own
+    configuration and a directory that cannot be read as root's cannot be believed at all.
+
+    A test cannot create a root-owned file, so the ownership rule is lifted here and checked on its
+    own in RootOwnedTests."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = pathlib.Path(self.tmp.name) / "signers.d"
+        self.d.mkdir()
+        self.patch = mock.patch.object(recipes, "_require_root_owned", lambda p, st=None: None)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _write(self, name, text):
+        (self.d / name).write_text(text)
+
+    def _read(self):
+        """(identities, problems) -- what was trusted, and what was said about the rest."""
+        problems = []
+        got = recipes.local_signers(self.d, problems)
+        return [n for n, _ in got], problems
+
+    def _refuses(self, name, text, note=None):
+        self._write(name, text)
+        ids, problems = self._read()
+        self.assertNotIn(name, ids)
+        self.assertEqual(len(problems), 1, problems)
+        if note:
+            self.assertIn(note, problems[0])
+        (self.d / name).unlink()
+
+    def test_a_file_cannot_be_named_after_the_lab(self):
+        """The whole point: a drop-in named recipes@raytone.ai would verify and be reported as the
+        Lab's own key. It is refused before the file is even opened."""
+        self._refuses(recipes.SIGNER, f"{recipes.SIGNER} ssh-ed25519 AAAA", recipes.SIGNER)
+
+    def test_a_file_name_is_an_id(self):
+        for bad in ("Thor-2", "thor 2", "thor@host", "thor.2"):
+            try:
+                (self.d / bad).write_text("x ssh-ed25519 AAAA")
+            except OSError:
+                continue                        # the filesystem refused it first, which is fine
+            ids, problems = self._read()
+            self.assertEqual(ids, [], bad)
+            self.assertEqual(len(problems), 1, problems)
+            (self.d / bad).unlink()
+
+    def test_an_options_field_is_part_of_the_syntax(self):
+        """`principal [options] keytype key` -- namespaces= is exactly what a recipe key wants, and
+        it is what the installed allowed_signers already uses."""
+        self._write("thor-2", 'thor-2 namespaces="raytone-recipe" ' + REAL_KEY + chr(10))
+        ids, problems = self._read()
+        self.assertEqual((ids, problems), (["thor-2"], []))
+
+    def test_a_key_type_with_no_key_behind_it_is_refused(self):
+        # otherwise this reaches ssh-keygen and comes back as "the signature does not verify",
+        # which blames the recipe for a malformed key file
+        for bad in ("thor-2 ssh-ed25519 not-a-key", "thor-2 ssh-madeup garbage", "thor-2"):
+            self._refuses("thor-2", bad + chr(10))
+
+    def test_the_principal_inside_must_match_the_file_name(self):
+        self._refuses("thor-2", "somebody-else " + REAL_KEY + chr(10))
+
+    def test_one_key_per_file(self):
+        self._refuses("thor-2", "thor-2 " + REAL_KEY + chr(10) + "thor-2 " + REAL_KEY + chr(10))
+
+    def test_a_comment_line_is_not_a_second_record(self):
+        self._write("thor-2", "# the key this machine signs recipes with" + chr(10)
+                    + "thor-2 " + REAL_KEY + chr(10))
+        self.assertEqual(self._read(), (["thor-2"], []))
+
+    def test_an_empty_file_is_refused(self):
+        self._refuses("thor-2", "")
+
+    def test_a_symlink_is_refused_rather_than_followed(self):
+        real = pathlib.Path(self.tmp.name) / "elsewhere"
+        real.write_text("thor-2 " + REAL_KEY + chr(10))
+        (self.d / "thor-2").symlink_to(real)
+        ids, problems = self._read()
+        self.assertEqual(ids, [])
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_one_bad_file_does_not_take_the_good_ones_with_it(self):
+        """The failure boundary: a single unreadable key is not a reason to stop trusting the
+        others, and it should be said once rather than once per recipe."""
+        self._write("thor-2", "thor-2 " + REAL_KEY + chr(10))
+        self._write("broken", "broken ssh-ed25519 not-a-key" + chr(10))
+        ids, problems = self._read()
+        self.assertEqual(ids, ["thor-2"])
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("broken", problems[0])
+
+    def test_a_fifo_named_like_a_signer_does_not_wedge_the_read(self):
+        """Opening a FIFO for reading waits for a writer. Without O_NONBLOCK this never reaches the
+        "not a regular file" check -- the whole Recipes page hangs instead of refusing one file."""
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("no mkfifo here")
+        os.mkfifo(self.d / "thor-2")
+        self._write("other", "other " + REAL_KEY + chr(10))
+        ids, problems = self._read()                # must return, and must not trust the fifo
+        self.assertEqual(ids, ["other"])
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("thor-2", problems[0])
+
+    def test_a_quoted_option_value_is_not_mistaken_for_the_key_type(self):
+        # ssh-keygen allows spaces inside a quoted option value, and the value may contain a word
+        # that looks like a key type; a plain split() would find that word first
+        self._write("thor-2", 'thor-2 namespaces="foo ssh-ed25519 bar" ' + REAL_KEY + chr(10))
+        self.assertEqual(self._read(), (["thor-2"], []))
+
+    def test_a_quote_in_the_trailing_comment_is_legal(self):
+        """Scanning stops at the key: what follows is a comment, and `nvidia@thor "spare key"` is a
+        legal one. Carrying the quote state past the key made a lone quote unread the whole file."""
+        for tail in (" nvidia@thor", ' nvidia@thor "spare key"', ' it"s mine'):
+            self._write("thor-2", "thor-2 " + REAL_KEY + tail + chr(10))
+            self.assertEqual(self._read(), (["thor-2"], []), tail)
+
+    def test_a_backslash_escaped_quote_inside_an_option_value(self):
+        self._write("thor-2", 'thor-2 namespaces="a' + chr(92) + '"b" ' + REAL_KEY + chr(10))
+        ids, _ = self._read()
+        self.assertEqual(ids, ["thor-2"])
+
+    def test_an_unclosed_quote_is_not_a_record(self):
+        self._refuses("thor-2", 'thor-2 namespaces="oops ' + REAL_KEY + chr(10))
+
+    def test_more_candidates_than_the_cap_stops_the_read(self):
+        """The cap bounds the work, so it counts what gets opened -- files that fail to parse cost
+        an open and an ssh-keygen run just the same."""
+        for i in range(recipes.MAX_LOCAL_SIGNERS + 1):
+            self._write("key-%d" % i, "key-%d ssh-ed25519 not-a-key" % i + chr(10))
+        with self.assertRaises(recipes.RecipeError):
+            recipes.local_signers(self.d, [])
+
+    def test_a_well_formed_file_is_accepted_and_returns_its_bytes(self):
+        body = "thor-2 " + REAL_KEY + chr(10)
+        self._write("thor-2", body)
+        got = recipes.local_signers(self.d)
+        self.assertEqual([n for n, _ in got], ["thor-2"])
+        # the bytes, not the path: whatever verifies later must be what was checked here
+        self.assertEqual(got[0][1], body.encode())
+
+    def test_a_dotfile_is_ignored(self):
+        self._write("thor-2", "thor-2 " + REAL_KEY + chr(10))
+        self._write(".keep", "")
+        self.assertEqual(self._read(), (["thor-2"], []))
+
+    def test_no_directory_means_no_local_signers(self):
+        self.assertEqual(recipes.local_signers(pathlib.Path(self.tmp.name) / "absent"), [])
+        self.assertEqual(recipes.local_signers(None), [])
+
+    def test_a_directory_problem_stops_local_trust_altogether(self):
+        """A file is skipped, but the directory is root's own configuration: if it is a symlink, a
+        dangling symlink, or not a directory at all, none of what it holds can be believed."""
+        t = pathlib.Path(self.tmp.name)
+        (t / "plain").write_text("not a directory" + chr(10))
+        (t / "linked.d").symlink_to(self.d, target_is_directory=True)
+        (t / "dangling.d").symlink_to(t / "nothing", target_is_directory=True)
+        for case in ("plain", "linked.d", "dangling.d"):
+            with self.assertRaises(recipes.RecipeError, msg=case):
+                recipes.local_signers(t / case)
+
+
+class RootOwnedTests(unittest.TestCase):
+    """_require_root_owned on its own. A test process is not root and cannot create a root-owned
+    file, so the four branches are driven through an lstat() result rather than a real inode --
+    which also covers the two writability branches that a real temp file never reaches."""
+
+    @staticmethod
+    def _st(uid, mode):
+        return types.SimpleNamespace(st_uid=uid, st_mode=mode)
+
+    def _check(self, uid, mode):
+        recipes._require_root_owned(pathlib.PurePath("thor-2"), self._st(uid, mode))
+
+    def test_a_file_someone_else_owns_is_refused(self):
+        with self.assertRaises(recipes.RecipeError):
+            self._check(1000, stat.S_IFREG | 0o644)
+
+    def test_a_group_writable_file_is_refused(self):
+        with self.assertRaises(recipes.RecipeError):
+            self._check(0, stat.S_IFREG | 0o664)
+
+    def test_a_world_writable_file_is_refused(self):
+        with self.assertRaises(recipes.RecipeError):
+            self._check(0, stat.S_IFREG | 0o646)
+
+    def test_root_owned_and_not_writable_by_anyone_else_is_accepted(self):
+        self._check(0, stat.S_IFREG | 0o644)
+
+    def test_it_lstats_for_itself_when_the_caller_has_no_stat(self):
+        # the no-argument path still works, so callers that have not already stat()ed are covered
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        f = pathlib.Path(tmp.name) / "thor-2"
+        f.write_text("thor-2 ssh-ed25519 AAAA" + chr(10))
+        if os.name != "posix":
+            self.skipTest("file ownership is a posix idea; the code this guards only runs on Linux")
+        self.assertNotEqual(f.lstat().st_uid, 0, "run the suite as a normal user, not root")
+        with self.assertRaises(recipes.RecipeError):
+            recipes._require_root_owned(f)
+
+
+@unittest.skipUnless(os.name == "posix", "the signers directory is read through O_NOFOLLOW/dir_fd")
+class LocalSignerTests(unittest.TestCase):
+    """A key this machine added, dropped in under its own name rather than shipped to everyone."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = pathlib.Path(self.tmp.name)
+        self.t = t
+        self.local = t / "signers.d"
+        self.local.mkdir()
+        for name in ("lab", "thor"):
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(t / name)],
+                           check=True, capture_output=True)
+        pub = lambda n: (t / f"{n}.pub").read_text().split()
+        # what every install receives: the Lab key, under the Lab's identity, and nothing else
+        (t / "allowed").write_text("{} {} {}\n".format(recipes.SIGNER, *pub("lab")[:2]))
+        # what this machine chose, under its own identity, which is the file's name
+        (self.local / "thor-2").write_text("thor-2 {} {}\n".format(*pub("thor")[:2]))
+        self.file = t / "qwen38-27b-coder.json"
+        self.file.write_text(json.dumps(recipe()))
+        # these tests are about which key vouches for a recipe, not about who owns the key file.
+        # A test cannot create a root-owned directory, so the ownership rule is lifted here and
+        # checked on its own in LocalSignerFileTests.test_ownership_is_required.
+        self.owner = mock.patch.object(recipes, "_require_root_owned", lambda p, st=None: None)
+        self.owner.start()
+        self.addCleanup(self.owner.stop)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _sign(self, key):
+        sig = pathlib.Path(str(self.file) + ".sig")
+        if sig.exists():
+            sig.unlink()
+        subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(self.t / key),
+                        "-n", recipes.NAMESPACE, str(self.file)], check=True, capture_output=True)
+
+    def _read(self):
+        return recipes.read(self.file, allowed_signers=self.t / "allowed", local_dir=self.local)
+
+    def test_the_lab_key_still_verifies_and_says_it_was_the_lab(self):
+        self._sign("lab")
+        self.assertEqual(self._read().signed_by, recipes.SIGNER)
+
+    def test_a_dropped_in_key_verifies_under_its_own_name(self):
+        """The point of the directory: this recipe is usable on this machine, and it says which key
+        vouched for it rather than borrowing the Lab's identity."""
+        self._sign("thor")
+        self.assertEqual(self._read().signed_by, "thor-2")
+
+    def test_a_dropped_in_key_cannot_sign_as_the_lab(self):
+        """It is trusted only for the identity its file names. Were it listed under SIGNER instead,
+        nothing would distinguish a recipe this machine signed from one the Lab signed."""
+        self._sign("thor")
+        with self.assertRaises(recipes.RecipeError):
+            recipes.read(self.file, allowed_signers=self.t / "allowed", local_dir=self.t / "nope")
+
+    def test_a_key_in_neither_place_does_not_verify(self):
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.t / "rogue")],
+                       check=True, capture_output=True)
+        self._sign("rogue")
+        with self.assertRaises(recipes.RecipeError):
+            self._read()
+
+    def test_a_changed_recipe_does_not_verify_under_a_local_key_either(self):
+        self._sign("thor")
+        d = recipe()
+        d["components"][0]["args"]["gpu-memory-utilization"] = 0.95
+        self.file.write_text(json.dumps(d))
+        with self.assertRaises(recipes.RecipeError):
+            self._read()
+
+    def test_load_alone_claims_no_signature(self):
+        # load() does not check one, so it must not report one
+        self.assertEqual(recipes.load(recipe()).signed_by, "")
+
+    def test_a_missing_directory_is_not_an_error(self):
+        self._sign("lab")
+        self.assertEqual(recipes.read(self.file, allowed_signers=self.t / "allowed",
+                                      local_dir=self.t / "does-not-exist").signed_by, recipes.SIGNER)
 
 
 class StatusTests(unittest.TestCase):
