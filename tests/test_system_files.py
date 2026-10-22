@@ -32,6 +32,23 @@ class SystemFilesTests(unittest.TestCase):
         self.assertIn("Exec=raytone-models-app", desktop)
         self.assertIn("Icon=raytone-models", desktop)
 
+    def test_the_window_declares_the_platform_close_shortcut(self):
+        """Seen on the Thor: SUPER + W did nothing on this window while SUPER + Q closed it.
+        Omarchy's raytone_actions["Close"] is chord("CTRL", "W"), which injects Ctrl+W into the
+        focused app, and this window had no handler for it -- SUPER + Q works because it closes by
+        window address and needs no cooperation from the app.
+
+        This asserts the declaration, not the behaviour: whether the key arrives is between the
+        compositor and Qt, and was checked by hand at the console. Plural "sequences" is part of
+        what is asserted -- the singular form binds only the first of Close's sequences, which is
+        Ctrl+W only as long as the keyboard scheme is the unix one."""
+        shell = (ROOT / "app/shell.qml").read_text()
+        # comments go first: the pattern is perfectly happy to match a commented-out block, and
+        # that is exactly the shape a regression would take
+        live = "\n".join(l for l in shell.splitlines() if not l.strip().startswith("//"))
+        self.assertRegex(live, r"Shortcut\s*\{[^{}]*sequences:\s*\[[^\]]*StandardKey\.Close[^\]]*\]"
+                               r"[^{}]*onActivated:\s*Qt\.quit\(\)[^{}]*\}")
+
     def test_the_apps_types_are_in_its_qmldir(self):
         # seen on the Thor, in a desktop session: with a qmldir, a folder exports only what it lists,
         # and the installed app failed with "MainView is not a type"
