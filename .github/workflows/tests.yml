@@ -1,0 +1,51 @@
+# The suite needs nothing installed: standard library only, plus node and ssh-keygen, which the
+# runner image already has. It takes about 15 s.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.14 is what the Jetson AGX Thor this ships to runs; 3.12 is the oldest still deployed
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # tests/test_app_logic.py and tests/test_shipped_recipes.py guard themselves with
+      # skipUnless on a binary being present. On a runner image missing one, that file would
+      # drop out of the run and the job would still say OK -- so the tools are named here. A
+      # runner without them is a broken runner, not a reason to test less.
+      - name: the binaries the suite's skip guards look for
+        run: |
+          command -v node && node --version
+          command -v ssh-keygen
+
+      # The command README.md documents, so the two cannot drift.
+      #
+      # shell: bash is load-bearing, not decoration. The default run shell is `bash -e {0}`,
+      # without pipefail: piped into tee, a failing suite would exit with tee's status and the
+      # job would pass. `shell: bash` is `bash --noprofile --norc -eo pipefail {0}`.
+      - name: python3 -m unittest discover -s tests
+        shell: bash
+        run: python3 -m unittest discover -s tests -v 2>&1 | tee result.txt
+
+      # Both skip guards are about the environment, so a skip here means the job tested less
+      # than it appears to -- which is how a test that asserts nothing stays green.
+      - name: nothing was skipped
+        shell: bash
+        run: |
+          if grep -qE "skipped=[0-9]+|skipped '" result.txt; then
+            echo "::error::a test skipped on CI, so the suite is smaller than it looks"
+            grep -nE "skipped" result.txt
+            exit 1
+          fi
+          grep -E "^Ran [0-9]+ tests" result.txt
