@@ -12,9 +12,12 @@ TOTAL = 122 * GIB
 
 
 def call(fn, *args):
-    src = JS.read_text().replace(".pragma library", "")
+    # logic.js is UTF-8 and has an em dash in it; read_text() and text=True without
+    # this use the console locale codec, so on a non-UTF-8 console every test in
+    # this file errors before it runs anything
+    src = JS.read_text(encoding="utf-8").replace(".pragma library", "")
     prog = src + f"\nprocess.stdout.write(JSON.stringify({fn}(...{json.dumps(list(args))})));"
-    return json.loads(subprocess.run(["node", "-e", prog], capture_output=True, text=True, check=True).stdout)
+    return json.loads(subprocess.run(["node", "-e", prog], capture_output=True, encoding="utf-8", check=True).stdout)
 
 
 @unittest.skipUnless(shutil.which("node"), "node not installed")
@@ -96,10 +99,10 @@ class AppLogicTests(unittest.TestCase):
         alphabet = "ab9-]![*?^\\/."
         cases = [("".join(rng.choice("ab9-]^/.") for _ in range(rng.randint(0, 4))),
                   "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 6)))) for _ in range(400)]
-        src = JS.read_text().replace(".pragma library", "")
+        src = JS.read_text(encoding="utf-8").replace(".pragma library", "")
         prog = src + f"\nprocess.stdout.write(JSON.stringify({json.dumps(cases)}.map(function (c) {{" \
                      "try { return includeMatch(c[0], c[1]) } catch (e) { return 'error: ' + e.message } })));"
-        got = json.loads(subprocess.run(["node", "-e", prog], capture_output=True, text=True, check=True).stdout)
+        got = json.loads(subprocess.run(["node", "-e", prog], capture_output=True, encoding="utf-8", check=True).stdout)
         for (path, pattern), g in zip(cases, got):
             # the reference is the downloader's own rule (fnmatch, with "dir/" meaning all below)
             self.assertEqual(g, downloads._matches(path, [pattern]), (path, pattern))
@@ -147,6 +150,44 @@ class AppLogicTests(unittest.TestCase):
         # Raytone Codesphere is opened in a browser; a null command is what keeps Launch off its card
         self.assertIsNone(call("launchArgs", "codesphere"))
         self.assertIsNone(call("agentCommand", "codesphere"))
+
+    def test_a_name_is_shown_as_its_publisher_wrote_it(self):
+        """A repo id is not a display name. Casing it by rule invents names: gpt-oss is styled
+        lowercase on purpose and bge-m3 is written BGE-M3, so "no capital" says nothing about
+        whether a publisher styled the name. Anything not explicitly listed is left alone."""
+        for repo in ("Comfy-Org/MiniMax-H3", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead",
+                     "RedHatAI/Muse-Glimmer-30B-NVFP4", "lightx2v/Minimax-h3-Turbo-SLA",
+                     "inclusionAI/Ling-3.0-flash-int4", "unsloth/Qwen3-0.6B-GGUF",
+                     "openai/gpt-oss-20b", "BAAI/bge-m3",
+                     "stabilityai/stable-diffusion-xl-base-1.0",
+                     "microsoft/Phi-3-mini-4k-instruct"):
+            self.assertEqual(call("modelName", repo), repo.split("/")[1], repo)
+
+    def test_the_one_name_that_is_listed(self):
+        """Comfy-Org publishes this as z_image_turbo, and it was the only row on Local models
+        reading like a filename instead of a model."""
+        self.assertEqual(call("modelName", "Comfy-Org/z_image_turbo"), "Z-Image-Turbo")
+
+    def test_a_basename_off_objects_prototype_is_not_a_name(self):
+        # a bare lookup would find Object.prototype.constructor and show a function as the name
+        for repo in ("org/constructor", "org/toString", "org/hasOwnProperty"):
+            self.assertEqual(call("modelName", repo), repo.split("/")[1], repo)
+
+    def test_the_served_name_is_the_same_whoever_starts_it(self):
+        """The Studio trio serves this model as z-image-turbo. Run has to arrive at the same name,
+        or the one model answers under two depending on how it was started."""
+        self.assertEqual(call("servedName", "Comfy-Org/z_image_turbo"), "z-image-turbo")
+        self.assertEqual(call("servedName", "Comfy-Org/MiniMax-H3"), "minimax-h3")
+        self.assertEqual(call("servedName", "RedHatAI/Muse-Glimmer-30B-NVFP4"), "muse-glimmer-30b-nvfp4")
+
+    def test_a_served_name_spec_py_would_refuse(self):
+        """NAME_RE in spec.py is ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ -- it wants a letter or digit
+        first, so a run of separators must collapse and the edges must be trimmed rather than
+        becoming dashes that make start fail."""
+        self.assertEqual(call("servedName", "org/a__b"), "a-b")
+        self.assertEqual(call("servedName", "org/_a_"), "a")
+        self.assertEqual(call("servedName", "org/--a--b--"), "a-b")
+        self.assertEqual(call("servedName", "org/Qwen3-0.6B-GGUF"), "qwen3-0.6b-gguf")
 
     def test_agent_command(self):
         self.assertEqual(call("agentCommand", "claude"), "claude")

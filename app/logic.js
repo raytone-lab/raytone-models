@@ -55,6 +55,36 @@ function shortRev(rev) { return String(rev || "").slice(0, 8) }
 function repoName(repo) { return String(repo).split("/").pop() }
 function repoOrg(repo) { return String(repo).split("/")[0] }
 
+// What to show a person. A repo id is not a display name and cannot be turned into one by rule:
+// a name with no capital in it is just as likely to be the publisher's deliberate styling
+// (openai/gpt-oss-20b is lowercase, BAAI/bge-m3 is written BGE-M3) as it is to be un-styled, and
+// guessing invents a name the model is not known by. Comfy-Org/z_image_turbo read like a filename
+// next to sixteen properly cased rows, so it gets an entry here. Anything not listed is shown as
+// published -- that is the publisher's own casing and it is the name the model goes by.
+var DISPLAY_NAMES = {
+    "z_image_turbo": "Z-Image-Turbo"
+}
+
+function modelName(repo) {
+    var n = repoName(repo)
+    // hasOwnProperty off the prototype: a repo basename of "constructor" would otherwise find a
+    // function on the object and show it as the model's name
+    return Object.prototype.hasOwnProperty.call(DISPLAY_NAMES, n) ? DISPLAY_NAMES[n] : n
+}
+
+// The served name an instance gets: a slug, so lowercase throughout, and one separator -- an
+// underscore in the repo id would otherwise serve the same model under two different names
+// depending on whether it was started here or by a recipe (the Studio trio says "z-image-turbo").
+// One pass, so a run of separators collapses to one rather than becoming a run of dashes, and the
+// edges are trimmed: a leading dash would fail spec.py's NAME_RE, which wants a letter or digit.
+function servedName(repo) {
+    return repoName(repo).toLowerCase()
+        .replace(/[^a-z0-9.:-]+/g, "-")
+        .replace(/-{2,}/g, "-")
+        .replace(/^-+|-+$/g, "")
+}
+
+
 function modelState(m) {
     if (m.complete === true) return "ready"
     // a variant download: what was asked for is what counts, not the revision's full manifest
