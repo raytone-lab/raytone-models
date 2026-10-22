@@ -3,7 +3,10 @@
 name: tests
 
 on:
+  # Only main on push. Without the filter, a branch with an open pull request runs the whole
+  # matrix twice for one `git push` -- once for the push and once for the pull_request.
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -40,10 +43,17 @@ jobs:
 
       # Both skip guards are about the environment, so a skip here means the job tested less
       # than it appears to -- which is how a test that asserts nothing stays green.
+      #
+      # Matched against unittest's summary line only, not the whole -v output. The output names
+      # every test and prints its docstring, so a looser pattern fires on a test that merely
+      # mentions the word: measured on the Thor, a test named
+      # test_a_name_that_mentions_skipped_and_skipped_equals_3 failed the job while nothing had
+      # actually skipped. The summary says "OK (skipped=1)" -- and still exits 0, which is why
+      # this step has to exist at all.
       - name: nothing was skipped
         shell: bash
         run: |
-          if grep -qE "skipped=[0-9]+|skipped '" result.txt; then
+          if grep -qE "^(OK|FAILED).*skipped=[0-9]+" result.txt; then
             echo "::error::a test skipped on CI, so the suite is smaller than it looks"
             grep -nE "skipped" result.txt
             exit 1
