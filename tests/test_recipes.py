@@ -135,6 +135,81 @@ class SignatureTests(unittest.TestCase):
             recipes.read(self.file, allowed_signers=self.t / "allowed")
 
 
+class LocalSignerTests(unittest.TestCase):
+    """A key this machine added, dropped in under its own name rather than shipped to everyone."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = pathlib.Path(self.tmp.name)
+        self.t = t
+        self.local = t / "signers.d"
+        self.local.mkdir()
+        for name in ("lab", "thor"):
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(t / name)],
+                           check=True, capture_output=True)
+        pub = lambda n: (t / f"{n}.pub").read_text().split()
+        # what every install receives: the Lab key, under the Lab's identity, and nothing else
+        (t / "allowed").write_text("{} {} {}\n".format(recipes.SIGNER, *pub("lab")[:2]))
+        # what this machine chose, under its own identity, which is the file's name
+        (self.local / "thor-2").write_text("thor-2 {} {}\n".format(*pub("thor")[:2]))
+        self.file = t / "qwen38-27b-coder.json"
+        self.file.write_text(json.dumps(recipe()))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _sign(self, key):
+        sig = pathlib.Path(str(self.file) + ".sig")
+        if sig.exists():
+            sig.unlink()
+        subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(self.t / key),
+                        "-n", recipes.NAMESPACE, str(self.file)], check=True, capture_output=True)
+
+    def _read(self):
+        return recipes.read(self.file, allowed_signers=self.t / "allowed", local_dir=self.local)
+
+    def test_the_lab_key_still_verifies_and_says_it_was_the_lab(self):
+        self._sign("lab")
+        self.assertEqual(self._read().signed_by, recipes.SIGNER)
+
+    def test_a_dropped_in_key_verifies_under_its_own_name(self):
+        """The point of the directory: this recipe is usable on this machine, and it says which key
+        vouched for it rather than borrowing the Lab's identity."""
+        self._sign("thor")
+        self.assertEqual(self._read().signed_by, "thor-2")
+
+    def test_a_dropped_in_key_cannot_sign_as_the_lab(self):
+        """It is trusted only for the identity its file names. Were it listed under SIGNER instead,
+        nothing would distinguish a recipe this machine signed from one the Lab signed."""
+        self._sign("thor")
+        with self.assertRaises(recipes.RecipeError):
+            recipes.read(self.file, allowed_signers=self.t / "allowed", local_dir=self.t / "nope")
+
+    def test_a_key_in_neither_place_does_not_verify(self):
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.t / "rogue")],
+                       check=True, capture_output=True)
+        self._sign("rogue")
+        with self.assertRaises(recipes.RecipeError):
+            self._read()
+
+    def test_a_changed_recipe_does_not_verify_under_a_local_key_either(self):
+        self._sign("thor")
+        d = recipe()
+        d["components"][0]["args"]["gpu-memory-utilization"] = 0.95
+        self.file.write_text(json.dumps(d))
+        with self.assertRaises(recipes.RecipeError):
+            self._read()
+
+    def test_load_alone_claims_no_signature(self):
+        # load() does not check one, so it must not report one
+        self.assertEqual(recipes.load(recipe()).signed_by, "")
+
+    def test_a_missing_directory_is_not_an_error(self):
+        self._sign("lab")
+        self.assertEqual(recipes.read(self.file, allowed_signers=self.t / "allowed",
+                                      local_dir=self.t / "does-not-exist").signed_by, recipes.SIGNER)
+
+
 class StatusTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

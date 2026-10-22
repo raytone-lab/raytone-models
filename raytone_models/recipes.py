@@ -18,6 +18,13 @@ NAMESPACE = "raytone-recipe"
 SIGNER = "recipes@raytone.ai"
 SYSTEM_DIR = pathlib.Path("/usr/share/raytone-models/recipes")
 ALLOWED_SIGNERS = pathlib.Path("/usr/share/raytone-models/allowed_signers")
+# Keys added on one machine, each in its own file under its own identity. The shipped
+# allowed_signers carries the Lab key and nothing else: a key that lives on one device does not
+# belong in a file every install receives, because this namespace puts no limit on WHICH recipes a
+# trusted key may sign -- it could sign any of them, under the Lab's own identity. Kept here
+# instead, the trust stays on the machine that chose it, and survives an upgrade because pacman
+# owns the directory but not what is dropped into it.
+LOCAL_SIGNERS_DIR = pathlib.Path("/etc/raytone/recipe-allowed-signers.d")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 REV_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -62,6 +69,10 @@ class Recipe:
     source: str
     components: tuple
     default_model: str
+    # which key vouched for this file: recipes.SIGNER for the Lab's, otherwise the name of the
+    # dropped-in signers file. "" when the recipe was never read from disk (load() alone does not
+    # check a signature, so it must not claim one).
+    signed_by: str = ""
 
     def to_dict(self):
         return dataclasses.asdict(self)
@@ -151,24 +162,43 @@ def load(data):
                   comps, default)
 
 
-def verify(data, sig, allowed_signers=ALLOWED_SIGNERS, name="recipe"):
-    """The signature over these bytes (the signature file may change: it cannot make other bytes valid)."""
+def local_signers(d=LOCAL_SIGNERS_DIR):
+    """(identity, file) for each dropped-in key. The identity is the file's name, so a recipe this
+    machine signed never arrives claiming to be the Lab's."""
+    try:
+        return [(f.name, f) for f in sorted(pathlib.Path(d).iterdir()) if f.is_file()]
+    except OSError:
+        return []
+
+
+def _verified_by(data, sig, signers, identity):
+    r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", str(signers), "-I", identity,
+                        "-n", NAMESPACE, "-s", str(sig)], input=data, capture_output=True)
+    return r.returncode == 0
+
+
+def verify(data, sig, allowed_signers=ALLOWED_SIGNERS, name="recipe", local_dir=LOCAL_SIGNERS_DIR):
+    """The signature over these bytes (the signature file may change: it cannot make other bytes
+    valid). Returns the identity that vouched for it: SIGNER for the Lab's key, otherwise the name
+    of the dropped-in file, so a caller can tell the two apart and say so."""
     sig = pathlib.Path(sig)
     if not sig.exists():
         raise RecipeError(f"{name} is not signed")
-    r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", str(allowed_signers), "-I", SIGNER,
-                        "-n", NAMESPACE, "-s", str(sig)], input=data, capture_output=True)
-    if r.returncode:
-        raise RecipeError(f"{name}: the signature does not verify")
+    if _verified_by(data, sig, allowed_signers, SIGNER):
+        return SIGNER
+    for identity, f in local_signers(local_dir):
+        if _verified_by(data, sig, f, identity):
+            return identity
+    raise RecipeError(f"{name}: the signature does not verify")
 
 
-def read(path, allowed_signers=ALLOWED_SIGNERS):
+def read(path, allowed_signers=ALLOWED_SIGNERS, local_dir=LOCAL_SIGNERS_DIR):
     """A recipe file, read once: the bytes verified are the bytes parsed."""
     path = pathlib.Path(path)
     data = path.read_bytes()
-    verify(data, str(path) + ".sig", allowed_signers, name=path.name)
+    signed_by = verify(data, str(path) + ".sig", allowed_signers, name=path.name, local_dir=local_dir)
     try:
-        return load(json.loads(data))
+        return dataclasses.replace(load(json.loads(data)), signed_by=signed_by)
     except ValueError as e:
         raise RecipeError(f"{path.name}: {e}") from None
 
@@ -285,13 +315,13 @@ def fetch_commands(recipe):
     return cmds
 
 
-def available(dirs=(SYSTEM_DIR,), allowed_signers=ALLOWED_SIGNERS):
+def available(dirs=(SYSTEM_DIR,), allowed_signers=ALLOWED_SIGNERS, local_dir=LOCAL_SIGNERS_DIR):
     """Every signed recipe found, and why the others were left out."""
     good, bad = [], []
     for d in dirs:
         for f in sorted(pathlib.Path(d).glob("*.json")):
             try:
-                good.append(read(f, allowed_signers))
+                good.append(read(f, allowed_signers, local_dir))
             except (RecipeError, OSError) as e:
                 bad.append({"file": str(f), "error": str(e)})
     return good, bad
