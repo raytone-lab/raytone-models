@@ -258,6 +258,18 @@ class LocalSignerFileTests(unittest.TestCase):
         self._write("thor-2", 'thor-2 namespaces="foo ssh-ed25519 bar" ' + REAL_KEY + chr(10))
         self.assertEqual(self._read(), (["thor-2"], []))
 
+    def test_a_quote_in_the_trailing_comment_is_legal(self):
+        """Scanning stops at the key: what follows is a comment, and `nvidia@thor "spare key"` is a
+        legal one. Carrying the quote state past the key made a lone quote unread the whole file."""
+        for tail in (" nvidia@thor", ' nvidia@thor "spare key"', ' it"s mine'):
+            self._write("thor-2", "thor-2 " + REAL_KEY + tail + chr(10))
+            self.assertEqual(self._read(), (["thor-2"], []), tail)
+
+    def test_a_backslash_escaped_quote_inside_an_option_value(self):
+        self._write("thor-2", 'thor-2 namespaces="a' + chr(92) + '"b" ' + REAL_KEY + chr(10))
+        ids, _ = self._read()
+        self.assertEqual(ids, ["thor-2"])
+
     def test_an_unclosed_quote_is_not_a_record(self):
         self._refuses("thor-2", 'thor-2 namespaces="oops ' + REAL_KEY + chr(10))
 

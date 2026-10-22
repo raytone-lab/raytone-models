@@ -294,30 +294,39 @@ def _read_signer(dfd, name, note):
 
 
 def _split_fields(line):
-    """(fields, ok) for one allowed_signers record, keeping a double-quoted value whole.
+    """Yield (field, inside an unclosed quote) for each whitespace-separated field, keeping a
+    double-quoted option value whole.
 
-    An option's value may contain spaces inside quotes, so a plain split() can cut an option into
-    pieces -- and a quoted value is allowed to contain a word that looks like a key type, which a
-    left-to-right scan over those pieces would then mistake for the record's own key type. The
-    quotes are kept in the token so such a value can never match KEY_TYPE_RE.
+    OpenSSH's options scanner treats only a backslash before a double quote as an escape, and does
+    not require that it already be inside quotes -- so that is the only escape honoured here, and
+    honoured in both states. The quotes stay in the token, so a value holding a word like
+    ssh-ed25519 can never match KEY_TYPE_RE.
     """
-    fields, cur, quoted, i = [], [], False, 0
+    cur, quoted, i = [], False, 0
+    q = '"'
+    bs = chr(92)
     while i < len(line):
         c = line[i]
-        if c == chr(92) and quoted and i + 1 < len(line):
-            cur.append(c); cur.append(line[i + 1]); i += 2      # \" inside a value stays literal
+        if c == bs and i + 1 < len(line) and line[i + 1] == q:
+            cur.append(c)
+            cur.append(q)
+            i += 2
             continue
-        if c == '"':
+        if c == q:
             quoted = not quoted
-        elif not quoted and c in " 	":
-            if cur:
-                fields.append("".join(cur)); cur = []
+            cur.append(c)
             i += 1
             continue
-        cur.append(c); i += 1
+        if not quoted and (c == " " or c == chr(9)):
+            if cur:
+                yield "".join(cur), quoted
+                cur = []
+            i += 1
+            continue
+        cur.append(c)
+        i += 1
     if cur:
-        fields.append("".join(cur))
-    return fields, not quoted          # an unclosed quote is not a record ssh-keygen would read
+        yield "".join(cur), quoted
 
 
 def _sole_key(name, text):
@@ -326,16 +335,23 @@ def _sole_key(name, text):
     An allowed_signers record is `principal [options] keytype key [comment]`. The options sit
     between the principal and the key type -- `namespaces="raytone-recipe"` is the one that matters
     here -- so the key type is found rather than assumed to be the second field.
+
+    Scanning stops as soon as the key is in hand. What follows is a comment, and its quoting is not
+    part of this grammar: `nvidia@thor "spare key"` is a legal comment, and a lone quote in one must
+    not make the record unreadable.
     """
     lines = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
     if len(lines) != 1:
         return None
-    fields, ok = _split_fields(lines[0])
-    if not ok or len(fields) < 3 or fields[0] != name:
-        return None
-    for i in range(1, len(fields) - 1):
-        if KEY_TYPE_RE.fullmatch(fields[i]):
-            return fields[i], fields[i + 1]
+    fields = []
+    for field, unclosed in _split_fields(lines[0]):
+        fields.append(field)
+        if fields[0] != name:
+            return None
+        if len(fields) >= 3 and KEY_TYPE_RE.fullmatch(fields[-2]):
+            return fields[-2], fields[-1]
+        if unclosed:
+            return None     # an option's quote never closed, so every field after it is a guess
     return None
 
 
