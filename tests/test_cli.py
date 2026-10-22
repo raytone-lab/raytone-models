@@ -6,7 +6,7 @@ import os
 import pathlib
 import tempfile
 import unittest
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 
 from raytone_models import cli
 from raytone_models import ollama as ollama_mod
