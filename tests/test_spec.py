@@ -1,6 +1,7 @@
 """Instance specs: what the privileged helper accepts. A spec names one engine, one pinned image,
 one model snapshot from the store and a whitelisted set of engine arguments; anything else is
 refused, because the helper turns it into a root `docker run`."""
+import json
 import unittest
 
 from raytone_models import spec
@@ -135,9 +136,18 @@ class LocalVllmTests(unittest.TestCase):
                      {"memory_gib": 500}, {"memory_gib": True},
                      {"env": {"VLLM_PLE_MMAP_DIR": "/root/.ssh"}}, {"env": {"VLLM_PLE_MMAP_DIR": "/cache/../etc"}},
                      {"env": {"VLLM_MTP_DRAFT_VOCAB": "/etc/shadow"}}, {"args": {"kv-cache-memory-bytes": "12G --x"}},
-                     {"args": {"distributed-executor-backend": "ray"}}):
+                     {"args": {"distributed-executor-backend": "ray"}},
+                 {"role": "Video"}, {"role": "video chat"}, {"role": "video/x"}, {"role": 7}):
             with self.subTest(over=over), self.assertRaises(spec.SpecError):
                 spec.load(self.flashnext(**over))
+
+    def test_role_is_optional_and_rides_through(self):
+        """What a recipe runs an instance for. It is optional because `raytone-models start` has no
+        recipe behind it, and because every spec written before the field existed has none -- a
+        reader has to be able to tell "no role given" from a role, rather than inventing one."""
+        self.assertEqual(spec.load(self.flashnext()).role, "")
+        self.assertEqual(spec.load(self.flashnext(role="image")).role, "image")
+        self.assertEqual(json.loads(spec.load(self.flashnext(role="video")).to_json())["role"], "video")
 
     def test_json_arguments_have_a_schema(self):
         # From Codex's review of PR #13: vLLM reads paths and importable names from these objects

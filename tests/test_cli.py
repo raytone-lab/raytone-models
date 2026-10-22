@@ -6,7 +6,7 @@ import os
 import pathlib
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 from raytone_models import cli
 from raytone_models import ollama as ollama_mod
@@ -122,6 +122,47 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(self.helper_calls[0][1])["memory_gib"], 99)
 
+    def test_start_says_what_the_instance_is_for(self):
+        """`start` had no way to say it, so every instance it created carried an empty role -- and on
+        comfyui an empty role has to keep meaning video, which quietly made every hand-started stills
+        model a video instance. Not a window during an upgrade either: a hand-start could recreate it
+        any day, which is what this field is here to stop."""
+        rc, _ = self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm",
+                             "--name", "q", "--role", "chat")
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(self.helper_calls[0][1])["role"], "chat")
+        # and left out, the field is present and empty rather than absent
+        self.helper_calls.clear()
+        rc, _ = self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm", "--name", "q2")
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(self.helper_calls[0][1])["role"], "")
+
+    def test_a_role_outside_the_vocabulary_is_refused_by_start(self):
+        """argparse refuses it from the choices, before a spec is built -- so the vocabulary is
+        stated in one place, recipes.ROLES, instead of being checked again here. spec.load only
+        checks the shape, because recipes imports spec and so cannot be read back from it."""
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            self.run_cli("start", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead", "--engine", "vllm",
+                         "--name", "q", "--role", "hacker")
+        self.assertEqual(self.helper_calls, [])
+
+    def test_every_instance_row_carries_the_role_the_cli_resolved(self):
+        """The Video page filters on this key, so every row has to have it: one that left it out
+        would reach QML as undefined, which is exactly how the Agents page came to show the buttons
+        it meant to hide. The CLI resolves it once so the app does not keep a second default."""
+        (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3",
+                                                      "port": 18002, "engine": "comfyui"}))
+        (self.reg / "z.json").write_text(json.dumps({"id": "z", "served_name": "z-image-turbo",
+                                                     "port": 18003, "engine": "comfyui", "role": "image"}))
+        (self.reg / "q.json").write_text(json.dumps({"id": "q", "served_name": "qwen3.8-27b",
+                                                    "port": 18000, "engine": "vllm"}))
+        rows = json.loads(self.run_cli("instances", "--json")[1])
+        self.assertEqual([r.get("id") for r in rows if "role" not in r], [])
+        resolved = {r["id"]: r["role"] for r in rows}
+        self.assertEqual(resolved["h3"], "video")    # no role on comfyui: the only thing it meant
+        self.assertEqual(resolved["z"], "image")
+        self.assertEqual(resolved["q"], "")          # not comfyui, so there is nothing to infer
+
     def test_a_model_not_in_the_store_is_refused(self):
         rc, _ = self.run_cli("start", "nobody/nothing", "--engine", "vllm", "--name", "q")
         self.assertNotEqual(rc, 0)
@@ -181,6 +222,33 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertIn("fan", json.loads(out.splitlines()[-1])["error"])
         self.assertEqual(fake.prompts, [])
+
+    def test_video_does_not_hand_a_prompt_to_a_text_to_image_model(self):
+        """Z-Image Turbo runs on ComfyUI too, so the engine stopped being enough to say what an
+        instance is for. Without the role, `video` would send a prompt to a stills model -- and with
+        both running it would refuse as "several video models are running" when only one of them is
+        one, which naming it with --model could not fix."""
+        (self.reg / "z.json").write_text(json.dumps({"id": "z-image", "served_name": "z-image-turbo",
+                                                     "port": 18003, "engine": "comfyui", "role": "image"}))
+        rc, out = self.run_cli("video", "--prompt", "a fox")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("no video model", json.loads(out.splitlines()[-1])["error"])
+        # naming it does not make it one either
+        rc, out = self.run_cli("video", "--prompt", "a fox", "--model", "z-image-turbo")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("no video model", json.loads(out.splitlines()[-1])["error"])
+
+    def test_an_instance_with_no_role_still_counts_as_a_video_one(self):
+        """Started by `start` rather than a recipe, or written before the field existed: its engine
+        is the only signal there is, so it must keep working as it did."""
+        (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3",
+                                                      "port": 18002, "engine": "comfyui"}))
+        (self.reg / "e.json").write_text(json.dumps({"id": "h4", "served_name": "other-h3",
+                                                     "port": 18004, "engine": "comfyui", "role": ""}))
+        rc, out = self.run_cli("video", "--prompt", "a fox")
+        # both count, so this is the "name one" refusal and not "none is running"
+        self.assertNotEqual(rc, 0)
+        self.assertIn("several video models", json.loads(out.splitlines()[-1])["error"])
 
     def test_video_without_a_video_engine_running(self):
         rc, out = self.run_cli("video", "--prompt", "a fox")

@@ -198,7 +198,7 @@ ENGINES = {
     },
 }
 
-FIELDS = ("id", "engine", "image", "model", "served_name", "port", "args", "env", "memory_gib")
+FIELDS = ("id", "engine", "image", "model", "served_name", "port", "args", "env", "memory_gib", "role")
 LOCAL_REPO_RE = re.compile(r"raytone/[a-z0-9][a-z0-9.-]*")
 
 
@@ -228,6 +228,7 @@ class Spec:
     args: dict
     env: dict
     memory_gib: int = None      # a hard memory limit for the container, without swap
+    role: str = ""              # what the recipe runs this instance for; "" when it had no recipe
 
     def to_json(self):
         return json.dumps(dataclasses.asdict(self), sort_keys=True, indent=2) + "\n"
@@ -236,9 +237,16 @@ class Spec:
 def load(data):
     if not isinstance(data, dict) or set(data) - set(FIELDS) or set(FIELDS[:6]) - set(data):
         raise SpecError(f"a spec has exactly the fields {', '.join(FIELDS)}")
-    d = {"args": {}, "env": {}, "memory_gib": None, **data}
+    d = {"args": {}, "env": {}, "memory_gib": None, "role": "", **data}
     if not isinstance(d["id"], str) or not ID_RE.fullmatch(d["id"]):
         raise SpecError("id: lowercase letters, digits and dashes, at most 64")
+    # Only the shape is checked here. The vocabulary is recipes.ROLES, and recipes imports this
+    # module, so it cannot be read back from here -- but it does not need to be: recipes rejects
+    # an unknown role before any spec is built from the component. What this guards is a spec
+    # arriving at the privileged helper by some other route, where "lowercase word or nothing"
+    # is the property that matters.
+    if not isinstance(d["role"], str) or (d["role"] and not ID_RE.fullmatch(d["role"])):
+        raise SpecError("role: lowercase letters, digits and dashes, or absent")
     engine = ENGINES.get(d["engine"])
     if engine is None:
         raise SpecError(f"engine: one of {', '.join(ENGINES)}")
