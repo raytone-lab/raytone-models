@@ -2,11 +2,13 @@
 applied only when its signature verifies; its components go through the same spec checks as any
 instance, and its models must be in the store at the pinned revision."""
 import json
+import os
 import pathlib
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from raytone_models import recipes
 from tests.test_spec import DIGEST
@@ -135,6 +137,95 @@ class SignatureTests(unittest.TestCase):
             recipes.read(self.file, allowed_signers=self.t / "allowed")
 
 
+class LocalSignerFileTests(unittest.TestCase):
+    """What a dropped-in signer file is allowed to be. A test cannot create a root-owned file, so
+    the ownership rule is exercised against _require_root_owned directly, and patched out of the
+    cases where the subject is the file's name or shape instead."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = pathlib.Path(self.tmp.name) / "signers.d"
+        self.d.mkdir()
+        self.patch = mock.patch.object(recipes, "_require_root_owned", lambda p: None)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _write(self, name, text):
+        (self.d / name).write_text(text)
+
+    def test_a_file_cannot_be_named_after_the_lab(self):
+        """The whole point: a drop-in named recipes@raytone.ai would verify and be reported as the
+        Lab's own key. It is refused before any signature is checked."""
+        self._write(recipes.SIGNER, f"{recipes.SIGNER} ssh-ed25519 AAAA")
+        with self.assertRaises(recipes.RecipeError) as e:
+            recipes.local_signers(self.d)
+        self.assertIn(recipes.SIGNER, str(e.exception))
+
+    def test_a_file_name_is_an_id(self):
+        for bad in ("Thor-2", "thor 2", "thor/2", "../escape", "thor@host"):
+            (self.d / bad).parent.mkdir(parents=True, exist_ok=True)
+            try:
+                (self.d / bad).write_text("x ssh-ed25519 AAAA")
+            except OSError:
+                continue                        # the filesystem refused it first, which is fine
+            with self.assertRaises(recipes.RecipeError, msg=bad):
+                recipes.local_signers(self.d)
+            (self.d / bad).unlink()
+
+    def test_the_principal_inside_must_match_the_file_name(self):
+        # otherwise the name stops being the identity, and says nothing about what the key may sign
+        self._write("thor-2", "somebody-else ssh-ed25519 AAAA")
+        with self.assertRaises(recipes.RecipeError):
+            recipes.local_signers(self.d)
+
+    def test_one_key_per_file(self):
+        self._write("thor-2", "thor-2 ssh-ed25519 AAAA" + chr(10) + "thor-2 ssh-ed25519 BBBB")
+        with self.assertRaises(recipes.RecipeError):
+            recipes.local_signers(self.d)
+
+    def test_an_empty_file_is_refused(self):
+        self._write("thor-2", "")
+        with self.assertRaises(recipes.RecipeError):
+            recipes.local_signers(self.d)
+
+    def test_a_symlink_is_refused_rather_than_followed(self):
+        real = pathlib.Path(self.tmp.name) / "elsewhere"
+        real.write_text("thor-2 ssh-ed25519 AAAA" + chr(10))
+        try:
+            (self.d / "thor-2").symlink_to(real)
+        except (OSError, NotImplementedError):
+            self.skipTest("cannot create a symlink here")
+        with self.assertRaises(recipes.RecipeError):
+            recipes.local_signers(self.d)
+
+    def test_a_well_formed_file_is_accepted(self):
+        self._write("thor-2", "thor-2 ssh-ed25519 AAAA" + chr(10))
+        self.assertEqual([n for n, _ in recipes.local_signers(self.d)], ["thor-2"])
+
+    def test_a_dotfile_is_ignored(self):
+        self._write("thor-2", "thor-2 ssh-ed25519 AAAA" + chr(10))
+        self._write(".keep", "")
+        self.assertEqual([n for n, _ in recipes.local_signers(self.d)], ["thor-2"])
+
+    def test_no_directory_means_no_local_signers_but_an_unreadable_one_is_an_error(self):
+        self.assertEqual(recipes.local_signers(pathlib.Path(self.tmp.name) / "absent"), [])
+        self.assertEqual(recipes.local_signers(None), [])
+
+    def test_ownership_is_required(self):
+        # the check itself, against a file this test owns -- which is exactly what it must reject
+        self.patch.stop()
+        f = self.d / "thor-2"
+        f.write_text("thor-2 ssh-ed25519 AAAA" + chr(10))
+        if os.name != "posix":
+            # every file reports st_uid == 0 here, so the check has nothing to refuse
+            self.skipTest("file ownership is a posix idea; the code this guards only runs on Linux")
+        self.assertNotEqual(f.lstat().st_uid, 0, "run the suite as a normal user, not root")
+        with self.assertRaises(recipes.RecipeError):
+            recipes._require_root_owned(f)
+        self.patch.start()
+
+
 class LocalSignerTests(unittest.TestCase):
     """A key this machine added, dropped in under its own name rather than shipped to everyone."""
 
@@ -154,6 +245,12 @@ class LocalSignerTests(unittest.TestCase):
         (self.local / "thor-2").write_text("thor-2 {} {}\n".format(*pub("thor")[:2]))
         self.file = t / "qwen38-27b-coder.json"
         self.file.write_text(json.dumps(recipe()))
+        # these tests are about which key vouches for a recipe, not about who owns the key file.
+        # A test cannot create a root-owned directory, so the ownership rule is lifted here and
+        # checked on its own in LocalSignerFileTests.test_ownership_is_required.
+        self.owner = mock.patch.object(recipes, "_require_root_owned", lambda p: None)
+        self.owner.start()
+        self.addCleanup(self.owner.stop)
 
     def tearDown(self):
         self.tmp.cleanup()

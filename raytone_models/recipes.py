@@ -10,6 +10,7 @@ import fnmatch
 import json
 import pathlib
 import re
+import stat
 import subprocess
 
 from . import spec as spec_mod, store
@@ -72,6 +73,10 @@ class Recipe:
     # which key vouched for this file: recipes.SIGNER for the Lab's, otherwise the name of the
     # dropped-in signers file. "" when the recipe was never read from disk (load() alone does not
     # check a signature, so it must not claim one).
+    #
+    # It is a label for a person, NOT an authorization credential: read() is the only thing that
+    # sets it truthfully, and any caller can construct a Recipe with it set to anything. Decide
+    # whether to trust a recipe by having gone through read(), never by reading this field.
     signed_by: str = ""
 
     def to_dict(self):
@@ -162,18 +167,66 @@ def load(data):
                   comps, default)
 
 
+# A drop-in's file name is the identity it signs under, so the name is checked as strictly as an
+# id: a file called "recipes@raytone.ai" would otherwise verify and be reported as the Lab's own
+# key, which is the single thing this whole arrangement exists to prevent (codex review).
+LOCAL_SIGNER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+MAX_LOCAL_SIGNERS = 16          # bounds recipes x signers, and ssh-keygen runs, per read
+MAX_SIGNERS_BYTES = 64 * 1024
+VERIFY_TIMEOUT = 20
+
+
 def local_signers(d=LOCAL_SIGNERS_DIR):
-    """(identity, file) for each dropped-in key. The identity is the file's name, so a recipe this
-    machine signed never arrives claiming to be the Lab's."""
-    try:
-        return [(f.name, f) for f in sorted(pathlib.Path(d).iterdir()) if f.is_file()]
-    except OSError:
+    """(identity, file) for each dropped-in key, rejecting anything that could let one pose as the
+    Lab's or be swapped by a non-root user. The identity is the file's name."""
+    if d is None:
         return []
+    d = pathlib.Path(d)
+    try:
+        entries = sorted(d.iterdir())
+    except FileNotFoundError:
+        return []                               # not configured on this machine: not an error
+    except OSError as e:
+        raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
+    # the directory itself has to be root's, or its contents are whatever a local user put there
+    _require_root_owned(d)
+    out = []
+    for f in entries:
+        if f.name.startswith("."):
+            continue
+        if not LOCAL_SIGNER_RE.fullmatch(f.name) or f.name == SIGNER:
+            raise RecipeError(f"{f.name}: a signer file is named like an id, and never {SIGNER!r}")
+        st = f.lstat()                          # lstat, so a symlink is refused rather than followed
+        if not stat.S_ISREG(st.st_mode):
+            raise RecipeError(f"{f.name}: a signer file is a regular file, not a link or device")
+        _require_root_owned(f)
+        if not 0 < st.st_size <= MAX_SIGNERS_BYTES:
+            raise RecipeError(f"{f.name}: a signer file holds one key, and is not empty")
+        # exactly one record, and its principal is the file name -- so the name is the whole truth
+        lines = [l for l in f.read_text(encoding="utf-8", errors="strict").splitlines() if l.strip()]
+        if len(lines) != 1 or lines[0].split(None, 1)[0] != f.name:
+            raise RecipeError(f"{f.name}: holds exactly one key, whose principal is {f.name!r}")
+        out.append((f.name, f))
+        if len(out) > MAX_LOCAL_SIGNERS:
+            raise RecipeError(f"{d}: more than {MAX_LOCAL_SIGNERS} local signers")
+    return out
+
+
+def _require_root_owned(path):
+    st = path.lstat()
+    if st.st_uid != 0:
+        raise RecipeError(f"{path.name}: trusting a signing key is root's to decide, and this is not root's")
+    if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise RecipeError(f"{path.name}: is group- or world-writable, so the key in it is not pinned")
 
 
 def _verified_by(data, sig, signers, identity):
-    r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", str(signers), "-I", identity,
-                        "-n", NAMESPACE, "-s", str(sig)], input=data, capture_output=True)
+    try:
+        r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", str(signers), "-I", identity,
+                            "-n", NAMESPACE, "-s", str(sig)], input=data, capture_output=True,
+                           timeout=VERIFY_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
     return r.returncode == 0
 
 
