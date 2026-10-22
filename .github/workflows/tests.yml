@@ -9,6 +9,11 @@ on:
     branches: [main]
   pull_request:
 
+# The job reads the checkout and runs tests; it writes nothing back, so it does not need whatever
+# the repository default happens to grant.
+permissions:
+  contents: read
+
 jobs:
   unittest:
     runs-on: ubuntu-latest
