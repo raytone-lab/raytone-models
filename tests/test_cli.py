@@ -6,10 +6,12 @@ import os
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 
 from raytone_models import cli
 from raytone_models import ollama as ollama_mod
+from raytone_models import recipes
 from tests.test_store import SHA, put
 
 DIGEST = "sha256:" + "c" * 64
@@ -513,6 +515,12 @@ class CliTests(unittest.TestCase):
         t = pathlib.Path(self.tmp.name)
         local = t / "signers.d"
         local.mkdir()
+        # a test process is not root, so it cannot create the root-owned directory the real check
+        # demands. That rule is covered on its own in test_recipes.RootOwnedTests; here the subject
+        # is whether the CLI carries signed_by through to the page.
+        owner = mock.patch.object(recipes, "_require_root_owned", lambda p, st=None: None)
+        owner.start()
+        self.addCleanup(owner.stop)
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(t / "mine")],
                        check=True, capture_output=True)
         pub = (t / "mine.pub").read_text().split()
