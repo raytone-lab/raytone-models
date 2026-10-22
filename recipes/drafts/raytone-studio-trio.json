@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "raytone-studio-trio",
   "title": "Raytone Studio (trio): chat, video and stills",
-  "description": "Chat, video and stills on the one unified pool: Nemotron 3.5 Lightning for chat and agents, MiniMax H3 resident for text to video, and Z-Image Turbo loaded per request for text to image. Nemotron is held to one concurrent request against a 65536-token context limit rather than many short ones, which is what budgets room for the other two, leaving an estimated 20 GiB for the control plane. That estimate is derived from the running instance's log at mem-fraction-static 0.6 and scaled; nothing was measured at 0.25.",
+  "description": "Chat, video and stills on the one unified pool: Nemotron 3.5 Lightning for chat and agents, MiniMax H3 resident for text to video, and Z-Image Turbo loaded per request for text to image. Nemotron is held to one concurrent request against a 65536-token context limit rather than many short ones, which is what budgets room for the other two. Measured on the Jetson AGX Thor 2026-10-22 with all three loaded and video, image and chat run concurrently: 76 GiB system peak, 45 GiB still available, about 40 GiB truly held. The 90 GiB requirement is the sum of the three caps, not a measurement: the caps bound host-RAM accounting only, while the pool ComfyUI allocates from is all 122.9 GiB, which came within 2.2 GiB of exhaustion at the concurrent peak. Raw logs: ~/raytone-spark-test/trio-20261022/.",
   "platforms": [
     "thor-t5000"
   ],
