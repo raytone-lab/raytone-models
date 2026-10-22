@@ -25,6 +25,32 @@ class ShippedRecipesTests(unittest.TestCase):
             with self.subTest(f.name):
                 self.assertEqual(recipes.load(json.loads(f.read_text())).id, f.stem)
 
+    def test_component_memory_caps_fit_the_declared_budget(self):
+        """memory_gib on a component becomes `docker --memory`, so the caps are what actually
+        bounds a recipe. If every component names one, they have to fit what the recipe asks the
+        machine for -- otherwise the number on the Recipes page is not the number enforced."""
+        files = (sorted((ROOT / "recipes").glob("*.json"))
+                 + sorted((ROOT / "recipes" / "drafts").glob("*.json")))
+        self.assertTrue(files)
+        checked = []
+        for f in files:
+            r = recipes.load(json.loads(f.read_text()))
+            caps = [c.memory_gib for c in r.components]
+            # continue, not skipTest. A skip raised inside subTest aborts the whole method unless
+            # pytest-subtests is installed, and the first file here caps nothing -- so under pytest
+            # every recipe after it went unchecked and a real violation reported green.
+            if not all(isinstance(x, int) for x in caps):
+                continue
+            checked.append(f.name)
+            with self.subTest(f.name):
+                self.assertLessEqual(
+                    sum(caps), r.memory_gib,
+                    f"{f.name}: caps sum to {sum(caps)} but it asks for {r.memory_gib}")
+        # the loop has to have checked something: if no recipe caps every component the test is
+        # vacuous, and it should say so rather than pass
+        self.assertTrue(checked, "no recipe caps every component, so nothing was compared")
+
+
 
 if __name__ == "__main__":
     unittest.main()

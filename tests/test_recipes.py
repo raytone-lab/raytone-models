@@ -244,6 +244,25 @@ class StatusTests(unittest.TestCase):
               "args": {"gpu-only": True}}
         return recipes.load(recipe(components=[c, h3]))
 
+    def test_a_recipe_can_serve_video_and_images_at_once(self):
+        # "image" is its own role rather than a second use of "video" because a
+        # recipe can carry both, on the same engine: the Studio trio runs
+        # MiniMax H3 for video and Z-Image Turbo for stills.
+        c = recipe()["components"][0]
+        video = {"role": "video", "served_name": "minimax-h3", "engine": "comfyui",
+                 "image": "raytone/comfyui@local",
+                 "model": {"repo": "Comfy-Org/MiniMax-H3", "revision": "c" * 40,
+                           "include": ["vae/*"]},
+                 "args": {"reserve-vram": 54.0}}
+        image = {**video, "role": "image", "served_name": "z-image-turbo",
+                 "model": {"repo": "Comfy-Org/z_image_turbo", "revision": "d" * 40,
+                           "include": ["vae/ae.safetensors"]},
+                 "args": {"lowvram": True}}
+        r = recipes.load(recipe(components=[c, video, image]))
+        self.assertEqual([x.role for x in r.components], ["chat", "video", "image"])
+        with self.assertRaises(recipes.RecipeError):
+            recipes.load(recipe(components=[c, {**image, "role": "picture"}]))
+
     def test_a_component_can_cap_its_memory(self):
         c = recipe()["components"][0]
         r = recipes.load(recipe(components=[{**c, "memory_gib": 99}]))
