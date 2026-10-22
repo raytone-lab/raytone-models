@@ -6,6 +6,7 @@ is one instance: a model at a pinned revision (optionally only some of its files
 pinned image, and arguments that pass the same checks as any spec.
 """
 import dataclasses
+import errno
 import fnmatch
 import json
 import os
@@ -179,6 +180,15 @@ KEY_TYPE_RE = re.compile(r"^(ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)[A-Za-z0-9@.+-]+$")
 # quietly weaker -- which is academic, since the app ships for the Linux it is written against.
 _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+# O_NONBLOCK, because opening a FIFO for reading waits for a writer that may never come: a FIFO
+# named like a signer would wedge the whole read before the "not a regular file" check could refuse
+# it. It is a no-op on regular files, which is all this directory is ever supposed to hold.
+_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+# errno values that say this process or machine ran out of descriptors or memory. Those are not
+# facts about the key file in hand, so they must not be reported as "this key is broken" once per
+# file -- they stop the whole read.
+_EXHAUSTED = frozenset(e for e in (getattr(errno, n, None)
+                                   for n in ("EMFILE", "ENFILE", "ENOMEM")) if e is not None)
 MAX_LOCAL_SIGNERS = 16          # bounds recipes x signers, and ssh-keygen runs, per read
 MAX_SIGNERS_BYTES = 64 * 1024
 VERIFY_TIMEOUT = 20
@@ -217,19 +227,22 @@ def local_signers(d=LOCAL_SIGNERS_DIR, problems=None):
             names = sorted(os.listdir(dfd))
         except OSError as e:
             raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
-        out = []
+        out, considered = [], 0
         for name in names:
             if name.startswith("."):
                 continue
             if not LOCAL_SIGNER_RE.fullmatch(name) or name == SIGNER:
                 note(f"{name}: a signer file is named like an id, and never {SIGNER!r}")
                 continue
+            # count what is opened, not what parses: each candidate costs an open and a
+            # ssh-keygen run, so counting only the successes bounds nothing
+            considered += 1
+            if considered > MAX_LOCAL_SIGNERS:
+                raise RecipeError(f"{d}: more than {MAX_LOCAL_SIGNERS} local signers")
             line = _read_signer(dfd, name, note)
             if line is None:
                 continue
             out.append((name, line))
-            if len(out) > MAX_LOCAL_SIGNERS:
-                raise RecipeError(f"{d}: more than {MAX_LOCAL_SIGNERS} local signers")
         return out
     finally:
         os.close(dfd)
@@ -238,8 +251,10 @@ def local_signers(d=LOCAL_SIGNERS_DIR, problems=None):
 def _read_signer(dfd, name, note):
     """The one allowed_signers line in `name`, or None with a note saying why not."""
     try:
-        fd = os.open(name, os.O_RDONLY | _O_NOFOLLOW, dir_fd=dfd)
+        fd = os.open(name, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK, dir_fd=dfd)
     except OSError as e:
+        if e.errno in _EXHAUSTED:
+            raise RecipeError(f"the signers directory cannot be read ({e.strerror})") from None
         note(f"{name}: cannot be opened ({e.strerror})")
         return None
     try:
@@ -257,6 +272,8 @@ def _read_signer(dfd, name, note):
             return None
         raw = os.read(fd, MAX_SIGNERS_BYTES)
     except OSError as e:
+        if e.errno in _EXHAUSTED:
+            raise RecipeError(f"the signers directory cannot be read ({e.strerror})") from None
         note(f"{name}: cannot be read ({e.strerror})")
         return None
     finally:
@@ -276,6 +293,33 @@ def _read_signer(dfd, name, note):
     return raw
 
 
+def _split_fields(line):
+    """(fields, ok) for one allowed_signers record, keeping a double-quoted value whole.
+
+    An option's value may contain spaces inside quotes, so a plain split() can cut an option into
+    pieces -- and a quoted value is allowed to contain a word that looks like a key type, which a
+    left-to-right scan over those pieces would then mistake for the record's own key type. The
+    quotes are kept in the token so such a value can never match KEY_TYPE_RE.
+    """
+    fields, cur, quoted, i = [], [], False, 0
+    while i < len(line):
+        c = line[i]
+        if c == chr(92) and quoted and i + 1 < len(line):
+            cur.append(c); cur.append(line[i + 1]); i += 2      # \" inside a value stays literal
+            continue
+        if c == '"':
+            quoted = not quoted
+        elif not quoted and c in " 	":
+            if cur:
+                fields.append("".join(cur)); cur = []
+            i += 1
+            continue
+        cur.append(c); i += 1
+    if cur:
+        fields.append("".join(cur))
+    return fields, not quoted          # an unclosed quote is not a record ssh-keygen would read
+
+
 def _sole_key(name, text):
     """(key type, key) from the single record in a drop-in file, or None.
 
@@ -286,8 +330,8 @@ def _sole_key(name, text):
     lines = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
     if len(lines) != 1:
         return None
-    fields = lines[0].split()
-    if len(fields) < 3 or fields[0] != name:
+    fields, ok = _split_fields(lines[0])
+    if not ok or len(fields) < 3 or fields[0] != name:
         return None
     for i in range(1, len(fields) - 1):
         if KEY_TYPE_RE.fullmatch(fields[i]):
@@ -299,14 +343,23 @@ def _is_a_public_key(keytype, key):
     """Whether ssh-keygen reads these two fields as a key. A key type with a plausible name in
     front of something that is not a key would otherwise pass to verification and come back as
     "the signature does not verify", blaming the recipe for a malformed key file."""
-    with tempfile.TemporaryDirectory() as t:
-        f = pathlib.Path(t) / "key.pub"
-        f.write_text(keytype + " " + key + chr(10), encoding="utf-8")
-        try:
-            r = subprocess.run(["ssh-keygen", "-l", "-f", str(f)],
-                               capture_output=True, timeout=VERIFY_TIMEOUT)
-        except (subprocess.TimeoutExpired, OSError):
-            return False
+    try:
+        with tempfile.TemporaryDirectory() as t:
+            # TemporaryDirectory is 0700 and unpredictable, so a fixed name inside it is not a
+            # path anyone else can pre-empt with a symlink
+            f = pathlib.Path(t) / "key.pub"
+            f.write_text(keytype + " " + key + chr(10), encoding="utf-8")
+            try:
+                r = subprocess.run(["ssh-keygen", "-l", "-f", str(f)],
+                                   capture_output=True, timeout=VERIFY_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                return False
+    except FileNotFoundError:
+        # no ssh-keygen is a fact about the machine, not about this key: every recipe is
+        # unverifiable, and saying "this key is malformed" about each one would be a lie
+        raise RecipeError("ssh-keygen is not installed, so no signature can be checked") from None
+    except OSError as e:
+        raise RecipeError(f"ssh-keygen could not be run ({e.strerror})") from None
     return r.returncode == 0
 
 

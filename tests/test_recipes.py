@@ -240,6 +240,35 @@ class LocalSignerFileTests(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("broken", problems[0])
 
+    def test_a_fifo_named_like_a_signer_does_not_wedge_the_read(self):
+        """Opening a FIFO for reading waits for a writer. Without O_NONBLOCK this never reaches the
+        "not a regular file" check -- the whole Recipes page hangs instead of refusing one file."""
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("no mkfifo here")
+        os.mkfifo(self.d / "thor-2")
+        self._write("other", "other " + REAL_KEY + chr(10))
+        ids, problems = self._read()                # must return, and must not trust the fifo
+        self.assertEqual(ids, ["other"])
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("thor-2", problems[0])
+
+    def test_a_quoted_option_value_is_not_mistaken_for_the_key_type(self):
+        # ssh-keygen allows spaces inside a quoted option value, and the value may contain a word
+        # that looks like a key type; a plain split() would find that word first
+        self._write("thor-2", 'thor-2 namespaces="foo ssh-ed25519 bar" ' + REAL_KEY + chr(10))
+        self.assertEqual(self._read(), (["thor-2"], []))
+
+    def test_an_unclosed_quote_is_not_a_record(self):
+        self._refuses("thor-2", 'thor-2 namespaces="oops ' + REAL_KEY + chr(10))
+
+    def test_more_candidates_than_the_cap_stops_the_read(self):
+        """The cap bounds the work, so it counts what gets opened -- files that fail to parse cost
+        an open and an ssh-keygen run just the same."""
+        for i in range(recipes.MAX_LOCAL_SIGNERS + 1):
+            self._write("key-%d" % i, "key-%d ssh-ed25519 not-a-key" % i + chr(10))
+        with self.assertRaises(recipes.RecipeError):
+            recipes.local_signers(self.d, [])
+
     def test_a_well_formed_file_is_accepted_and_returns_its_bytes(self):
         body = "thor-2 " + REAL_KEY + chr(10)
         self._write("thor-2", body)
