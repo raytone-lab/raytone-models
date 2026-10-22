@@ -107,6 +107,7 @@ class Env:
     page: object = _page
     recipe_dirs: list = None
     allowed_signers: pathlib.Path = recipes.ALLOWED_SIGNERS
+    local_signers_dir: pathlib.Path = recipes.LOCAL_SIGNERS_DIR
     run: object = _run
     hf_endpoint: str = None
     spawn: object = downloads._spawn
@@ -318,7 +319,7 @@ def cmd_agent(a, env):
 
 
 def _recipes(env):
-    return recipes.available(env.recipe_dirs, env.allowed_signers)
+    return recipes.available(env.recipe_dirs, env.allowed_signers, env.local_signers_dir)
 
 
 def _recipe(env, rid):
@@ -356,6 +357,10 @@ def cmd_recipes(env):
         st["running"] = len(matching) == len(r.components)
         st["conflicts"] = conflicts
         st["description"] = r.description
+        # which key vouched for it, so the card does not put the Lab's name on a recipe this
+        # machine signed. "" would mean the recipe never went through read(), and the page
+        # fails closed on that rather than assuming the Lab.
+        st["signed_by"] = r.signed_by
         out.append(st)
     return {"recipes": out, "refused": bad}
 

@@ -501,6 +501,29 @@ class CliTests(unittest.TestCase):
         [r] = got["recipes"]
         self.assertEqual((r["id"], r["state"], r["running"]), ("qwen38-27b-coder", "ready", False))
         self.assertEqual([b["file"].rsplit("/", 1)[-1] for b in got["refused"]], ["tampered.json"])
+        # the card puts a name on this, so it has to say which key actually vouched for it
+        self.assertEqual(r["signed_by"], "recipes@raytone.ai")
+
+    def test_a_recipe_signed_on_this_machine_does_not_claim_the_lab(self):
+        """A key dropped into /etc/raytone/recipe-allowed-signers.d verifies under the file's own
+        name. The page reads signed_by to label the card, so the CLI has to carry it through rather
+        than let a locally signed recipe pass as the Lab's."""
+        import subprocess
+        self.signed_recipe()
+        t = pathlib.Path(self.tmp.name)
+        local = t / "signers.d"
+        local.mkdir()
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(t / "mine")],
+                       check=True, capture_output=True)
+        pub = (t / "mine.pub").read_text().split()
+        (local / "thor-2").write_text("thor-2 {} {}".format(pub[0], pub[1]) + chr(10))
+        self.env.local_signers_dir = local
+        target = self.env.recipe_dirs[0] / "qwen38-27b-coder.json"
+        pathlib.Path(str(target) + ".sig").unlink()
+        subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(t / "mine"), "-n", "raytone-recipe",
+                        str(target)], check=True, capture_output=True)
+        [r] = json.loads(self.run_cli("recipes", "--json")[1])["recipes"]
+        self.assertEqual(r["signed_by"], "thor-2")
 
     def test_recipe_apply_starts_each_component_through_the_helper(self):
         self.signed_recipe()
