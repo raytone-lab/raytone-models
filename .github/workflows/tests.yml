@@ -1,0 +1,72 @@
+# The suite needs nothing installed: standard library only, plus node and ssh-keygen, which the
+# runner image already has. It takes about 15 s.
+name: tests
+
+on:
+  # Only main on push. Without the filter, a branch with an open pull request runs the whole
+  # matrix twice for one `git push` -- once for the push and once for the pull_request.
+  push:
+    branches: [main]
+  pull_request:
+
+# The job reads the checkout and runs tests; it writes nothing back, so it does not need whatever
+# the repository default happens to grant.
+permissions:
+  contents: read
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.14 is what the Jetson AGX Thor this ships to runs; 3.12 is the oldest still deployed
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # tests/test_app_logic.py and tests/test_shipped_recipes.py guard themselves with
+      # skipUnless on a binary being present. On a runner image missing one, that file would
+      # drop out of the run and the job would still say OK -- so the tools are named here. A
+      # runner without them is a broken runner, not a reason to test less.
+      - name: the binaries the suite's skip guards look for
+        shell: bash
+        run: |
+          # One per line, never `command -v node && node --version`: set -e is suppressed for an
+          # AND-list, so that form returns non-zero and carries on regardless. Measured on the
+          # Thor -- `bash -eo pipefail -c 'command -v missing && missing --version; echo HERE'`
+          # prints HERE and exits 0, which would have made this whole step decorative.
+          command -v node
+          node --version
+          command -v ssh-keygen
+
+      # The command README.md documents, so the two cannot drift.
+      #
+      # shell: bash is load-bearing, not decoration. The default run shell is `bash -e {0}`,
+      # without pipefail: piped into tee, a failing suite would exit with tee's status and the
+      # job would pass. `shell: bash` is `bash --noprofile --norc -eo pipefail {0}`.
+      - name: python3 -m unittest discover -s tests
+        shell: bash
+        run: python3 -m unittest discover -s tests -v 2>&1 | tee result.txt
+
+      # Both skip guards are about the environment, so a skip here means the job tested less
+      # than it appears to -- which is how a test that asserts nothing stays green.
+      #
+      # Matched against unittest's summary line only, not the whole -v output. The output names
+      # every test and prints its docstring, so a looser pattern fires on a test that merely
+      # mentions the word: measured on the Thor, a test named
+      # test_a_name_that_mentions_skipped_and_skipped_equals_3 failed the job while nothing had
+      # actually skipped. The summary says "OK (skipped=1)" -- and still exits 0, which is why
+      # this step has to exist at all.
+      - name: nothing was skipped
+        shell: bash
+        run: |
+          if grep -qE "^(OK|FAILED).*skipped=[0-9]+" result.txt; then
+            echo "::error::a test skipped on CI, so the suite is smaller than it looks"
+            grep -nE "skipped" result.txt
+            exit 1
+          fi
+          grep -E "^Ran [0-9]+ tests" result.txt
