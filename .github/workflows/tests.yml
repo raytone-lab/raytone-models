@@ -28,8 +28,14 @@ jobs:
       # drop out of the run and the job would still say OK -- so the tools are named here. A
       # runner without them is a broken runner, not a reason to test less.
       - name: the binaries the suite's skip guards look for
+        shell: bash
         run: |
-          command -v node && node --version
+          # One per line, never `command -v node && node --version`: set -e is suppressed for an
+          # AND-list, so that form returns non-zero and carries on regardless. Measured on the
+          # Thor -- `bash -eo pipefail -c 'command -v missing && missing --version; echo HERE'`
+          # prints HERE and exits 0, which would have made this whole step decorative.
+          command -v node
+          node --version
           command -v ssh-keygen
 
       # The command README.md documents, so the two cannot drift.
