@@ -18,6 +18,10 @@ from tests.test_store import SHA, put
 
 REPO = "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead"
 
+# a real key, because a drop-in file now has to hold one ssh-keygen recognises rather than
+# a key type with anything behind it. Its private half was thrown away on generation.
+REAL_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJ1JXbaDqpobKyWtp9XpQvOFyxtOouJ5VMXfIUwGOtJ"
+
 
 def recipe(**over):
     r = {
@@ -139,10 +143,14 @@ class SignatureTests(unittest.TestCase):
             recipes.read(self.file, allowed_signers=self.t / "allowed")
 
 
+@unittest.skipUnless(os.name == "posix", "the signers directory is read through O_NOFOLLOW/dir_fd")
 class LocalSignerFileTests(unittest.TestCase):
-    """What a dropped-in signer file is allowed to be. A test cannot create a root-owned file, so
-    the ownership rule is exercised against _require_root_owned directly, and patched out of the
-    cases where the subject is the file's name or shape instead."""
+    """What a dropped-in signer file is allowed to be. A problem with one FILE skips that file and
+    is reported through `problems`; a problem with the DIRECTORY raises, because that is root's own
+    configuration and a directory that cannot be read as root's cannot be believed at all.
+
+    A test cannot create a root-owned file, so the ownership rule is lifted here and checked on its
+    own in RootOwnedTests."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -156,97 +164,109 @@ class LocalSignerFileTests(unittest.TestCase):
     def _write(self, name, text):
         (self.d / name).write_text(text)
 
+    def _read(self):
+        """(identities, problems) -- what was trusted, and what was said about the rest."""
+        problems = []
+        got = recipes.local_signers(self.d, problems)
+        return [n for n, _ in got], problems
+
+    def _refuses(self, name, text, note=None):
+        self._write(name, text)
+        ids, problems = self._read()
+        self.assertNotIn(name, ids)
+        self.assertEqual(len(problems), 1, problems)
+        if note:
+            self.assertIn(note, problems[0])
+        (self.d / name).unlink()
+
     def test_a_file_cannot_be_named_after_the_lab(self):
         """The whole point: a drop-in named recipes@raytone.ai would verify and be reported as the
-        Lab's own key. It is refused before any signature is checked."""
-        self._write(recipes.SIGNER, f"{recipes.SIGNER} ssh-ed25519 AAAA")
-        with self.assertRaises(recipes.RecipeError) as e:
-            recipes.local_signers(self.d)
-        self.assertIn(recipes.SIGNER, str(e.exception))
+        Lab's own key. It is refused before the file is even opened."""
+        self._refuses(recipes.SIGNER, f"{recipes.SIGNER} ssh-ed25519 AAAA", recipes.SIGNER)
 
     def test_a_file_name_is_an_id(self):
-        for bad in ("Thor-2", "thor 2", "thor/2", "../escape", "thor@host"):
-            (self.d / bad).parent.mkdir(parents=True, exist_ok=True)
+        for bad in ("Thor-2", "thor 2", "thor@host", "thor.2"):
             try:
                 (self.d / bad).write_text("x ssh-ed25519 AAAA")
             except OSError:
                 continue                        # the filesystem refused it first, which is fine
-            with self.assertRaises(recipes.RecipeError, msg=bad):
-                recipes.local_signers(self.d)
+            ids, problems = self._read()
+            self.assertEqual(ids, [], bad)
+            self.assertEqual(len(problems), 1, problems)
             (self.d / bad).unlink()
 
+    def test_an_options_field_is_part_of_the_syntax(self):
+        """`principal [options] keytype key` -- namespaces= is exactly what a recipe key wants, and
+        it is what the installed allowed_signers already uses."""
+        self._write("thor-2", 'thor-2 namespaces="raytone-recipe" ' + REAL_KEY + chr(10))
+        ids, problems = self._read()
+        self.assertEqual((ids, problems), (["thor-2"], []))
+
+    def test_a_key_type_with_no_key_behind_it_is_refused(self):
+        # otherwise this reaches ssh-keygen and comes back as "the signature does not verify",
+        # which blames the recipe for a malformed key file
+        for bad in ("thor-2 ssh-ed25519 not-a-key", "thor-2 ssh-madeup garbage", "thor-2"):
+            self._refuses("thor-2", bad + chr(10))
+
     def test_the_principal_inside_must_match_the_file_name(self):
-        # otherwise the name stops being the identity, and says nothing about what the key may sign
-        self._write("thor-2", "somebody-else ssh-ed25519 AAAA")
-        with self.assertRaises(recipes.RecipeError):
-            recipes.local_signers(self.d)
+        self._refuses("thor-2", "somebody-else " + REAL_KEY + chr(10))
 
     def test_one_key_per_file(self):
-        self._write("thor-2", "thor-2 ssh-ed25519 AAAA" + chr(10) + "thor-2 ssh-ed25519 BBBB")
-        with self.assertRaises(recipes.RecipeError):
-            recipes.local_signers(self.d)
+        self._refuses("thor-2", "thor-2 " + REAL_KEY + chr(10) + "thor-2 " + REAL_KEY + chr(10))
+
+    def test_a_comment_line_is_not_a_second_record(self):
+        self._write("thor-2", "# the key this machine signs recipes with" + chr(10)
+                    + "thor-2 " + REAL_KEY + chr(10))
+        self.assertEqual(self._read(), (["thor-2"], []))
 
     def test_an_empty_file_is_refused(self):
-        self._write("thor-2", "")
-        with self.assertRaises(recipes.RecipeError):
-            recipes.local_signers(self.d)
+        self._refuses("thor-2", "")
 
     def test_a_symlink_is_refused_rather_than_followed(self):
         real = pathlib.Path(self.tmp.name) / "elsewhere"
-        real.write_text("thor-2 ssh-ed25519 AAAA" + chr(10))
-        try:
-            (self.d / "thor-2").symlink_to(real)
-        except (OSError, NotImplementedError):
-            self.skipTest("cannot create a symlink here")
-        with self.assertRaises(recipes.RecipeError):
-            recipes.local_signers(self.d)
+        real.write_text("thor-2 " + REAL_KEY + chr(10))
+        (self.d / "thor-2").symlink_to(real)
+        ids, problems = self._read()
+        self.assertEqual(ids, [])
+        self.assertEqual(len(problems), 1, problems)
 
-    def test_a_well_formed_file_is_accepted(self):
-        self._write("thor-2", "thor-2 ssh-ed25519 AAAA" + chr(10))
-        self.assertEqual([n for n, _ in recipes.local_signers(self.d)], ["thor-2"])
+    def test_one_bad_file_does_not_take_the_good_ones_with_it(self):
+        """The failure boundary: a single unreadable key is not a reason to stop trusting the
+        others, and it should be said once rather than once per recipe."""
+        self._write("thor-2", "thor-2 " + REAL_KEY + chr(10))
+        self._write("broken", "broken ssh-ed25519 not-a-key" + chr(10))
+        ids, problems = self._read()
+        self.assertEqual(ids, ["thor-2"])
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("broken", problems[0])
+
+    def test_a_well_formed_file_is_accepted_and_returns_its_bytes(self):
+        body = "thor-2 " + REAL_KEY + chr(10)
+        self._write("thor-2", body)
+        got = recipes.local_signers(self.d)
+        self.assertEqual([n for n, _ in got], ["thor-2"])
+        # the bytes, not the path: whatever verifies later must be what was checked here
+        self.assertEqual(got[0][1], body.encode())
 
     def test_a_dotfile_is_ignored(self):
-        self._write("thor-2", "thor-2 ssh-ed25519 AAAA" + chr(10))
+        self._write("thor-2", "thor-2 " + REAL_KEY + chr(10))
         self._write(".keep", "")
-        self.assertEqual([n for n, _ in recipes.local_signers(self.d)], ["thor-2"])
+        self.assertEqual(self._read(), (["thor-2"], []))
 
-    def test_no_directory_means_no_local_signers_but_an_unreadable_one_is_an_error(self):
+    def test_no_directory_means_no_local_signers(self):
         self.assertEqual(recipes.local_signers(pathlib.Path(self.tmp.name) / "absent"), [])
         self.assertEqual(recipes.local_signers(None), [])
 
-    def test_a_file_must_name_a_key_and_not_just_a_principal(self):
-        # otherwise this lands as "the signature does not verify", which blames the wrong thing
-        for bad in ("thor-2", "thor-2 AAAA", "thor-2 not-a-keytype AAAA"):
-            self._write("thor-2", bad + chr(10))
-            with self.assertRaises(recipes.RecipeError, msg=bad):
-                recipes.local_signers(self.d)
-
-    def test_the_directory_is_checked_before_it_is_listed(self):
-        """A directory symlink would be followed, and a dangling one reported as "not configured on
-        this machine" -- which reads as "no local keys" when something was in fact planted."""
-        elsewhere = pathlib.Path(self.tmp.name) / "elsewhere"
-        elsewhere.mkdir()
-        (elsewhere / "thor-2").write_text("thor-2 ssh-ed25519 AAAA" + chr(10))
-        link = pathlib.Path(self.tmp.name) / "linked.d"
-        try:
-            link.symlink_to(elsewhere, target_is_directory=True)
-        except (OSError, NotImplementedError):
-            self.skipTest("cannot create a symlink here")
-        self.patch.stop()                       # the subject is the type check, which runs first
-        try:
-            with self.assertRaises(recipes.RecipeError):
-                recipes.local_signers(link)
-            dangling = pathlib.Path(self.tmp.name) / "dangling.d"
-            dangling.symlink_to(pathlib.Path(self.tmp.name) / "nothing", target_is_directory=True)
-            with self.assertRaises(recipes.RecipeError):
-                recipes.local_signers(dangling)
-        finally:
-            self.patch.start()
-
-    def test_a_file_that_cannot_be_decoded_is_an_error_not_a_crash(self):
-        (self.d / "thor-2").write_bytes(bytes([0xff, 0xfe, 0x0a]))
-        with self.assertRaises(recipes.RecipeError):
-            recipes.local_signers(self.d)
+    def test_a_directory_problem_stops_local_trust_altogether(self):
+        """A file is skipped, but the directory is root's own configuration: if it is a symlink, a
+        dangling symlink, or not a directory at all, none of what it holds can be believed."""
+        t = pathlib.Path(self.tmp.name)
+        (t / "plain").write_text("not a directory" + chr(10))
+        (t / "linked.d").symlink_to(self.d, target_is_directory=True)
+        (t / "dangling.d").symlink_to(t / "nothing", target_is_directory=True)
+        for case in ("plain", "linked.d", "dangling.d"):
+            with self.assertRaises(recipes.RecipeError, msg=case):
+                recipes.local_signers(t / case)
 
 
 class RootOwnedTests(unittest.TestCase):
@@ -289,6 +309,7 @@ class RootOwnedTests(unittest.TestCase):
             recipes._require_root_owned(f)
 
 
+@unittest.skipUnless(os.name == "posix", "the signers directory is read through O_NOFOLLOW/dir_fd")
 class LocalSignerTests(unittest.TestCase):
     """A key this machine added, dropped in under its own name rather than shipped to everyone."""
 

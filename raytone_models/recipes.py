@@ -8,10 +8,12 @@ pinned image, and arguments that pass the same checks as any spec.
 import dataclasses
 import fnmatch
 import json
+import os
 import pathlib
 import re
 import stat
 import subprocess
+import tempfile
 
 from . import spec as spec_mod, store
 
@@ -172,69 +174,145 @@ def load(data):
 # key, which is the single thing this whole arrangement exists to prevent (codex review).
 LOCAL_SIGNER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 KEY_TYPE_RE = re.compile(r"^(ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)[A-Za-z0-9@.+-]+$")
+# O_DIRECTORY and O_NOFOLLOW are POSIX. They are what stops a symlink in the signers directory
+# from being followed, so on a platform without them this whole path is unavailable rather than
+# quietly weaker -- which is academic, since the app ships for the Linux it is written against.
+_O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 MAX_LOCAL_SIGNERS = 16          # bounds recipes x signers, and ssh-keygen runs, per read
 MAX_SIGNERS_BYTES = 64 * 1024
 VERIFY_TIMEOUT = 20
 
 
-def local_signers(d=LOCAL_SIGNERS_DIR):
-    """(identity, file) for each dropped-in key, rejecting anything that could let one pose as the
-    Lab's or be swapped by a non-root user. The identity is the file's name."""
+def local_signers(d=LOCAL_SIGNERS_DIR, problems=None):
+    """(identity, allowed_signers line) for each dropped-in key. The identity is the file's name.
+
+    The line is returned as bytes read from the descriptor we checked, not as a path, because
+    anything that re-opens by path afterwards is checking one inode and trusting another.
+
+    A problem with the DIRECTORY disables local trust entirely -- that is root's own configuration, and if it
+    cannot be read as root's then none of it can be believed. A problem with a single FILE skips
+    that file and is appended to `problems`, so one unreadable key does not take the other keys
+    with it, and the caller can report it once about the directory instead of once per recipe.
+    """
     if d is None:
         return []
     d = pathlib.Path(d)
-    # Check the directory BEFORE listing it. Reading it first would follow a directory symlink into
-    # wherever it points, enumerate a user-writable directory of any size, and -- for a dangling
-    # link -- report "not configured on this machine" when what is really there is a planted link.
+    def note(msg):
+        if problems is not None:
+            problems.append(msg)
     try:
-        st = d.lstat()
+        # O_NOFOLLOW: a symlink in this position raises rather than being followed. Everything
+        # below goes through this descriptor, so the directory cannot be swapped underneath us.
+        dfd = os.open(d, os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW)
     except FileNotFoundError:
         return []                               # not configured on this machine: not an error
+    except NotADirectoryError:
+        raise RecipeError(f"{d}: is not a directory, so the keys in it are not root's to pin") from None
     except OSError as e:
         raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
-    if not stat.S_ISDIR(st.st_mode):
-        raise RecipeError(f"{d}: is not a directory, so the keys in it are not root's to pin")
-    _require_root_owned(d, st)
     try:
-        entries = sorted(d.iterdir())
-    except OSError as e:
-        raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
-    out = []
-    for f in entries:
-        if f.name.startswith("."):
-            continue
-        if not LOCAL_SIGNER_RE.fullmatch(f.name) or f.name == SIGNER:
-            raise RecipeError(f"{f.name}: a signer file is named like an id, and never {SIGNER!r}")
+        _require_root_owned(d, os.fstat(dfd))
         try:
-            st = f.lstat()                      # lstat, so a symlink is refused rather than followed
-            if not stat.S_ISREG(st.st_mode):
-                raise RecipeError(f"{f.name}: a signer file is a regular file, not a link or device")
-            _require_root_owned(f, st)
-            if not 0 < st.st_size <= MAX_SIGNERS_BYTES:
-                raise RecipeError(f"{f.name}: a signer file holds one key, and is not empty")
-            text = f.read_text(encoding="utf-8", errors="strict")
+            names = sorted(os.listdir(dfd))
         except OSError as e:
-            # a key we cannot read is not a key we can trust, and the page should say which file
-            raise RecipeError(f"{f.name}: cannot be read ({e.strerror})") from None
-        except UnicodeDecodeError:
-            raise RecipeError(f"{f.name}: is not text, so it is not an allowed_signers line") from None
-        # exactly one record: its principal is the file name, and it names a key type and a key,
-        # so a file holding only a principal fails here rather than as "the signature does not verify"
-        lines = [l for l in text.splitlines() if l.strip()]
-        if len(lines) != 1:
-            raise RecipeError(f"{f.name}: holds exactly one key, whose principal is {f.name!r}")
-        fields = lines[0].split()
-        if len(fields) < 3 or fields[0] != f.name or not KEY_TYPE_RE.fullmatch(fields[1]):
-            raise RecipeError(f"{f.name}: holds exactly one key, whose principal is {f.name!r}")
-        out.append((f.name, f))
-        if len(out) > MAX_LOCAL_SIGNERS:
-            raise RecipeError(f"{d}: more than {MAX_LOCAL_SIGNERS} local signers")
-    return out
+            raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
+        out = []
+        for name in names:
+            if name.startswith("."):
+                continue
+            if not LOCAL_SIGNER_RE.fullmatch(name) or name == SIGNER:
+                note(f"{name}: a signer file is named like an id, and never {SIGNER!r}")
+                continue
+            line = _read_signer(dfd, name, note)
+            if line is None:
+                continue
+            out.append((name, line))
+            if len(out) > MAX_LOCAL_SIGNERS:
+                raise RecipeError(f"{d}: more than {MAX_LOCAL_SIGNERS} local signers")
+        return out
+    finally:
+        os.close(dfd)
+
+
+def _read_signer(dfd, name, note):
+    """The one allowed_signers line in `name`, or None with a note saying why not."""
+    try:
+        fd = os.open(name, os.O_RDONLY | _O_NOFOLLOW, dir_fd=dfd)
+    except OSError as e:
+        note(f"{name}: cannot be opened ({e.strerror})")
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            note(f"{name}: a signer file is a regular file, not a link or device")
+            return None
+        try:
+            _require_root_owned(pathlib.PurePath(name), st)
+        except RecipeError as e:
+            note(str(e))
+            return None
+        if not 0 < st.st_size <= MAX_SIGNERS_BYTES:
+            note(f"{name}: a signer file holds one key, and is not empty")
+            return None
+        raw = os.read(fd, MAX_SIGNERS_BYTES)
+    except OSError as e:
+        note(f"{name}: cannot be read ({e.strerror})")
+        return None
+    finally:
+        os.close(fd)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        note(f"{name}: is not text, so it is not an allowed_signers line")
+        return None
+    key = _sole_key(name, text)
+    if key is None:
+        note(f"{name}: holds exactly one key, whose principal is {name!r}")
+        return None
+    if not _is_a_public_key(*key):
+        note(f"{name}: names a key type but not a key ssh-keygen recognises")
+        return None
+    return raw
+
+
+def _sole_key(name, text):
+    """(key type, key) from the single record in a drop-in file, or None.
+
+    An allowed_signers record is `principal [options] keytype key [comment]`. The options sit
+    between the principal and the key type -- `namespaces="raytone-recipe"` is the one that matters
+    here -- so the key type is found rather than assumed to be the second field.
+    """
+    lines = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    if len(lines) != 1:
+        return None
+    fields = lines[0].split()
+    if len(fields) < 3 or fields[0] != name:
+        return None
+    for i in range(1, len(fields) - 1):
+        if KEY_TYPE_RE.fullmatch(fields[i]):
+            return fields[i], fields[i + 1]
+    return None
+
+
+def _is_a_public_key(keytype, key):
+    """Whether ssh-keygen reads these two fields as a key. A key type with a plausible name in
+    front of something that is not a key would otherwise pass to verification and come back as
+    "the signature does not verify", blaming the recipe for a malformed key file."""
+    with tempfile.TemporaryDirectory() as t:
+        f = pathlib.Path(t) / "key.pub"
+        f.write_text(keytype + " " + key + chr(10), encoding="utf-8")
+        try:
+            r = subprocess.run(["ssh-keygen", "-l", "-f", str(f)],
+                               capture_output=True, timeout=VERIFY_TIMEOUT)
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+    return r.returncode == 0
 
 
 def _require_root_owned(path, st=None):
-    """Root's, and only root's, to rewrite. `st` is the caller's own lstat() when it already has
-    one, so the check reads the same inode the caller type-checked rather than racing it."""
+    """Root's, and only root's, to rewrite. `st` is the caller's own fstat()/lstat() so the check
+    reads the inode the caller is actually holding rather than re-resolving the path."""
     if st is None:
         st = path.lstat()
     if st.st_uid != 0:
@@ -253,26 +331,38 @@ def _verified_by(data, sig, signers, identity):
     return r.returncode == 0
 
 
-def verify(data, sig, allowed_signers=ALLOWED_SIGNERS, name="recipe", local_dir=LOCAL_SIGNERS_DIR):
+def verify(data, sig, allowed_signers=ALLOWED_SIGNERS, name="recipe", local_dir=LOCAL_SIGNERS_DIR,
+           signers=None):
     """The signature over these bytes (the signature file may change: it cannot make other bytes
     valid). Returns the identity that vouched for it: SIGNER for the Lab's key, otherwise the name
-    of the dropped-in file, so a caller can tell the two apart and say so."""
+    of the dropped-in file, so a caller can tell the two apart and say so.
+
+    `signers` is the already-read local trust store; pass it to read the directory once for a whole
+    set of recipes instead of once each. Omit it and this reads `local_dir` itself."""
     sig = pathlib.Path(sig)
     if not sig.exists():
         raise RecipeError(f"{name} is not signed")
     if _verified_by(data, sig, allowed_signers, SIGNER):
         return SIGNER
-    for identity, f in local_signers(local_dir):
-        if _verified_by(data, sig, f, identity):
-            return identity
+    if signers is None:
+        signers = local_signers(local_dir)
+    for identity, line in signers:
+        # ssh-keygen takes a path, so write out the bytes we read through the checked descriptor
+        # into a file only this process can reach, rather than handing it back the original path
+        with tempfile.TemporaryDirectory() as t:
+            f = pathlib.Path(t) / "allowed_signers"
+            f.write_bytes(line)
+            if _verified_by(data, sig, f, identity):
+                return identity
     raise RecipeError(f"{name}: the signature does not verify")
 
 
-def read(path, allowed_signers=ALLOWED_SIGNERS, local_dir=LOCAL_SIGNERS_DIR):
+def read(path, allowed_signers=ALLOWED_SIGNERS, local_dir=LOCAL_SIGNERS_DIR, signers=None):
     """A recipe file, read once: the bytes verified are the bytes parsed."""
     path = pathlib.Path(path)
     data = path.read_bytes()
-    signed_by = verify(data, str(path) + ".sig", allowed_signers, name=path.name, local_dir=local_dir)
+    signed_by = verify(data, str(path) + ".sig", allowed_signers, name=path.name,
+                       local_dir=local_dir, signers=signers)
     try:
         return dataclasses.replace(load(json.loads(data)), signed_by=signed_by)
     except ValueError as e:
@@ -394,10 +484,19 @@ def fetch_commands(recipe):
 def available(dirs=(SYSTEM_DIR,), allowed_signers=ALLOWED_SIGNERS, local_dir=LOCAL_SIGNERS_DIR):
     """Every signed recipe found, and why the others were left out."""
     good, bad = [], []
+    # Read the local trust store once. A broken drop-in file then shows up as one line about the
+    # directory, instead of the same line repeated on every recipe that needed a local key -- which
+    # reads as several broken recipes rather than one piece of misconfiguration.
+    problems = []
+    try:
+        signers = local_signers(local_dir, problems)
+    except (RecipeError, OSError) as e:
+        signers, problems = [], problems + [str(e)]
+    bad.extend({"file": str(local_dir), "error": p} for p in problems)
     for d in dirs:
         for f in sorted(pathlib.Path(d).glob("*.json")):
             try:
-                good.append(read(f, allowed_signers, local_dir))
+                good.append(read(f, allowed_signers, local_dir, signers=signers))
             except (RecipeError, OSError) as e:
                 bad.append({"file": str(f), "error": str(e)})
     return good, bad
