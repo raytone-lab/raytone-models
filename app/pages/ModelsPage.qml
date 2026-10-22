@@ -13,7 +13,7 @@ ColumnLayout {
 
     function runArgs(m) {
         // conservative settings until a recipe carries the model's own
-        var name = Logic.repoName(m.repo).toLowerCase().replace(/[^a-z0-9.:_-]+/g, "-")
+        var name = Logic.servedName(m.repo)
         if (m.format === "gguf") {
             var g = Logic.ggufFiles(m)
             var gargs = ["start", m.repo + "@" + m.revision, "--engine", "llamacpp", "--name", name.replace(/-gguf$/, ""),
@@ -77,7 +77,7 @@ ColumnLayout {
                     ColumnLayout {
                         spacing: 2
                         Layout.fillWidth: true
-                        Text { text: Logic.repoName(row.modelData.repo); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                        Text { text: Logic.modelName(row.modelData.repo); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
                         Text {
                             text: Logic.repoOrg(row.modelData.repo) + " · " + Logic.shortRev(row.modelData.revision)
                             color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeCaption
@@ -99,8 +99,12 @@ ColumnLayout {
                         ToolTip.visible: hovered && !row.runnable
                         ToolTip.text: row.draft ? "A speculative-decoding draft: it runs inside a recipe, next to its model"
                                     : row.modelData.format === "gguf" ? "No GGUF model file in this download"
-                                    : row.modelData.format === "diffusion" ? "Video models run through a recipe" : "Not downloaded completely"
-                        onClicked: page.backend.act("run:" + row.modelData.repo, page.runArgs(row.modelData), "Starting " + Logic.repoName(row.modelData.repo))
+                                    // Z-Image Turbo is text-to-image, not video: what these have in
+                                    // common is the engine, and ComfyUI needs a workflow to be any use.
+                                    // The app drives one from a recipe, and Apply is how a recipe starts.
+                                    : row.modelData.format === "diffusion" ? "Start this diffusion model with Apply, on Recipes"
+                                    : "Not downloaded completely"
+                        onClicked: page.backend.act("run:" + row.modelData.repo, page.runArgs(row.modelData), "Starting " + Logic.modelName(row.modelData.repo))
                     }
                     RButton {
                         dense: true
