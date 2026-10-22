@@ -24,7 +24,11 @@ REV_RE = re.compile(r"^[0-9a-f]{40}$")
 PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*?/-]{1,200}$")
 TOP = {"schema", "id", "title", "description", "platforms", "requires", "source", "components", "agents"}
 COMPONENT = {"role", "served_name", "model", "draft", "engine", "image", "args", "env", "memory_gib"}
-ROLES = {"chat", "coder", "vision", "video", "embedding", "draft"}
+# "image" is text-to-image. It is a separate role rather than a reuse of "video"
+# because a recipe can carry both at once -- the Studio trio runs MiniMax H3 for
+# video and Z-Image Turbo for stills -- while the engine behind them is the same
+# one, which spec.py already calls "video and image generation".
+ROLES = {"chat", "coder", "vision", "video", "image", "embedding", "draft"}
 
 
 class RecipeError(ValueError):
