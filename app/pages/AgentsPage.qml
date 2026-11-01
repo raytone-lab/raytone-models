@@ -34,13 +34,25 @@ ColumnLayout {
         }
     }
 
-    ScrollView {
+    // Flickable for the same reason as RecipesPage: a ScrollBar declared on this
+    // Quickshell's ScrollView never renders, while on a Flickable it does.
+    Flickable {
+        id: agentsScroll
         Layout.fillWidth: true
         Layout.fillHeight: true
-        contentWidth: availableWidth
+        contentWidth: width
+        contentHeight: agentsCol.implicitHeight
         clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        bottomMargin: 24
+        ScrollBar.vertical: ScrollBar {
+            implicitWidth: 10
+            minimumSize: 0.1
+            contentItem: Rectangle { color: Theme.border; radius: 5 }
+        }
         ColumnLayout {
-            width: parent.width
+            id: agentsCol
+            width: agentsScroll.width
             spacing: 12
             GridLayout {
                 columns: 2

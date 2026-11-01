@@ -28,13 +28,31 @@ ColumnLayout {
         font.pixelSize: Theme.sizeBody
     }
 
-    ScrollView {
+    // A Flickable, not a ScrollView: a ScrollBar declared on this Quickshell's
+    // ScrollView never renders -- not with policy AlwaysOn, not with an explicit
+    // contentItem -- while the same declaration on a Flickable renders, which is
+    // why the ListViews on ModelsPage show bars and the ScrollView pages (here
+    // and AgentsPage) never did. The handle is styled because the default one
+    // never appeared either (checked pixel-level on a live session).
+    Flickable {
+        id: recipesScroll
         Layout.fillWidth: true
         Layout.fillHeight: true
-        contentWidth: availableWidth
+        contentWidth: width
+        contentHeight: grid.implicitHeight
         clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        // room to scroll a little past the last card; the scroll range and the
+        // ScrollBar track both respect the margin
+        bottomMargin: 24
+        ScrollBar.vertical: ScrollBar {
+            implicitWidth: 10
+            minimumSize: 0.1
+            contentItem: Rectangle { color: Theme.border; radius: 5 }
+        }
         GridLayout {
-            width: parent.width
+            id: grid
+            width: recipesScroll.width
             columns: 2
             columnSpacing: 16
             rowSpacing: 16
@@ -114,7 +132,7 @@ ColumnLayout {
                         // implicit width and the layout cannot shrink it below that, and the
                         // component list is the widest thing on a card (monospace, one entry per
                         // component). Nothing here clips, so it simply drew on top of the next
-                        // card, and the ScrollView pins contentWidth to availableWidth, so there
+                        // card, and the scroller pins contentWidth to the viewport width, so there
                         // was no horizontal scroll to reach it either. Narrowing the window made it
                         // worse rather than better: still nothing could shrink, so the memory and
                         // disk figures went off the edge instead.
