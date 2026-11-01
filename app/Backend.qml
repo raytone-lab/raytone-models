@@ -39,6 +39,25 @@ Item {
         try { return JSON.parse(String(text || "")) } catch (e) { return fallback }
     }
 
+    // Assigning a fresh object or array always notifies, even when the payload is
+    // identical, so every poll would re-run every binding that touches these
+    // properties -- pills, tables, the sidebar footer -- for no visible change.
+    // Compare first and keep the old reference when nothing differs. The compare
+    // is stringify-based, so it needs the CLI's key order to stay stable (each
+    // endpoint builds its dict on one fixed code path today); if an endpoint ever
+    // varies its order, the guard degrades to notifying on every poll again --
+    // the old behaviour, never a missed update.
+    function sameJson(a, b) {
+        return JSON.stringify(a) === JSON.stringify(b)
+    }
+
+    // parse, compare, assign -- the idiom every plain list poll uses, so the
+    // comparison semantics live in exactly one place.
+    function refreshJson(name, text, fallback) {
+        var d = parse(text, fallback)
+        if (!sameJson(d, root[name])) root[name] = d
+    }
+
     function refresh() {
         if (!recipesProc.running) recipesProc.running = true
         if (!modelsProc.running) modelsProc.running = true
@@ -158,7 +177,11 @@ Item {
             waitForEnd: true
             onStreamFinished: {
                 var d = root.parse(text, null)
-                if (d) { root.recipes = d.recipes || []; root.refusedRecipes = d.refused || [] }
+                if (d) {
+                    var rs = d.recipes || [], rf = d.refused || []
+                    if (!root.sameJson(rs, root.recipes)) root.recipes = rs
+                    if (!root.sameJson(rf, root.refusedRecipes)) root.refusedRecipes = rf
+                }
             }
         }
     }
@@ -167,33 +190,37 @@ Item {
         command: [root.cli, "ollama", "models", "--json"]
         stdout: StdioCollector {
             waitForEnd: true
-            onStreamFinished: { var d = root.parse(text, []); root.ollamaModels = Array.isArray(d) ? d : [] }
+            onStreamFinished: {
+                var d = root.parse(text, [])
+                var m = Array.isArray(d) ? d : []
+                if (!root.sameJson(m, root.ollamaModels)) root.ollamaModels = m
+            }
         }
     }
     Process {
         id: modelsProc
         command: [root.cli, "models", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.models = root.parse(text, root.models) }
+        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.refreshJson("models", text, root.models) }
     }
     Process {
         id: instancesProc
         command: [root.cli, "instances", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.instances = root.parse(text, root.instances) }
+        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.refreshJson("instances", text, root.instances) }
     }
     Process {
         id: agentsProc
         command: [root.cli, "agents", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.agents = root.parse(text, root.agents) }
+        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.refreshJson("agents", text, root.agents) }
     }
     Process {
         id: downloadsProc
         command: [root.cli, "downloads", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.downloads = root.parse(text, root.downloads) }
+        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.refreshJson("downloads", text, root.downloads) }
     }
     Process {
         id: enginesProc
         command: [root.cli, "engines", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.engines = root.parse(text, root.engines) }
+        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.refreshJson("engines", text, root.engines) }
     }
     Process {
         id: statsProc
@@ -202,7 +229,13 @@ Item {
             waitForEnd: true
             onStreamFinished: {
                 var s = root.parse(text, null)
-                if (s) { root.previousStats = root.stats; root.stats = s }
+                // cmd_stats embeds a live timestamp (cli.py cmd_stats), so while the
+                // CLI answers, consecutive payloads never compare equal and this
+                // assigns every poll -- as before. The guard earns its keep only if
+                // the timestamp ever goes away or the payload repeats verbatim, and
+                // previousStats then rolls only on a real change, which is the
+                // delta it exists to show.
+                if (s && !root.sameJson(s, root.stats)) { root.previousStats = root.stats; root.stats = s }
             }
         }
     }
