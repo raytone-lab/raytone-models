@@ -87,6 +87,20 @@ class PrivilegedBoundaryTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv,0,'4\n' if 'show-user' in argv else 'User=1000\nActive=yes\nRemote=no\nLockedHint=yes\n','')
         with self.assertRaisesRegex(helper.HelperError,'SESSION_LOCKED'):helper.check_subject({'PKEXEC_UID':'1000'},run)
 
+    def test_native_lock_is_checked_as_caller_when_logind_hint_is_clear(self):
+        import types
+        for native,denied in (({'locked':False},False),({'locked':False,'pending':True},True),({'locked':True},True),({},True)):
+            seen=[]
+            def run(argv,**kw):
+                seen.append(argv)
+                output=('4\n' if 'show-user' in argv else 'User=1000\nActive=yes\nRemote=no\nLockedHint=no\n' if 'show-session' in argv else json.dumps(native))
+                return subprocess.CompletedProcess(argv,0,output,'')
+            with patch.object(helper.pwd,'getpwuid',return_value=types.SimpleNamespace(pw_name='fixture-user',pw_dir='/home/fixture-user')):
+                if denied:
+                    with self.assertRaisesRegex(helper.HelperError,'SESSION_LOCKED'):helper.check_subject({'PKEXEC_UID':'1000'},run)
+                else:helper.check_subject({'PKEXEC_UID':'1000'},run)
+            self.assertEqual(seen[-1][:6],['/usr/bin/runuser','-u','fixture-user','--','/usr/bin/env','-i'])
+
     def test_native_lock_unknown_and_secure_pending_refuse_user_action(self):
         for value in ({'locked':False,'pending':True},{'locked':True},{'wrong':False}):
             with patch('shutil.which',return_value='/usr/bin/omarchy-shell'):

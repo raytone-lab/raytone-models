@@ -55,7 +55,19 @@ def check_subject(environ=None, run=subprocess.run):
         r=run(['/usr/bin/loginctl','show-session',session,'-p','User','-p','Active','-p','Remote','-p','LockedHint'],capture_output=True,text=True,timeout=5)
         value=dict(line.split('=',1) for line in r.stdout.splitlines() if '=' in line)
         if r.returncode or value!={'User':uid,'Active':'yes','Remote':'no','LockedHint':'no'}:raise ValueError()
-    except (OSError,ValueError,subprocess.SubprocessError):
+        # Quickshell can be securely locked while logind still says no. Query
+        # native IPC after authentication, dropping to the caller before running
+        # any session command. No user environment or code executes as root.
+        account=pwd.getpwuid(int(uid))
+        r=run(['/usr/bin/runuser','-u',account.pw_name,'--','/usr/bin/env','-i',
+               'PATH=/usr/bin:/bin','HOME='+account.pw_dir,'XDG_RUNTIME_DIR=/run/user/'+uid,
+               'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/'+uid+'/bus',
+               'OMARCHY_PATH=/usr/share/omarchy','/usr/bin/omarchy-shell','lock','status'],
+              capture_output=True,text=True,timeout=5)
+        native=json.loads(r.stdout)
+        if (r.returncode or not isinstance(native,dict) or type(native.get('locked')) is not bool
+            or any(native.get(k) for k in ('locked','requested','pending','secure','sessionLocked'))):raise ValueError()
+    except (OSError,ValueError,KeyError,subprocess.SubprocessError):
         raise HelperError('SESSION_LOCKED：须由已解锁的本机活动会话发起；未执行引擎操作。') from None
 
 

@@ -111,7 +111,7 @@ MIT, © Raytone AI Lab and contributors.
 ## Split component candidate (batch 4)
 
 The managed user component is `0.2.3-batch4`; its matching system contract is
-`0.2.1-batch4`, protocol 1. This software candidate has no real GPU/model/Spark
+`0.2.2-batch4`, protocol 1. This software candidate has no real GPU/model/Spark
 acceptance. The source polkit policy requires an administrator authentication for
 each action; there is no passwordless wheel rule. A desktop polkit agent is a
 separate prerequisite: absent authentication returns AUTH_DENIED without starting
