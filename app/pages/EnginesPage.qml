@@ -8,16 +8,16 @@ ColumnLayout {
     id: page
     property var backend
     readonly property var about: ({
-        "vllm": "OpenAI and Anthropic APIs, NVFP4 and FP8, speculative decoding. The main engine on the Thor.",
-        "sglang": "Structured generation and fast prefix caching; NVIDIA's Thor build.",
-        "llamacpp": "GGUF models, built for sm_110.",
+        "vllm": "OpenAI / Anthropic API；量化与推测解码支持取决于镜像和平台。",
+        "sglang": "结构化生成与前缀缓存；镜像的平台支持需单独核对。",
+        "llamacpp": "GGUF 模型；本机构建的 GPU 架构需与设备匹配。",
         "ollama": "GGUF models with Ollama's own library; runs as a system service.",
         "comfyui": "Video and image generation (MiniMax-H3)."
     })
     readonly property var names: ({ "vllm": "vLLM", "sglang": "SGLang", "llamacpp": "llama.cpp", "ollama": "Ollama", "comfyui": "ComfyUI" })
     spacing: 16
 
-    PageHeader { title: "Engines"; subtitle: "What runs the models. Images are pinned by digest; nothing is pulled when an engine starts." }
+    PageHeader { title: "引擎"; subtitle: "引擎与镜像配置。镜像配置状态不代表当前设备已通过运行验证。" }
 
     Repeater {
         model: page.backend.engines
@@ -31,17 +31,17 @@ ColumnLayout {
                 ColumnLayout {
                     spacing: 4
                     Layout.fillWidth: true
-                    Text { text: page.names[e.modelData.engine] || e.modelData.engine; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold }
-                    Text { text: page.about[e.modelData.engine] || ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; wrapMode: Text.Wrap; Layout.fillWidth: true }
-                    Text {
+                    Text { textFormat: Text.PlainText; text: page.names[e.modelData.engine] || e.modelData.engine; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold }
+                    Text { textFormat: Text.PlainText; text: page.about[e.modelData.engine] || ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Text { textFormat: Text.PlainText;
                         visible: !!e.modelData.image
                         text: (e.modelData.tag ? e.modelData.tag + " · " : "") + String(e.modelData.image || "").replace(/@sha256:([0-9a-f]{12}).*/, "@sha256:$1…")
                         color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeCaption
                     }
-                    Text { visible: !!e.modelData.checked; text: e.modelData.checked || ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Text { textFormat: Text.PlainText; visible: !!e.modelData.checked; text: e.modelData.checked || ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 }
                 Item { Layout.fillWidth: true }
-                Pill { text: e.modelData.configured ? "Configured" : "Not configured"; kind: e.modelData.configured ? "ready" : "neutral" }
+                Pill { text: e.modelData.configured ? "镜像已配置（运行待验）" : "镜像未配置"; kind: e.modelData.configured ? "ready" : "neutral" }
             }
         }
     }

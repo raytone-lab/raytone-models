@@ -3,7 +3,7 @@ import json
 import socket
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, HTTPRedirectHandler, build_opener
-from . import connection, system_contract
+from . import connection, system_contract, USER_VERSION
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -36,6 +36,7 @@ def router_status(config=None, timeout=2):
 
 def snapshot():
     config = connection.load()
-    return {'kind': 'raytone-models', 'schema': 1, 'version': system_contract.VERSION,
+    from .device import detect
+    return {'kind': 'raytone-models', 'schema': 1, 'version': USER_VERSION,
             'cliProtocol': 1, 'internal': config.internal, 'public': config.public,
-            'router': router_status(config), 'system': system_contract.identity()}
+            'device': detect(), 'router': router_status(config), 'system': system_contract.identity()}

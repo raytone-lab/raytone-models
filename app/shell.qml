@@ -9,7 +9,7 @@ ShellRoot {
     Backend { id: backend }
     FloatingWindow {
         id: window
-        title: "Raytone Models"
+        title: "模型控制台"
         implicitWidth: 1200
         implicitHeight: 760
         color: Theme.background

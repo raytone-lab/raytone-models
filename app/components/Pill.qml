@@ -12,7 +12,7 @@ Rectangle {
     radius: height / 2
     color: kind === "ready" ? Theme.readyFill : kind === "pending" ? Theme.pendingFill
          : kind === "error" ? Theme.errorFill : Theme.raised
-    Text {
+    Text { textFormat: Text.PlainText;
         id: label
         anchors.centerIn: parent
         text: pill.glyph + pill.text

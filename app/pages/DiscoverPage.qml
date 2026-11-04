@@ -24,16 +24,17 @@ ColumnLayout {
         page.backend.search(query.text.trim(), page.kind === "video" ? "video" : "")
     }
 
-    PageHeader { title: "Discover"; subtitle: "Find a model on Hugging Face and download the variant that fits this machine." }
+    PageHeader { title: "发现"; subtitle: "在 Hugging Face 查找模型。下载前核对容量，运行支持需另行确认。" }
 
     RowLayout {
         Layout.fillWidth: true
         spacing: 10
         TextField {
             id: query
+            objectName: "discoverQuery"
             Layout.fillWidth: true
             implicitHeight: 44
-            placeholderText: "Search Hugging Face, e.g. Qwen3.8, Nemotron, Wan"
+            placeholderText: "搜索模型，例如 Qwen、Nemotron、Wan"
             placeholderTextColor: Theme.muted
             color: Theme.text
             font.family: Theme.font
@@ -44,7 +45,7 @@ ColumnLayout {
             Accessible.name: "Search Hugging Face"
         }
         Repeater {
-            model: [{ id: "all", label: "All" }, { id: "llm", label: "LLM" }, { id: "video", label: "Video" }]
+            model: [{ id: "all", label: "全部" }, { id: "llm", label: "LLM" }, { id: "video", label: "Video" }]
             delegate: Rectangle {
                 required property var modelData
                 readonly property bool on: page.kind === modelData.id
@@ -53,16 +54,18 @@ ColumnLayout {
                 radius: 16
                 color: on ? Theme.text : Theme.surface
                 border.color: Theme.border
-                Text { id: chip; anchors.centerIn: parent; text: parent.modelData.label; color: parent.on ? Theme.background : Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold }
+                Text { textFormat: Text.PlainText; id: chip; anchors.centerIn: parent; text: parent.modelData.label; color: parent.on ? Theme.background : Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold }
                 MouseArea { anchors.fill: parent; onClicked: { page.kind = parent.modelData.id; if (query.text.trim()) page.submit() } }
             }
         }
     }
 
-    RowLayout {
+    GridLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        spacing: 16
+        Layout.minimumHeight: 0
+        columns: width<620 ? 1 : 2
+        columnSpacing:16;rowSpacing:12
 
         Rectangle {
             Layout.fillWidth: true
@@ -70,7 +73,7 @@ ColumnLayout {
             radius: Theme.radiusCard
             color: Theme.surface
             border.color: Theme.border
-            Text {
+            Text { textFormat: Text.PlainText;
                 anchors.centerIn: parent
                 visible: page.visibleResults.length === 0
                 text: page.backend.searching ? "Searching…" : (query.text ? "No models match these filters." : "Search Hugging Face for a model.")
@@ -97,11 +100,11 @@ ColumnLayout {
                         anchors.rightMargin: 16
                         spacing: 6
                         Item { Layout.fillHeight: true }
-                        Text { text: r.modelData.id; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                        Text { textFormat: Text.PlainText; text: r.modelData.id; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; elide: Text.ElideMiddle; Layout.fillWidth: true }
                         RowLayout {
                             spacing: 10
-                            Text { text: "↓ " + Number(r.modelData.downloads).toLocaleString(Qt.locale("en_US"), "f", 0); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
-                            Text { text: r.modelData.gguf ? "GGUF" : (r.modelData.library || "Library not specified"); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                            Text { textFormat: Text.PlainText; text: "↓ " + Number(r.modelData.downloads).toLocaleString(Qt.locale("en_US"), "f", 0); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                            Text { textFormat: Text.PlainText; text: r.modelData.gguf ? "GGUF" : (r.modelData.library || "Library not specified"); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
                             Pill { text: r.modelData.gated ? "Gated · access required" : "Ungated"; kind: r.modelData.gated ? "pending" : "neutral" }
                         }
                         Item { Layout.fillHeight: true }
@@ -116,7 +119,8 @@ ColumnLayout {
 
         Rectangle {
             id: detailPane
-            Layout.preferredWidth: 344
+            Layout.preferredWidth: parent.columns===1 ? -1 : 344
+            Layout.fillWidth: true
             Layout.fillHeight: true
             radius: Theme.radiusCard
             color: Theme.surface
@@ -128,19 +132,24 @@ ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 16
                 spacing: 10
-                Text { text: "REPOSITORY DETAILS"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold }
-                Text {
+                Text { textFormat: Text.PlainText; text: "REPOSITORY DETAILS"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold }
+                Text { textFormat: Text.PlainText;
                     text: page.selectedRepo || "Pick a result to see its variants."
                     color: page.selectedRepo ? Theme.text : Theme.muted
                     font.family: Theme.font; font.pixelSize: page.selectedRepo ? Theme.sizeCard : Theme.sizeBody; font.weight: Font.Bold
                     wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
                 }
-                Text {
+                Text { textFormat: Text.PlainText;
                     visible: detailPane.detail !== null
                     text: detailPane.detail ? Logic.shortRev(detailPane.detail.revision) + " · " + detailPane.variants.length + " variants" : ""
                     color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeCaption
                 }
-                Text { visible: page.backend.loadingRepo; text: "Resolving files…"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
+                PageState {
+                    Layout.fillWidth:true
+                    phase:page.backend.readErrors && page.backend.readErrors.repo ? "error" : page.backend.loadingRepo ? "loading" : "ready"
+                    message:page.backend.readErrors && page.backend.readErrors.repo ? page.backend.readErrors.repo : "正在读取文件列表…"
+                    onRetry:page.backend.openRepo(page.selectedRepo)
+                }
                 ListView {
                     id: variantList
                     Layout.fillWidth: true
@@ -165,10 +174,10 @@ ColumnLayout {
                             spacing: 8
                             Rectangle { width: 14; height: 14; radius: 7; color: "transparent"; border.color: v.chosen ? Theme.accent : Theme.border; border.width: 2
                                 Rectangle { anchors.centerIn: parent; width: 6; height: 6; radius: 3; color: Theme.accent; visible: v.chosen } }
-                            Text { text: v.modelData.name; color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                            Text { textFormat: Text.PlainText; text: v.modelData.name; color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                             Pill { visible: v.modelData.name === detailPane.recommended; text: "Recommended"; kind: "ready" }
                             Pill { text: v.fitState; kind: v.fitState === "fits" ? "neutral" : v.fitState === "tight" ? "pending" : "error"; visible: v.fitState !== "fits" }
-                            Text { text: Logic.gib(v.modelData.size); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl }
+                            Text { textFormat: Text.PlainText; text: Logic.gib(v.modelData.size); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl }
                         }
                         MouseArea { anchors.fill: parent; onClicked: page.selectedVariant = v.modelData.name }
                     }
@@ -202,8 +211,8 @@ ColumnLayout {
             anchors.margins: 14
             spacing: 10
             RowLayout {
-                Text { text: "Downloads"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; Layout.fillWidth: true }
-                Text { text: page.backend.downloads.filter(function (d) { return d.state === "running" }).length + " active"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                Text { textFormat: Text.PlainText; text: "Downloads"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; Layout.fillWidth: true }
+                Text { textFormat: Text.PlainText; text: page.backend.downloads.filter(function (d) { return d.state === "running" }).length + " active"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
             }
             GridLayout {
                 columns: 2
@@ -219,11 +228,11 @@ ColumnLayout {
                         Layout.preferredWidth: 1
                         spacing: 4
                         RowLayout {
-                            Text { text: dl.modelData.repo; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold; elide: Text.ElideMiddle; Layout.fillWidth: true }
-                            Text { text: dl.modelData.state === "done" ? "Done" : Math.floor(100 * dl.modelData.progress) + "%"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                            Text { textFormat: Text.PlainText; text: dl.modelData.repo; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                            Text { textFormat: Text.PlainText; text: dl.modelData.state === "done" ? "Done" : Math.floor(100 * dl.modelData.progress) + "%"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
                         }
                         ProgressLine { Layout.fillWidth: true; value: dl.modelData.progress }
-                        Text {
+                        Text { textFormat: Text.PlainText;
                             text: dl.modelData.state + " · " + Logic.gib(dl.modelData.done) + " / " + Logic.gib(dl.modelData.expected)
                             color: dl.modelData.state === "failed" ? Theme.errorText : Theme.muted
                             font.family: Theme.font; font.pixelSize: Theme.sizeCaption

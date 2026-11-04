@@ -11,8 +11,8 @@ ColumnLayout {
     spacing: 18
 
     PageHeader {
-        title: "Recipes"
-        subtitle: "Curated by Raytone AI Lab. Models, engines and parameters tested together on this machine."
+        title: "配方"
+        subtitle: "签名配方的模型、引擎与参数组合。声明平台与本机适用性分别标注。"
         Pill {
             text: page.backend.instances.filter(function (i) { return i.ready }).length + " running"
             kind: "ready"
@@ -20,8 +20,8 @@ ColumnLayout {
         }
     }
 
-    Text {
-        visible: page.backend.recipes.length === 0
+    Text { textFormat: Text.PlainText;
+        visible: page.backend.recipes.length === 0 && !page.backend.pageState
         text: page.backend.refusedRecipes.length ? "No recipe passed its signature check." : "No recipes available."
         color: Theme.muted
         font.family: Theme.font
@@ -53,7 +53,7 @@ ColumnLayout {
                     spacing: 10
                     RowLayout {
                         Layout.fillWidth: true
-                        Text {
+                        Text { textFormat: Text.PlainText;
                             text: "RAYTONE AI LAB · SIGNED RECIPE"
                             color: Theme.muted
                             font.family: Theme.font
@@ -64,12 +64,12 @@ ColumnLayout {
                         }
                         Pill {
                             text: card.modelData.running ? "Running" : card.fetching ? "Downloading…"
-                                : card.action === "conflict" ? "Conflict" : card.modelData.state === "ready" ? "Ready" : "Not downloaded"
+                                : card.action === "conflict" ? "Conflict" : card.modelData.state === "ready" ? "就绪" : "Not downloaded"
                             kind: card.modelData.running || card.modelData.state === "ready" && card.action !== "conflict" ? "ready"
                                 : card.fetching ? "pending" : card.action === "conflict" ? "error" : "neutral"
                         }
                     }
-                    Text {
+                    Text { textFormat: Text.PlainText;
                         // Bounded, like the description and the source line below. A card has to
                         // keep room for its Apply button whatever the recipe says, and these three
                         // are the only unbounded text on it -- the trio's title is 69 characters,
@@ -89,7 +89,7 @@ ColumnLayout {
                         ToolTip.visible: titleHover.hovered && titleText.truncated
                         ToolTip.text: titleText.text
                     }
-                    Text {
+                    Text { textFormat: Text.PlainText;
                         // Only the featured card shows this, and it runs to 917 characters on the
                         // trio -- a wall of text where the card is meant to be a summary.
                         id: descriptionText
@@ -126,7 +126,7 @@ ColumnLayout {
                         // the full width, which is also the existing look when it all fits.
                         Layout.fillWidth: true
                         spacing: 18
-                        Text {
+                        Text { textFormat: Text.PlainText;
                             // width, not Layout.fillWidth: a Flow positions its children at their
                             // own widths rather than distributing space, so capping it here is what
                             // makes the list wrap instead of overflow. implicitWidth is the
@@ -147,9 +147,15 @@ ColumnLayout {
                         Text { width: Math.min(implicitWidth, facts.width); text: "<b>" + card.modelData.memory_gib + " GiB</b> memory"; textFormat: Text.StyledText; wrapMode: Text.Wrap; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
                         Text { width: Math.min(implicitWidth, facts.width); text: "<b>" + card.modelData.disk_gib + " GiB</b> disk"; textFormat: Text.StyledText; wrapMode: Text.Wrap; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
                     }
+                    Text {
+                        Layout.fillWidth:true;wrapMode:Text.Wrap;textFormat:Text.PlainText
+                        text:"声明平台："+(card.modelData.platforms||[]).join(", ")+" · "+(card.modelData.applicability ? card.modelData.applicability.message : "本机适用性未知。")
+                        color:card.modelData.applicability && card.modelData.applicability.canApply ? Theme.muted : Theme.pendingText
+                        font.family:Theme.font;font.pixelSize:Theme.sizeCaption
+                    }
                     RowLayout {
                         Layout.fillWidth: true
-                        Text {
+                        Text { textFormat: Text.PlainText;
                             // Shares its row with Apply, and runs to 164 characters, so left to
                             // itself it is what pushes the button off the card.
                             id: sourceText
@@ -169,10 +175,10 @@ ColumnLayout {
                         }
                         RButton {
                             variant: card.action === "stop" ? "danger" : "primary"
-                            text: card.action === "stop" ? (page.backend.busy === "recipe:" + card.modelData.id ? "Stopping…" : "Stop")
-                                : card.action === "apply" ? (page.backend.busy === "recipe:" + card.modelData.id ? "Starting…" : "Apply")
-                                : card.action === "conflict" ? "Apply" : (card.fetching ? "Downloading…" : "Download")
-                            enabled: page.backend.busy === "" && !card.fetching && card.action !== "conflict"
+                            text: card.action === "stop" ? (page.backend.busy === "recipe:" + card.modelData.id ? "Stopping…" : "停止")
+                                : card.action === "apply" ? (page.backend.busy === "recipe:" + card.modelData.id ? "Starting…" : "应用")
+                                : card.action === "conflict" ? "应用" : (card.fetching ? "Downloading…" : "下载")
+                            enabled: page.backend.busy === "" && !card.fetching && card.action !== "conflict" && (card.action !== "apply" || (!!card.modelData.applicability && card.modelData.applicability.canApply))
                             onClicked: {
                                 if (card.action === "download") page.backend.fetchRecipe(card.modelData.id)
                                 else page.backend.act("recipe:" + card.modelData.id,

@@ -10,6 +10,8 @@ ColumnLayout {
     property var backend
     property bool streaming: false
     property string lastStats: ""
+    property string submitted: ""
+    property string selectedModel: ""
     readonly property var ready: Logic.chatModels(page.backend.instances)
     spacing: 14
 
@@ -22,6 +24,7 @@ ColumnLayout {
         var history = []
         for (var i = 0; i < messages.count; i++) history.push({ role: messages.get(i).role, content: messages.get(i).content })
         messages.append({ role: "assistant", content: "" })
+        page.submitted = text
         input.text = ""
         streaming = true
         lastStats = ""
@@ -45,25 +48,28 @@ ColumnLayout {
         }
         function onChatEnded() { page.streaming = false }
         function onChatError(message) {
+            if(input.text === "") input.text=page.submitted
             page.streaming = false
             var last = messages.count - 1
             if (last < 0) return
-            messages.setProperty(last, "content", "! " + message)
+            messages.setProperty(last, "content", (messages.get(last).content ? messages.get(last).content+"\n\n" : "")+"! "+message)
         }
     }
 
     PageHeader {
-        title: "Chat"
-        subtitle: "Try a running model before you hand it to an agent."
+        title: "对话"
+        subtitle: "先试用已就绪的本机对话模型，再连接智能体。"
         RComboBox {
             id: model
+            onActivated: page.selectedModel=currentText
+            currentIndex: page.selectedModel ? page.ready.map(function(i){return i.served_name}).indexOf(page.selectedModel) : (page.ready.length?0:-1)
             model: page.ready.map(function (i) { return i.served_name })
             implicitWidth: 260
             enabled: page.ready.length > 0
-            displayText: page.ready.length ? currentText : "No model running"
+            displayText: page.ready.length ? currentText : "暂无就绪模型"
         }
         // not while a reply streams in: its deltas belong to the conversation on screen
-        RButton { text: "New chat"; enabled: !page.streaming; onClicked: { messages.clear(); page.lastStats = "" } }
+        RButton { text: "新对话"; enabled: !page.streaming; onClicked: { messages.clear(); page.lastStats = "" } }
     }
 
     Rectangle {
@@ -72,7 +78,7 @@ ColumnLayout {
         radius: Theme.radiusCard
         color: Theme.surface
         border.color: Theme.border
-        Text {
+        Text { textFormat: Text.PlainText;
             anchors.centerIn: parent
             visible: messages.count === 0
             text: page.ready.length ? "Ask " + model.currentText + " anything." : "Start a model on Recipes or Local models to chat."
@@ -138,7 +144,8 @@ ColumnLayout {
                 anchors.bottomMargin: 6
                 TextArea {
                     id: input
-                    placeholderText: "Message the model (Enter to send, Shift+Enter for a new line)"
+                    objectName: "chatDraft"
+                    placeholderText: "输入消息（Enter 发送，Shift+Enter 换行）"
                     placeholderTextColor: Theme.muted
                     color: Theme.text
                     font.family: Theme.font
@@ -151,10 +158,10 @@ ColumnLayout {
         }
         RButton {
             variant: page.streaming ? "danger" : "primary"
-            text: page.streaming ? "Stop" : "Send"
+            text: page.streaming ? "停止" : "发送"
             enabled: page.streaming || (input.text.trim() !== "" && page.ready.length > 0)
             onClicked: page.streaming ? page.backend.stopChat() : page.send()
         }
     }
-    Text { text: page.lastStats; visible: text !== ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+    Text { textFormat: Text.PlainText; text: page.lastStats; visible: text !== ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
 }

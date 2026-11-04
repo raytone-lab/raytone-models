@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+"""Real Qt visual/state/input contracts with an explicitly isolated CLI fixture."""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+root=Path(__file__).resolve().parents[2]
+with tempfile.TemporaryDirectory(prefix='models-product-probe-') as tmp:
+    cfg=Path(tmp);shutil.copytree(root/'app',cfg/'app')
+    shutil.copyfile(Path(__file__).with_suffix('.qml'),cfg/'shell.qml')
+    cli=cfg/'fixture-cli'
+    cli.write_text('''#!/usr/bin/python3
+import sys,json
+c=sys.argv[1]
+if c=='status': d={'kind':'raytone-models','schema':1,'system':{'ready':False},'router':{'ready':False},'device':{'name':'测试夹具（非真实设备）'}}
+elif c=='recipes':d={'recipes':[],'refused':[]}
+elif c=='stats':d={'memory':{'total':4294967296,'available':2147483648}}
+elif c=='hub' and sys.argv[2]=='files':d={'variants':[]}
+else:d=[]
+print(json.dumps(d))
+''');cli.chmod(0o755)
+    env=dict(os.environ,QT_QPA_PLATFORM='offscreen',QT_QUICK_BACKEND='software',RAYTONE_PROBE_CLI=str(cli),
+             XDG_CONFIG_HOME=str(cfg/'config'),XDG_DATA_HOME=str(cfg/'data'),XDG_STATE_HOME=str(cfg/'state'))
+    env.pop('WAYLAND_DISPLAY',None)
+    result=subprocess.run(['quickshell','-p',str(cfg)],env=env,capture_output=True,text=True,timeout=25)
+    output=result.stdout+result.stderr;print(output)
+    sys.exit(0 if result.returncode==0 and 'PRODUCT_PROBE_PASS 11 0' in output and 'PRODUCT_PROBE_FAIL' not in output else 1)

@@ -19,7 +19,7 @@ ColumnLayout {
     spacing: 14
 
     PageHeader {
-        title: "Agents"
+        title: "智能体"
         subtitle: "Connect once: every agent uses whichever model runs. Revert puts their settings back exactly."
         Pill { text: page.backend.agents.length + " coding agents"; kind: "neutral" }
     }
@@ -27,8 +27,8 @@ ColumnLayout {
     Card {
         Layout.fillWidth: true
         padding: 16
-        Text { text: "One local endpoint for every agent"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
-        Text {
+        Text { textFormat: Text.PlainText; text: "One local endpoint for every agent"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
+        Text { textFormat: Text.PlainText;
             text: (page.backend.connection ? page.backend.connection.public : "入口状态读取中") + " · model local → " + (page.current ? page.current.served_name : "no model running yet")
             color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl
         }
@@ -68,7 +68,7 @@ ColumnLayout {
                             ColumnLayout {
                                 spacing: 6
                                 Layout.fillWidth: true
-                                Text { text: a.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold }
+                                Text { textFormat: Text.PlainText; text: a.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold }
                                 // Nothing of a web-only entry is configured here, so "Connected"
                                 // would be a claim about a state that does not exist: say what it is.
                                 Pill {
@@ -76,7 +76,7 @@ ColumnLayout {
                                     text: a.connected ? "Connected" : "Not connected"
                                     kind: a.connected ? "ready" : "neutral"
                                 }
-                                Text {
+                                Text { textFormat: Text.PlainText;
                                     visible: a.modelData.web_only === true
                                     text: a.modelData.note
                                     color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption
@@ -87,13 +87,13 @@ ColumnLayout {
                             Item { Layout.fillWidth: true }
                             RButton {
                                 visible: a.connected && a.modelData.web_only !== true
-                                text: "Revert"
+                                text: "恢复原配置"
                                 enabled: page.backend.busy === ""
                                 onClicked: page.backend.act("agent:" + a.modelData.id, ["agent", "revert", a.modelData.id, "--json"], a.modelData.name + " settings restored")
                             }
                             RButton {
                                 visible: a.connected && a.command !== null && a.modelData.web_only !== true
-                                text: a.modelData.web ? "TUI" : "Launch"
+                                text: a.modelData.web ? "TUI" : "打开"
                                 onClicked: page.backend.launchAgent(a.command)
                             }
                             RButton {
@@ -106,7 +106,7 @@ ColumnLayout {
                             RButton {
                                 visible: a.modelData.connectable === true && !a.connected
                                 variant: "primary"
-                                text: page.backend.busy === "agent:" + a.modelData.id ? "Connecting…" : "Connect"
+                                text: page.backend.busy === "agent:" + a.modelData.id ? "Connecting…" : "连接"
                                 enabled: page.backend.busy === ""
                                 onClicked: page.backend.act("agent:" + a.modelData.id, ["agent", "connect", a.modelData.id, "--json"], a.modelData.name + " connected")
                             }
@@ -114,7 +114,7 @@ ColumnLayout {
                     }
                 }
             }
-            Text { text: "Supported later"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; topPadding: 6 }
+            Text { textFormat: Text.PlainText; text: "Supported later"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; topPadding: 6 }
             GridLayout {
                 columns: 3
                 columnSpacing: 12
@@ -127,12 +127,12 @@ ColumnLayout {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         padding: 14
-                        Text { text: modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
-                        Text { text: modelData.note || "Connection support planned"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                        Text { textFormat: Text.PlainText; text: modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
+                        Text { textFormat: Text.PlainText; text: modelData.note || "Connection support planned"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     }
                 }
             }
-            Text { text: "Unavailable"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; topPadding: 6 }
+            Text { textFormat: Text.PlainText; text: "Unavailable"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; topPadding: 6 }
             GridLayout {
                 columns: 3
                 columnSpacing: 12
@@ -146,8 +146,8 @@ ColumnLayout {
                         Layout.preferredWidth: 1
                         padding: 14
                         color: Theme.raised
-                        Text { text: modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
-                        Text { text: modelData.reason; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                        Text { textFormat: Text.PlainText; text: modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
+                        Text { textFormat: Text.PlainText; text: modelData.reason; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     }
                 }
             }

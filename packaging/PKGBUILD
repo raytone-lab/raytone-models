@@ -1,6 +1,6 @@
 # Built from this checkout: cd packaging && makepkg
 pkgname=raytone-models
-pkgver=0.2.0batch1
+pkgver=0.2.1batch2
 pkgrel=1
 pkgdesc='Raytone Models: local model engines, Hugging Face models, agents and recipes for Omarchy'
 arch=(any)
@@ -29,14 +29,16 @@ package() {
   # the app: a Quickshell configuration, started by raytone-models-app
   local app="$pkgdir/usr/share/raytone-models/app"
   install -d "$app/components" "$app/pages" "$app/brand" "$app/icons"
+  install -m 0644 "$src"/app/models.svg "$app/"
+  install -m 0644 "$src"/app/VisualTokens.js "$app/"
   install -m 0644 "$src"/app/*.qml "$src"/app/qmldir "$src"/app/logic.js "$app/"
   install -m 0644 "$src"/app/components/*.qml "$app/components/"
   install -m 0644 "$src"/app/pages/*.qml "$app/pages/"
   install -m 0644 "$src"/app/brand/*.svg "$app/brand/"
   install -m 0644 "$src"/app/icons/*.svg "$app/icons/"
   ln -s /usr/lib/raytone-models/raytone-models-app "$pkgdir/usr/bin/raytone-models-app"
-  install -Dm0644 "$startdir/raytone-models.desktop" "$pkgdir/usr/share/applications/raytone-models.desktop"
-  install -Dm0644 "$src/app/brand/raytone-symbol-color.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/raytone-models.svg"
+  install -Dm0644 "$startdir/ai.raytone.Models.desktop" "$pkgdir/usr/share/applications/ai.raytone.Models.desktop"
+  install -Dm0644 "$src/app/models.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/raytone-models.svg"
   install -Dm0644 "$startdir/allowed_signers" "$pkgdir/usr/share/raytone-models/allowed_signers"
   install -d "$pkgdir/usr/share/raytone-models/recipes"
   if compgen -G "$src/recipes/*.json" > /dev/null; then install -m 0644 "$src"/recipes/*.json "$src"/recipes/*.json.sig "$pkgdir/usr/share/raytone-models/recipes/"; fi

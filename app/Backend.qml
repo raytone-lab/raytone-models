@@ -21,6 +21,8 @@ Item {
     property var previousStats: null
     property var searchResults: []
     property var repoDetail: null
+    property bool searchAttempted: false
+    property var lastSearch: null
     property bool searching: false
     property bool loadingRepo: false
     property string busy: ""           // the key of the action in flight
@@ -28,6 +30,7 @@ Item {
     property string notice: ""
     property var fetching: ({})        // recipe id -> true while `recipe fetch` runs
     property var readErrors: ({})
+    property var loaded: ({})
     property var connection: null
     readonly property string connectionMessage: !connection ? "正在核对本机模型连接。"
         : (!connection.system.ready ? "系统组件未安装或版本不配套，模型启动、停止和删除暂不可用。"
@@ -38,12 +41,24 @@ Item {
         var next = Object.assign({}, readErrors); next[key] = message; readErrors = next
     }
     function readOk(key) {
+        var seen = Object.assign({}, loaded); seen[key] = true; loaded = seen
         var next = Object.assign({}, readErrors); delete next[key]; readErrors = next
     }
     function readList(key, value) {
         if (!Array.isArray(value)) { readFailed(key, "列表格式无效。"); return }
         root[key] = value; readOk(key)
     }
+
+    function pageState(keys, count, emptyMessage) {
+        var failed=keys.filter(function(k) { return !!root.readErrors[k] })
+        if (failed.length) {
+            var message=failed.map(function(k) { return root.readErrors[k] }).join("\n")
+            return {phase: /permission|authori[sz]|authentication|cancel|权限|授权/i.test(message) ? "denied" : "error", message:message}
+        }
+        if(keys.some(function(k) { return !root.loaded[k] })) return {phase:"loading",message:"正在读取实际状态…"}
+        return {phase:count===0 ? "empty" : "ready",message:count===0 ? emptyMessage : ""}
+    }
+    function mutationAvailable() { return !!(connection && connection.system && connection.system.ready) }
 
     signal chatDelta(string text)
     signal chatReasoning(string text)
@@ -76,6 +91,7 @@ Item {
     function act(key, args, doneNotice) {
         if (actionProc.running) return
         busy = key
+        notice = ""
         lastError = ""
         actionProc.doneNotice = doneNotice || ""
         actionProc.command = [cli].concat(args)
@@ -96,17 +112,24 @@ Item {
     property int repoSeq: 0
 
     function search(query, kind) {
+        lastSearch = {query:query,kind:kind}
         searching = true
-        searchResults = []
+        searchAttempted = true
+        var seen=Object.assign({},loaded);delete seen.search;loaded=seen
+        readOk("search-request")
+        var errors=Object.assign({}, readErrors);delete errors.search;readErrors=errors
         var args = [cli, "hub", "search", query, "--json"]
         if (kind) args.splice(4, 0, "--kind", kind)
         searchSeq++
         hubComponent.createObject(root, { kind: "search", seq: searchSeq, command: args }).running = true
     }
 
+    function retrySearch() { if(lastSearch && !searching) search(lastSearch.query,lastSearch.kind) }
+
     function openRepo(repo) {
         loadingRepo = true
         repoDetail = null
+        var errors=Object.assign({}, readErrors);delete errors.repo;readErrors=errors
         repoSeq++
         hubComponent.createObject(root, { kind: "repo", seq: repoSeq, command: [cli, "hub", "files", repo, "--json"] }).running = true
     }
@@ -251,27 +274,28 @@ Item {
     }
     Component {
         id: hubComponent
-        Process {
+        ReadProcess {
             id: hubProc
             property string kind: ""
             property int seq: 0
             readonly property bool latest: seq === (kind === "search" ? root.searchSeq : root.repoSeq)
-            stdout: StdioCollector {
-                waitForEnd: true
-                onStreamFinished: {
-                    if (!hubProc.latest) return
-                    if (hubProc.kind === "search") root.searchResults = root.parse(text, [])
-                    else root.repoDetail = root.parse(text, null)
-                }
+            function finish() {
+                if(latest && kind === "search") root.searching=false
+                if(latest && kind === "repo") root.loadingRepo=false
+                destroy(1000)
             }
-            stderr: StdioCollector { waitForEnd: true; onStreamFinished: if (hubProc.latest && String(text).trim()) root.lastError = String(text).trim() }
-            onExited: {
-                if (latest && kind === "search") root.searching = false
-                if (latest && kind === "repo") root.loadingRepo = false
-                destroy(1000)       // after the collectors have delivered
+            onResult: function(text) {
+                if(!latest) { finish();return }
+                var value=root.parse(text,null)
+                if(kind === "search" && Array.isArray(value)) { root.searchResults=value;root.readOk("search") }
+                else if(kind === "repo" && value && Array.isArray(value.variants)) { root.repoDetail=value;root.readOk("repo") }
+                else root.readFailed(kind,"返回的数据格式无效，请重试。")
+                finish()
             }
+            onFailed: function(message) { if(latest)root.readFailed(kind,message);finish() }
         }
     }
+
     Process {
         id: actionProc
         property string doneNotice: ""
@@ -290,27 +314,33 @@ Item {
         onExited: function(exitCode) {
             root.busy = ""
             if (exitCode !== 0 && !root.lastError) root.lastError = "That did not work (exit " + exitCode + ")"
-            if (exitCode === 0 && doneNotice) root.notice = doneNotice
+            if (exitCode === 0 && !root.lastError && doneNotice) root.notice = doneNotice
             root.refresh()
         }
     }
     Process {
         id: chatProc
+        property bool reportedError: false
+        property string diagnostic: ""
         property string request: ""
         command: [root.cli, "chat"]
         stdinEnabled: true
-        onStarted: { write(request); stdinEnabled = false }
+        onStarted: { reportedError=false;diagnostic="";write(request); stdinEnabled = false }
         stdout: SplitParser {
             onRead: function(line) {
                 var d = root.parse(line, null)
                 if (!d) return
                 if (d.delta !== undefined) root.chatDelta(d.delta)
                 else if (d.reasoning !== undefined) root.chatReasoning(d.reasoning)
-                else if (d.error !== undefined) root.chatError(d.error)
+                else if (d.error !== undefined) { chatProc.reportedError=true;root.chatError(d.error) }
                 else if (d.done) root.chatDone(d)
             }
         }
-        onExited: { stdinEnabled = true; root.chatEnded() }
+        stderr: StdioCollector { waitForEnd:true;onStreamFinished:chatProc.diagnostic=String(text).trim().slice(-1000) }
+        onExited: function(code) {
+            if(code!==0 && !reportedError) root.chatError(diagnostic || "对话命令未完成（退出码 "+code+"）。")
+            stdinEnabled = true; root.chatEnded()
+        }
     }
     Process {
         id: videoProc

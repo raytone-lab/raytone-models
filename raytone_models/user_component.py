@@ -11,7 +11,7 @@ import shutil
 import stat
 import tempfile
 
-from .system_contract import VERSION
+from . import USER_VERSION as VERSION
 
 
 def sha(data):
@@ -122,7 +122,7 @@ class Component:
         after = {'current': {'link': 'releases/'+identity}}
         for key, name in (('cli','raytone-models'),('app','raytone-models-app')):
             after[key] = file_value('#!/bin/sh\n# Raytone Models managed entry\nexec '+shlex.quote(str(self.root/'current/bin'/name))+' "$@"\n',0o755)
-        after['desktop'] = file_value('[Desktop Entry]\nType=Application\nName=模型控制台\nExec="'+str(self.targets['app'])+'"\nIcon='+str(self.root/'current/app/brand/raytone-symbol-color.svg')+'\nTerminal=false\nStartupWMClass=ai.raytone.Models\nCategories=Utility;\n')
+        after['desktop'] = file_value('[Desktop Entry]\nType=Application\nName=模型控制台\nExec="'+str(self.targets['app'])+'"\nIcon='+str(self.root/'current/app/models.svg')+'\nTerminal=false\nStartupWMClass=ai.raytone.Models\nCategories=Utility;\n')
         old={}
         for key,path in self.targets.items():
             self.safe(path);old[key]=encoded(path)

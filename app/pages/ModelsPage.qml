@@ -30,13 +30,13 @@ ColumnLayout {
     }
 
     PageHeader {
-        title: "Local models"
-        subtitle: "Everything in the model store, at the commits you downloaded."
+        title: "本地模型"
+        subtitle: "已下载的模型文件与版本；文件存在不代表本机已验证可运行。"
         Pill { text: page.backend.models.length + " models"; kind: "neutral" }
     }
 
-    Text {
-        visible: page.backend.models.length === 0
+    Text { textFormat: Text.PlainText;
+        visible: page.backend.models.length === 0 && !page.backend.pageState
         text: "Your model store is empty. Find a model on Discover, or download a recipe."
         color: Theme.muted
         font.family: Theme.font
@@ -77,15 +77,15 @@ ColumnLayout {
                     ColumnLayout {
                         spacing: 2
                         Layout.fillWidth: true
-                        Text { text: Logic.modelName(row.modelData.repo); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                        Text {
+                        Text { textFormat: Text.PlainText; text: Logic.modelName(row.modelData.repo); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                        Text { textFormat: Text.PlainText;
                             text: Logic.repoOrg(row.modelData.repo) + " · " + Logic.shortRev(row.modelData.revision)
                             color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeCaption
                         }
                     }
-                    Text { text: Logic.gib(row.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight }
-                    Text { text: row.modelData.format; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 78 }
-                    Text { text: row.modelData.quant || "Not specified"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 118; elide: Text.ElideRight }
+                    Text { textFormat: Text.PlainText; text: Logic.gib(row.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight }
+                    Text { textFormat: Text.PlainText; text: row.modelData.format; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 78 }
+                    Text { textFormat: Text.PlainText; text: row.modelData.quant || "Not specified"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 118; elide: Text.ElideRight }
                     Pill {
                         text: row.draft ? "draft" : row.state
                         kind: row.draft ? "neutral" : row.state === "ready" ? "ready" : row.state === "unverified" ? "neutral" : "pending"
@@ -94,7 +94,7 @@ ColumnLayout {
                     RButton {
                         dense: true
                         variant: "primary"
-                        text: page.backend.busy === "run:" + row.modelData.repo ? "Starting…" : "Run"
+                        text: page.backend.busy === "run:" + row.modelData.repo ? "Starting…" : "运行"
                         enabled: row.runnable && page.backend.busy === ""
                         ToolTip.visible: hovered && !row.runnable
                         ToolTip.text: row.draft ? "A speculative-decoding draft: it runs inside a recipe, next to its model"
@@ -109,7 +109,7 @@ ColumnLayout {
                     RButton {
                         dense: true
                         variant: "danger"
-                        text: "Delete"
+                        text: "删除"
                         enabled: page.backend.busy === ""
                         onClicked: { page.pendingDelete = row.modelData; confirm.open() }
                     }
@@ -123,7 +123,7 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: page.backend.ollamaModels.length > 0
         spacing: 6
-        Text { text: "OLLAMA LIBRARY"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
+        Text { textFormat: Text.PlainText; text: "OLLAMA LIBRARY"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
         ListView {
             id: olist
             Layout.fillWidth: true
@@ -138,14 +138,14 @@ ColumnLayout {
                 width: olist.width
                 height: 36
                 spacing: 14
-                Text { text: orow.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                Text { text: Logic.gib(orow.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight }
-                Text { text: (orow.modelData.parameters || "") + " " + (orow.modelData.quant || ""); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 118 }
+                Text { textFormat: Text.PlainText; text: orow.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                Text { textFormat: Text.PlainText; text: Logic.gib(orow.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight }
+                Text { textFormat: Text.PlainText; text: (orow.modelData.parameters || "") + " " + (orow.modelData.quant || ""); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 118 }
                 Pill { text: orow.modelData.loaded ? "running" : "on disk"; kind: orow.modelData.loaded ? "ready" : "neutral"; Layout.preferredWidth: 110 }
                 RButton {
                     dense: true
                     variant: orow.modelData.loaded ? "danger" : "primary"
-                    text: page.backend.busy === "ollama:" + orow.modelData.name ? "…" : (orow.modelData.loaded ? "Stop" : "Run")
+                    text: page.backend.busy === "ollama:" + orow.modelData.name ? "…" : (orow.modelData.loaded ? "停止" : "运行")
                     enabled: page.backend.busy === ""
                     onClicked: page.backend.act("ollama:" + orow.modelData.name,
                                                 ["ollama", orow.modelData.loaded ? "stop" : "run", orow.modelData.name, "--json"],
@@ -163,8 +163,8 @@ ColumnLayout {
         title: "Delete this model?"
         standardButtons: Dialog.Cancel | Dialog.Ok
         background: Rectangle { radius: Theme.radiusCard; color: Theme.surface; border.color: Theme.border }
-        header: Text { text: "Delete this model?"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold; padding: 20 }
-        contentItem: Text {
+        header: Text { textFormat: Text.PlainText; text: "Delete this model?"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold; padding: 20 }
+        contentItem: Text { textFormat: Text.PlainText;
             text: page.pendingDelete ? page.pendingDelete.repo + " at " + Logic.shortRev(page.pendingDelete.revision)
                                        + "\n" + Logic.gib(page.pendingDelete.size) + " will be freed. Running instances keep it until they stop."
                                      : ""

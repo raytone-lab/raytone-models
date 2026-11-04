@@ -8,7 +8,7 @@ ComboBox {
     implicitHeight: 36
     font.family: Theme.font
     font.pixelSize: Theme.sizeControl
-    contentItem: Text {
+    contentItem: Text { textFormat: Text.PlainText;
         leftPadding: 16
         rightPadding: 30
         text: box.displayText
@@ -17,7 +17,7 @@ ComboBox {
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
-    indicator: Text {
+    indicator: Text { textFormat: Text.PlainText;
         x: box.width - width - 14
         y: (box.height - height) / 2
         text: "▾"
@@ -34,7 +34,7 @@ ComboBox {
         required property var modelData
         required property int index
         width: box.width
-        contentItem: Text { text: modelData; color: Theme.text; font: box.font; elide: Text.ElideRight }
+        contentItem: Text { textFormat: Text.PlainText; text: modelData; color: Theme.text; font: box.font; elide: Text.ElideRight }
         background: Rectangle { color: highlighted ? Theme.raised : Theme.surface; radius: Theme.radiusOption }
         highlighted: box.highlightedIndex === index
     }

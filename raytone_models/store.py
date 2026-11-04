@@ -75,9 +75,17 @@ def _format(files):
 def list_models(hf_home=None):
     hub = pathlib.Path(hf_home or home()) / "hub"
     out = []
-    if not hub.is_dir():
+    try:
+        metadata = hub.stat()
+    except FileNotFoundError:
         return out
-    for root in sorted(hub.glob("models--*--*")):
+    if not hub.is_dir():
+        raise OSError('模型缓存路径不是目录。')
+    # scandir must expose permission failures instead of reporting a normal empty store.
+    import os
+    with os.scandir(hub) as scan:
+        roots = [pathlib.Path(e.path) for e in scan if e.name.startswith('models--') and e.is_dir()]
+    for root in sorted(roots):
         repo = root.name[len("models--"):].replace("--", "/", 1)
         incomplete = sum(1 for _ in (root / "blobs").glob("*.incomplete")) if (root / "blobs").is_dir() else 0
         for snap in sorted((root / "snapshots").glob("*")) if (root / "snapshots").is_dir() else []:

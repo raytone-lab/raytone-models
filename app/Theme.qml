@@ -1,65 +1,103 @@
 pragma Singleton
-
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "VisualTokens.js" as Defaults
 
-// Raytone Models tokens (design/DESIGN.md), dark or light as the current Omarchy theme declares.
 QtObject {
     id: root
-
-    readonly property string themeFile: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
-    property string mode: "dark"
-    readonly property bool dark: mode !== "light"
-
-    readonly property color background: dark ? "#111C32" : "#F6F7FA"
-    readonly property color rail: dark ? "#0D172B" : "#EDF0F5"
-    readonly property color surface: dark ? "#182649" : "#FFFFFF"
-    readonly property color raised: dark ? "#1E3052" : "#F0F3F8"
-    readonly property color text: dark ? "#F1F4FA" : "#162547"
-    readonly property color muted: dark ? "#AEBBD1" : "#52617A"
-    readonly property color border: dark ? "#3D5071" : "#8997AE"
-    readonly property color accent: "#DFAE39"
-    readonly property color accentText: "#182649"
-    readonly property color focus: dark ? "#F2C966" : "#806018"
-    readonly property color readyText: dark ? "#9EDBBB" : "#246044"
-    readonly property color readyFill: dark ? "#203D39" : "#E6F2EB"
-    readonly property color pendingText: dark ? "#F2CE87" : "#765217"
-    readonly property color pendingFill: dark ? "#423723" : "#FBEFDA"
-    readonly property color errorText: dark ? "#F4B3B8" : "#9E3547"
-    readonly property color errorFill: dark ? "#432C3C" : "#FBE9EC"
-
-    // No font download: Inter when installed, then the platform's sans (with its CJK fallback).
-    readonly property string font: Qt.fontFamilies().indexOf("Inter") >= 0 ? "Inter"
-                                 : (Qt.fontFamilies().indexOf("Noto Sans") >= 0 ? "Noto Sans" : "sans-serif")
-    readonly property string mono: Qt.fontFamilies().indexOf("JetBrainsMono Nerd Font") >= 0 ? "JetBrainsMono Nerd Font"
-                                 : "monospace"
-
-    readonly property int sizeTelemetry: 36
-    readonly property int sizeTitle: 28
-    readonly property int sizeFeatured: 22
-    readonly property int sizeCard: 18
+    readonly property string home: Quickshell.env("HOME")
+    readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || home + "/.config"
+    readonly property string dataHome: Quickshell.env("XDG_DATA_HOME") || home + "/.local/share"
+    readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || home + "/.local/state"
+    readonly property string themeFile: stateHome + "/omarchy/current/theme/colors.toml"
+    property var tokens: Defaults.tokens
+    property string systemMode: "light"
+    property string preferredMode: "system"
+    // Test renderers may select a mode without writing any system preferences.
+    property string mode: ""
+    property bool reducedMotion: false
+    property bool solidMaterials: false
+    property bool preferenceKnown: false
+    property bool systemModeKnown: false
+    readonly property bool dark: (mode || (preferredMode === "system" ? systemMode : preferredMode)) === "dark"
+    readonly property var palette: dark ? tokens.dark : tokens.light
+    readonly property color background: palette.canvas
+    readonly property color rail: palette.sidebar
+    readonly property color surface: palette.surface
+    readonly property color raised: palette.surface_tinted
+    readonly property color selection: palette.selection
+    readonly property color text: palette.text
+    readonly property color muted: palette.text_muted
+    readonly property color border: palette.separator
+    readonly property color accent: palette.accent
+    readonly property color accentText: palette.on_accent
+    readonly property color focus: palette.accent
+    readonly property color readyText: palette.success
+    readonly property color readyFill: surface
+    readonly property color pendingText: palette.warning
+    readonly property color pendingFill: surface
+    readonly property color errorText: palette.error
+    readonly property color errorFill: surface
+    // Native window and cards use opaque surfaces for both materials; no blur writer.
+    readonly property string font: tokens.typography.qml_family
+    readonly property string mono: "monospace"
+    readonly property int sizeTelemetry: 30
+    readonly property int sizeTitle: tokens.typography.title_px
+    readonly property int sizeFeatured: 20
+    readonly property int sizeCard: 16
     readonly property int sizeNav: 14
-    readonly property int sizeBody: 13
-    readonly property int sizeControl: 12
-    readonly property int sizeCaption: 11
-    readonly property int sizeDense: 10
-
-    readonly property int radiusCard: 14
-    readonly property int radiusCallout: 10
-    readonly property int radiusOption: 8
-
+    readonly property int sizeBody: tokens.typography.body_px
+    readonly property int sizeControl: 13
+    readonly property int sizeCaption: 12
+    readonly property int sizeDense: 11
+    readonly property int radiusCard: tokens.radius.card
+    readonly property int radiusCallout: tokens.radius.control
+    readonly property int radiusOption: tokens.radius.control
     readonly property var logoOnDark: Qt.resolvedUrl("brand/raytone-lockup-reverse.svg")
     readonly property var logoOnLight: Qt.resolvedUrl("brand/raytone-lockup-color.svg")
 
-    readonly property FileView themeView: FileView {
-        path: root.themeFile
-        watchChanges: true
-        printErrors: false
+    function acceptTokens(raw) {
+        try {
+            var value=JSON.parse(raw)
+            if (value.schema !== 1 || !value.typography || !value.radius) return
+            for (var side of ["light","dark"])
+                for (var key of Object.keys(Defaults.tokens.light))
+                    if (!/^#[0-9a-fA-F]{6}$/.test(value[side][key])) return
+            if (typeof value.typography.qml_family !== "string" || value.typography.body_px < 10 || value.typography.body_px > 24) return
+            root.tokens=value
+        } catch(_) {}
+    }
+    function acceptPreference(raw) {
+        try {
+            var value=JSON.parse(raw)
+            if(value.version !== 1 || ["system","light","dark"].indexOf(value.mode)<0 || ["full","reduced"].indexOf(value.motion)<0 || ["frost","solid"].indexOf(value.material)<0) return
+            root.preferredMode=value.mode;root.reducedMotion=value.motion==="reduced";root.solidMaterials=value.material==="solid";root.preferenceKnown=true
+        } catch(_) {} // A failed read keeps the last valid appearance.
+    }
+    function acceptSystemTheme(raw) {
+        var match=String(raw).match(/^\s*(?:mode|theme_type)\s*=\s*["']?(light|dark)["']?\s*$/m)
+        if(match) { root.systemMode=match[1];root.systemModeKnown=true }
+    }
+    readonly property FileView osTokens: FileView {
+        path: root.dataHome + "/raytone/product/current/themes/raytone-models.json"
+        watchChanges: true; printErrors: false
         onFileChanged: reload()
-        onLoaded: {
-            var m = String(text()).match(/^\s*mode\s*=\s*["']?(light|dark)["']?/m)
-            root.mode = m ? m[1] : "dark"
-        }
+        onLoaded: root.acceptTokens(text())
+    }
+    readonly property FileView preferences: FileView {
+        path: root.configHome + "/raytone/appearance.json"
+        watchChanges: true;printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.acceptPreference(text())
+    }
+    readonly property FileView themeView: FileView {
+        path: root.themeFile;watchChanges: true;printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.acceptSystemTheme(text())
+    }
+    readonly property Timer refresh: Timer {
+        interval: 2000;running:true;repeat:true
+        onTriggered: { root.preferences.reload();root.themeView.reload();root.osTokens.reload() }
     }
 }

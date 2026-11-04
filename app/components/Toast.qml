@@ -13,7 +13,7 @@ Rectangle {
     radius: Theme.radiusCallout
     color: error ? Theme.errorFill : Theme.surface
     border.color: error ? Theme.errorText : Theme.border
-    Text {
+    Text { textFormat: Text.PlainText;
         id: label
         anchors.fill: parent
         anchors.margins: 14
@@ -24,7 +24,7 @@ Rectangle {
         font.family: Theme.font
         font.pixelSize: Theme.sizeBody
     }
-    Text {
+    Text { textFormat: Text.PlainText;
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 10

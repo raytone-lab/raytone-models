@@ -26,7 +26,7 @@ class CliTests(unittest.TestCase):
         (root / "trees" / f"{SHA}.json").write_text(json.dumps({"files": {"config.json": {"size": 2}, "m.safetensors": {"size": 1}}}))
         self.helper_calls = []
         self.current = t / "current"
-        self.env = cli.Env(hf_home=self.hf, registry=self.reg, state=t / "state", home=t / "home", current=self.current,
+        self.env = cli.Env(device={'platform':'thor-t5000'}, hf_home=self.hf, registry=self.reg, state=t / "state", home=t / "home", current=self.current,
                            engines={"vllm": {"image": f"vllm/vllm-openai@{DIGEST}"}},
                            helper=lambda args, stdin=None: self.helper_calls.append((args, stdin)) or {"ok": True},
                            probe=lambda url: url.endswith(":18000/v1/models"),

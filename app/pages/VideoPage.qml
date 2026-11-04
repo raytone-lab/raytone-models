@@ -52,16 +52,16 @@ ColumnLayout {
     }
 
     PageHeader {
-        title: "Video"
-        subtitle: "Text to video with sound, generated on this machine."
+        title: "视频"
+        subtitle: "本机视频生成；需要已就绪且适用于当前设备的视频实例。"
         Pill { text: "MiniMax H3"; kind: page.videoModels.length ? "ready" : "neutral" }
     }
 
     Card {
         Layout.fillWidth: true
         visible: page.videoModels.length === 0
-        Text {
-            text: "No video model is running. Start the MiniMax H3 recipe on Recipes; it takes a few minutes to load."
+        Text { textFormat: Text.PlainText;
+            text: "当前没有就绪的视频实例。请在配方中核对声明平台、文件及引擎状态。"
             color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; wrapMode: Text.Wrap; Layout.fillWidth: true
         }
     }
@@ -69,7 +69,7 @@ ColumnLayout {
     Card {
         Layout.fillWidth: true
         spacing: 12
-        Text { text: "DESCRIBE THE VIDEO"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
+        Text { textFormat: Text.PlainText; text: "DESCRIBE THE VIDEO"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 130
@@ -109,9 +109,9 @@ ColumnLayout {
                     width: 16; height: 16; radius: 4
                     color: turbo.checked ? Theme.accent : "transparent"
                     border.color: turbo.checked ? Theme.accent : Theme.border
-                    Text { anchors.centerIn: parent; text: "✓"; visible: turbo.checked; color: Theme.accentText; font.pixelSize: 11; font.weight: Font.Bold }
+                    Text { textFormat: Text.PlainText; anchors.centerIn: parent; text: "✓"; visible: turbo.checked; color: Theme.accentText; font.pixelSize: 11; font.weight: Font.Bold }
                 }
-                contentItem: Text {
+                contentItem: Text { textFormat: Text.PlainText;
                     text: "Turbo (8 steps)"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl
                     leftPadding: turbo.indicator.width + 8; verticalAlignment: Text.AlignVCenter
                 }
@@ -119,7 +119,7 @@ ColumnLayout {
             Item { Layout.fillWidth: true }
             RButton {
                 variant: page.generating ? "danger" : "primary"
-                text: page.generating ? "Stop" : "Generate"
+                text: page.generating ? "停止" : "Generate"
                 enabled: page.generating || (prompt.text.trim() !== "" && page.videoModels.length > 0)
                 onClicked: page.generating ? page.backend.stopVideo() : page.generate()
             }
@@ -127,7 +127,7 @@ ColumnLayout {
         RowLayout {
             Layout.fillWidth: true
             visible: page.status !== ""
-            Text {
+            Text { textFormat: Text.PlainText;
                 text: page.status
                 color: page.failed ? Theme.errorText : Theme.muted
                 font.family: Theme.font; font.pixelSize: Theme.sizeBody; wrapMode: Text.Wrap; Layout.fillWidth: true
@@ -139,8 +139,8 @@ ColumnLayout {
     Card {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        Text { text: "RECENT VIDEOS"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
-        Text {
+        Text { textFormat: Text.PlainText; text: "RECENT VIDEOS"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
+        Text { textFormat: Text.PlainText;
             visible: files.count === 0
             text: "Videos you generate are saved in ~/Videos/Raytone."
             color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody
@@ -160,14 +160,14 @@ ColumnLayout {
                 required property int index
                 visible: index < 5
                 Layout.fillWidth: true
-                Text { text: fileName; color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeControl; elide: Text.ElideMiddle; Layout.fillWidth: true }
-                Text { text: Math.round(fileSize / 1048576 * 10) / 10 + " MiB"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                Text { textFormat: Text.PlainText; text: fileName; color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeControl; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                Text { textFormat: Text.PlainText; text: Math.round(fileSize / 1048576 * 10) / 10 + " MiB"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
                 RButton { text: "Open"; dense: true; onClicked: page.backend.open(filePath) }
             }
         }
     }
 
-    Text {
+    Text { textFormat: Text.PlainText;
         text: "Video model: MiniMax H3 by MiniMax, open weights (Comfy-Org's repackage), run locally with ComfyUI."
         color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true
     }

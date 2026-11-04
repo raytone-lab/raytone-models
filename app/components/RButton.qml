@@ -16,7 +16,7 @@ Button {
     hoverEnabled: true
     Accessible.name: text
 
-    contentItem: Text {
+    contentItem: Text { textFormat: Text.PlainText;
         text: control.text
         font: control.font
         color: !control.enabled ? Theme.muted

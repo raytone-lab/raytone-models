@@ -123,6 +123,7 @@ class Env:
     video_poll: float = 1.0
     web_poll: float = 0.5
     current: pathlib.Path = router.CURRENT
+    device: dict = None
 
     def __post_init__(self):
         self.hf_home = pathlib.Path(self.hf_home or store.home())
@@ -362,6 +363,9 @@ def cmd_recipes(env):
         st["running"] = len(matching) == len(r.components)
         st["conflicts"] = conflicts
         st["description"] = r.description
+        from .device import detect, applicability
+        st["applicability"] = applicability(r.platforms, env.device or detect())
+        st["platforms"] = list(r.platforms)
         out.append(st)
     return {"recipes": out, "refused": bad}
 
@@ -369,6 +373,9 @@ def cmd_recipes(env):
 def cmd_recipe(a, env):
     r = _recipe(env, a.id)
     if a.action == "apply":
+        from .device import detect, applicability
+        support = applicability(r.platforms, env.device or detect())
+        if not support['canApply']:raise SystemExit(support['message'])
         used = {d.get("port") for d in _registered(env)}
         try:
             specs = recipes.specs(r, env.hf_home, used_ports=used, images=env.engines)

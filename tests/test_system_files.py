@@ -30,7 +30,7 @@ class SystemFilesTests(unittest.TestCase):
         self.assertIn("focuswindow", launcher)
         self.assertIn('"--no-duplicate", "-p"', launcher)
         self.assertIn('RAYTONE_MODELS_CLI=str(cli)', launcher)
-        desktop = (ROOT / "packaging/raytone-models.desktop").read_text()
+        desktop = (ROOT / "packaging/ai.raytone.Models.desktop").read_text()
         self.assertIn("Exec=raytone-models-app", desktop)
         self.assertIn("Icon=raytone-models", desktop)
 
@@ -61,7 +61,7 @@ class SystemFilesTests(unittest.TestCase):
 
     def test_the_package_installs_the_app(self):
         pkg = (ROOT / "packaging/PKGBUILD").read_text()
-        for needle in ("usr/share/raytone-models/app", "raytone-models-app", "applications/raytone-models.desktop",
+        for needle in ("usr/share/raytone-models/app", "raytone-models-app", "applications/ai.raytone.Models.desktop",
                        "icons/hicolor/scalable/apps/raytone-models.svg", "quickshell", "wl-clipboard"):
             self.assertIn(needle, pkg)
         self.assertNotIn("plugin/raytone.models", pkg)
