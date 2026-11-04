@@ -8,10 +8,13 @@ ScrollView {
     id: scroll
     property var backend
     contentWidth: availableWidth
+    contentHeight: page.implicitHeight
+    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
     clip: true
     ColumnLayout {
     id: page
     width: scroll.availableWidth
+    height: implicitHeight
     property var backend: scroll.backend
     readonly property var about: ({
         "vllm": "OpenAI / Anthropic API；量化与推测解码支持取决于镜像和平台。",
@@ -54,7 +57,6 @@ ScrollView {
             }
         }
     }
-    Item { Layout.fillHeight: true }
 }
 
 }

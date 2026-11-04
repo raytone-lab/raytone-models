@@ -9,10 +9,13 @@ ScrollView {
     id: scroll
     property var backend
     contentWidth: availableWidth
+    contentHeight: page.implicitHeight
+    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
     clip: true
     ColumnLayout {
     id: page
     width: scroll.availableWidth
+    height: implicitHeight
     property var backend: scroll.backend
     property var history: []          // recent tokens/s samples of the first instance
     readonly property var first: page.backend.instances.length ? page.backend.instances[0] : null
@@ -148,15 +151,14 @@ ScrollView {
                 spacing: 4
                 Layout.fillWidth: true
                 Text { textFormat: Text.PlainText; text: "本机模型入口（配置值）"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold; Layout.fillWidth: true; wrapMode: Text.Wrap }
-                Text { textFormat: Text.PlainText; text: (page.backend.connection ? page.backend.connection.public : "入口状态读取中"); color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeCard; font.weight: Font.DemiBold }
+                Text { textFormat: Text.PlainText; text: (page.backend.connection && page.backend.connection.public ? page.backend.connection.public : "入口状态读取中"); color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeCard; font.weight: Font.DemiBold }
                 Text { textFormat: Text.PlainText; text: "仅在模型路由与实例就绪后可用"; color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl; Layout.fillWidth: true; wrapMode: Text.Wrap }
             }
             Item { Layout.fillWidth: true }
-            RButton { text: "复制"; enabled: !!page.backend.connection; onClicked: page.backend.copy((page.backend.connection ? page.backend.connection.public : "入口状态读取中")) }
+            RButton { text: "复制"; enabled: !!page.backend.connection; onClicked: page.backend.copy((page.backend.connection && page.backend.connection.public ? page.backend.connection.public : "入口状态读取中")) }
         }
     }
 
-    Item { Layout.fillHeight: true }
 }
 
 }
