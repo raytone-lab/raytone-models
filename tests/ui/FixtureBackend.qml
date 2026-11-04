@@ -6,6 +6,9 @@ import Quickshell.Io
 // rendering the pages without the CLI.
 Item {
     id: root
+    property string readError: ""
+    property string connectionMessage: ""
+    property var connection: ({public: "http://127.0.0.1:8090/v1"})
     property string dataDir: Quickshell.env("RAYTONE_UI_DATA")
     property var recipes: parse(recipesFile.text()).recipes || []
     property var refusedRecipes: []

@@ -1,12 +1,14 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
+import "components"
 
 // Everything the app knows comes from `raytone-models ... --json`; the app keeps no model state of
 // its own. Lists refresh while the window is open; one action runs at a time.
 Item {
     id: root
 
-    property string cli: "raytone-models"
+    property string cli: Quickshell.env("RAYTONE_MODELS_CLI") || "/usr/lib/raytone-models/raytone-models"
     property var recipes: []
     property var refusedRecipes: []
     property var models: []
@@ -25,6 +27,23 @@ Item {
     property string lastError: ""
     property string notice: ""
     property var fetching: ({})        // recipe id -> true while `recipe fetch` runs
+    property var readErrors: ({})
+    property var connection: null
+    readonly property string connectionMessage: !connection ? "正在核对本机模型连接。"
+        : (!connection.system.ready ? "系统组件未安装或版本不配套，模型启动、停止和删除暂不可用。"
+           : (!connection.router.ready ? "本机模型连接尚未就绪（" + connection.router.code + "）。" : ""))
+    readonly property string readError: Object.keys(readErrors).map(function(k) { return k + ": " + readErrors[k] }).join("\n")
+
+    function readFailed(key, message) {
+        var next = Object.assign({}, readErrors); next[key] = message; readErrors = next
+    }
+    function readOk(key) {
+        var next = Object.assign({}, readErrors); delete next[key]; readErrors = next
+    }
+    function readList(key, value) {
+        if (!Array.isArray(value)) { readFailed(key, "列表格式无效。"); return }
+        root[key] = value; readOk(key)
+    }
 
     signal chatDelta(string text)
     signal chatReasoning(string text)
@@ -39,14 +58,18 @@ Item {
         try { return JSON.parse(String(text || "")) } catch (e) { return fallback }
     }
 
+    function startRead(process) {
+        if (!process.running) { process.completed = false; process.running = true }
+    }
     function refresh() {
-        if (!recipesProc.running) recipesProc.running = true
-        if (!modelsProc.running) modelsProc.running = true
-        if (!ollamaProc.running) ollamaProc.running = true
-        if (!instancesProc.running) instancesProc.running = true
-        if (!agentsProc.running) agentsProc.running = true
-        if (!downloadsProc.running) downloadsProc.running = true
-        if (!enginesProc.running) enginesProc.running = true
+        root.startRead(connectionProc)
+        root.startRead(recipesProc)
+        root.startRead(modelsProc)
+        root.startRead(ollamaProc)
+        root.startRead(instancesProc)
+        root.startRead(agentsProc)
+        root.startRead(downloadsProc)
+        root.startRead(enginesProc)
     }
 
     // One action at a time; the key names it for the button that started it.
@@ -137,7 +160,10 @@ Item {
     }
 
     function launchAgent(args) {
-        launchProc.command = ["omarchy-launch-tui"].concat(args)
+        var actual = args.slice()
+        var cliIndex = actual.indexOf("raytone-models")
+        if (cliIndex >= 0) actual[cliIndex] = cli
+        launchProc.command = ["omarchy-launch-tui"].concat(actual)
         launchProc.running = true
     }
 
@@ -145,66 +171,83 @@ Item {
     Timer {
         interval: 2000; running: true; repeat: true; triggeredOnStart: true
         onTriggered: {
-            if (!statsProc.running) statsProc.running = true
-            if (!instancesProc.running) instancesProc.running = true
-            if (!downloadsProc.running) downloadsProc.running = true
+            root.startRead(statsProc)
+            root.startRead(instancesProc)
+            root.startRead(downloadsProc)
         }
     }
 
-    Process {
+    ReadProcess {
+        id: connectionProc
+        command: [root.cli, "status", "--json"]
+        onResult: function(value) {
+            value = root.parse(value, null);
+            if (!value || value.kind !== "raytone-models" || value.schema !== 1) { root.readFailed("connection", "配套版本无效。"); return }
+            root.connection = value; root.readOk("connection")
+        }
+        onFailed: function(message) { root.readFailed("connection", message) }
+    }
+    ReadProcess {
         id: recipesProc
         command: [root.cli, "recipes", "--json"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: {
-                var d = root.parse(text, null)
-                if (d) { root.recipes = d.recipes || []; root.refusedRecipes = d.refused || [] }
-            }
+        onResult: function(d) {
+            d = root.parse(d, null);
+            if (!d || !Array.isArray(d.recipes) || !Array.isArray(d.refused)) { root.readFailed("recipes", "配方数据格式无效。"); return }
+            root.recipes = d.recipes; root.refusedRecipes = d.refused; root.readOk("recipes")
         }
+        onFailed: function(message) { root.readFailed("recipes", message) }
     }
-    Process {
-        id: ollamaProc
-        command: [root.cli, "ollama", "models", "--json"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: { var d = root.parse(text, []); root.ollamaModels = Array.isArray(d) ? d : [] }
-        }
-    }
-    Process {
+    ReadProcess {
         id: modelsProc
         command: [root.cli, "models", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.models = root.parse(text, root.models) }
+        onResult: function(value) {
+            value = root.parse(value, null); root.readList("models", value) }
+        onFailed: function(message) { root.readFailed("models", message) }
     }
-    Process {
+    ReadProcess {
+        id: ollamaProc
+        command: [root.cli, "ollama", "models", "--json"]
+        onResult: function(value) {
+            value = root.parse(value, null); root.readList("ollamaModels", value) }
+        onFailed: function(message) { root.readFailed("ollamaModels", message) }
+    }
+    ReadProcess {
         id: instancesProc
         command: [root.cli, "instances", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.instances = root.parse(text, root.instances) }
+        onResult: function(value) {
+            value = root.parse(value, null); root.readList("instances", value) }
+        onFailed: function(message) { root.readFailed("instances", message) }
     }
-    Process {
+    ReadProcess {
         id: agentsProc
         command: [root.cli, "agents", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.agents = root.parse(text, root.agents) }
+        onResult: function(value) {
+            value = root.parse(value, null); root.readList("agents", value) }
+        onFailed: function(message) { root.readFailed("agents", message) }
     }
-    Process {
+    ReadProcess {
         id: downloadsProc
         command: [root.cli, "downloads", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.downloads = root.parse(text, root.downloads) }
+        onResult: function(value) {
+            value = root.parse(value, null); root.readList("downloads", value) }
+        onFailed: function(message) { root.readFailed("downloads", message) }
     }
-    Process {
+    ReadProcess {
         id: enginesProc
         command: [root.cli, "engines", "--json"]
-        stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.engines = root.parse(text, root.engines) }
+        onResult: function(value) {
+            value = root.parse(value, null); root.readList("engines", value) }
+        onFailed: function(message) { root.readFailed("engines", message) }
     }
-    Process {
+    ReadProcess {
         id: statsProc
         command: [root.cli, "stats", "--json"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: {
-                var s = root.parse(text, null)
-                if (s) { root.previousStats = root.stats; root.stats = s }
-            }
+        onResult: function(value) {
+            value = root.parse(value, null);
+            if (!value || !value.memory) { root.readFailed("stats", "统计数据格式无效。"); return }
+            root.previousStats = root.stats; root.stats = value; root.readOk("stats")
         }
+        onFailed: function(message) { root.readFailed("stats", message) }
     }
     Component {
         id: hubComponent
@@ -289,8 +332,7 @@ Item {
     Process { id: openProc }
     Process {
         id: webProc
-        stderr: StdioCollector { waitForEnd: true; onStreamFinished: if (String(text).trim()) root.lastError = String(text).trim().split("
-").pop() }
+        stderr: StdioCollector { waitForEnd: true; onStreamFinished: if (String(text).trim()) root.lastError = String(text).trim().split("\n").pop() }
         onExited: function(exitCode) { if (exitCode !== 0 && !root.lastError) root.lastError = "That did not work (exit " + exitCode + ")" }
     }
     Process { id: copyProc; onExited: function(code) { if (code === 0) root.notice = "Endpoint copied" } }

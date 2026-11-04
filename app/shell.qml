@@ -1,3 +1,5 @@
+//@ pragma AppId ai.raytone.Models
+//@ pragma ShellId ai.raytone.Models
 import QtQuick
 import Quickshell
 import "."

@@ -1,4 +1,4 @@
-#!/usr/bin/python3 -I
+#!/usr/bin/python3 -IB
 # Raytone Models privileged helper (run through pkexec; see raytone_models/helper.py).
 # -I: no PYTHON* variables, no user site-packages; the package is next to this file.
 import os

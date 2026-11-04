@@ -16,7 +16,7 @@ package() {
   install -d "$lib/raytone_models"
   install -m 0644 "$src"/raytone_models/*.py "$lib/raytone_models/"
   [[ -f $src/raytone_models/engines.json ]] && install -m 0644 "$src/raytone_models/engines.json" "$lib/raytone_models/"
-  install -m 0755 "$src/bin/raytone-models" "$src/bin/raytone-models-helper" "$lib/"
+  install -m 0755 "$src/bin/raytone-models" "$src/bin/raytone-models-helper" "$src/bin/raytone-models-app" "$lib/"
   install -d "$pkgdir/usr/bin"
   ln -s /usr/lib/raytone-models/raytone-models "$pkgdir/usr/bin/raytone-models"
   # engines built on the device (scripts/build-engine NAME finds them next to itself)
@@ -26,7 +26,6 @@ package() {
   install -Dm0644 "$src/systemd/raytone-engine@.service" "$pkgdir/usr/lib/systemd/system/raytone-engine@.service"
   install -Dm0644 "$src/systemd/raytone-models-router.service" "$pkgdir/usr/lib/systemd/user/raytone-models-router.service"
   install -Dm0644 "$src/polkit/org.raytone.models.policy" "$pkgdir/usr/share/polkit-1/actions/org.raytone.models.policy"
-  install -Dm0644 "$src/polkit/50-raytone-models.rules" "$pkgdir/usr/share/polkit-1/rules.d/50-raytone-models.rules"
   # the app: a Quickshell configuration, started by raytone-models-app
   local app="$pkgdir/usr/share/raytone-models/app"
   install -d "$app/components" "$app/pages" "$app/brand" "$app/icons"
@@ -35,7 +34,7 @@ package() {
   install -m 0644 "$src"/app/pages/*.qml "$app/pages/"
   install -m 0644 "$src"/app/brand/*.svg "$app/brand/"
   install -m 0644 "$src"/app/icons/*.svg "$app/icons/"
-  install -m 0755 "$src/bin/raytone-models-app" "$pkgdir/usr/bin/raytone-models-app"
+  ln -s /usr/lib/raytone-models/raytone-models-app "$pkgdir/usr/bin/raytone-models-app"
   install -Dm0644 "$startdir/raytone-models.desktop" "$pkgdir/usr/share/applications/raytone-models.desktop"
   install -Dm0644 "$src/app/brand/raytone-symbol-color.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/raytone-models.svg"
   install -Dm0644 "$startdir/allowed_signers" "$pkgdir/usr/share/raytone-models/allowed_signers"
@@ -45,4 +44,5 @@ package() {
   install -Dm0644 "$startdir/raytone-models.sysusers" "$pkgdir/usr/lib/sysusers.d/raytone-models.conf"
   install -Dm0644 "$startdir/raytone-models.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/raytone-models.conf"
   install -Dm0644 "$src/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  python "$src/scripts/system-manifest" "$pkgdir"
 }

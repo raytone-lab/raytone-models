@@ -10,7 +10,7 @@ HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 class SystemFilesTests(unittest.TestCase):
     def test_the_launcher_is_isolated(self):
         first = (ROOT / "bin/raytone-models-helper").read_text().splitlines()[0]
-        self.assertEqual(first, "#!/usr/bin/python3 -I")
+        self.assertEqual(first, "#!/usr/bin/python3 -IB")
 
     def test_the_unit_runs_the_helper_without_a_shell(self):
         unit = (ROOT / "systemd/raytone-engine@.service").read_text()
@@ -21,13 +21,14 @@ class SystemFilesTests(unittest.TestCase):
         self.assertNotRegex(unit, r"(?m)^Exec\w*=.*(/bin/sh|bash|;|\||&&)")
 
     def test_the_app_opens_one_window(self):
-        launcher = (ROOT / "bin/raytone-models-app").read_text()
-        self.assertIn("pgrep -f", launcher)
+        launcher = (ROOT / "raytone_models/launcher.py").read_text()
+        self.assertIn("fcntl.LOCK_EX | fcntl.LOCK_NB", launcher)
         # Omarchy 4's Hyprland is configured in Lua, where dispatch takes a Lua expression; the
         # classic dispatcher stays as the fallback (seen on the Thor: "')' expected near ...")
-        self.assertIn('hl.dsp.focus({ window = ', launcher)
+        self.assertIn('raytone_workspace_action', launcher)
         self.assertIn("focuswindow", launcher)
-        self.assertIn('exec qs -p "$APP"', launcher)
+        self.assertIn('"--no-duplicate", "-p"', launcher)
+        self.assertIn('RAYTONE_MODELS_CLI=str(cli)', launcher)
         desktop = (ROOT / "packaging/raytone-models.desktop").read_text()
         self.assertIn("Exec=raytone-models-app", desktop)
         self.assertIn("Icon=raytone-models", desktop)

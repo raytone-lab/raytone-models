@@ -17,7 +17,8 @@ import tempfile
 import tomllib
 
 STATE = pathlib.Path(os.environ.get("XDG_STATE_HOME", pathlib.Path.home() / ".local/state")) / "raytone-models/agents"
-ROUTER = "http://127.0.0.1:8090/v1"
+from .connection import Connection
+ROUTER = Connection().public
 MODEL = "local"                        # router.ALIAS
 LABEL = "Local model (Raytone Models)"
 

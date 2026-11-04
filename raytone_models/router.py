@@ -20,7 +20,7 @@ from . import ollama as ollama_mod
 from . import spec as spec_mod
 
 DEFAULT_REGISTRY = pathlib.Path("/run/raytone-models/instances")
-DEFAULT_PORT = 8090
+DEFAULT_PORT = 19090
 MAX_BODY = 64 << 20
 FORWARDED_PATHS = ("/v1/chat/completions", "/v1/completions", "/v1/embeddings", "/v1/messages",
                    "/v1/messages/count_tokens", "/v1/responses")
@@ -216,7 +216,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(200, {"object": "list",
                              "data": [{"id": n, "object": "model", "owned_by": "raytone"} for n in sorted(names)]})
         elif self.path == "/health":
-            self._json(200, {"status": "ok"})
+            names = served(self.server)
+            selected = current_model(names, self.server.registry, self.server.ports, self.server.current)
+            ready = bool(selected and _answers(names[selected]))
+            self._json(200, {"kind": "raytone-models-router", "schema": 1,
+                             "ready": ready, "current": selected, "models": sorted(names),
+                             "code": "OK" if ready else ("MODEL_UNAVAILABLE" if selected else "NO_INSTANCE")})
         else:
             self._error(404, f"no route {self.path}")
 

@@ -65,6 +65,7 @@ Rectangle {
             Layout.margins: 28
             Layout.topMargin: 26
             currentIndex: view.current
+            Layout.bottomMargin: (view.backend.readError || view.backend.connectionMessage) ? 108 : 28
             RecipesPage { backend: view.backend }
             ModelsPage { backend: view.backend }
             DiscoverPage { backend: view.backend }
@@ -83,5 +84,23 @@ Rectangle {
         message: view.backend.lastError || view.backend.notice
         error: view.backend.lastError !== ""
         onDismissed: { view.backend.lastError = ""; view.backend.notice = "" }
+    }
+    Rectangle {
+        anchors.left: parent.left; anchors.leftMargin: 224
+        anchors.right: parent.right; anchors.rightMargin: 28
+        anchors.bottom: parent.bottom; anchors.bottomMargin: 16
+        height: 80; radius: Theme.radiusCallout
+        visible: !!(view.backend.readError || view.backend.connectionMessage)
+        color: Theme.errorFill; border.color: Theme.errorText
+        RowLayout {
+            anchors.fill: parent; anchors.margins: 12
+            Text {
+                Layout.fillWidth: true
+                text: view.backend.readError ? "状态读取失败；当前列表可能尚未载入或已过期。\n" + view.backend.readError : (view.backend.connectionMessage || "")
+                color: Theme.errorText; wrapMode: Text.Wrap; maximumLineCount: 3; elide: Text.ElideRight
+                font.family: Theme.font; font.pixelSize: Theme.sizeBody
+            }
+            RButton { text: "重试"; onClicked: view.backend.refresh() }
+        }
     }
 }

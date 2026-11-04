@@ -1,0 +1,20 @@
+#!/usr/bin/python3
+"""Run real Qt process/error/timeout checks without a compositor or model."""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+root=Path(__file__).resolve().parents[2]
+with tempfile.TemporaryDirectory(prefix='models-read-probe-') as tmp:
+    cfg=Path(tmp)
+    shutil.copytree(root/'app',cfg/'app')
+    shutil.copyfile(Path(__file__).with_suffix('.qml'),cfg/'shell.qml')
+    env=dict(os.environ,QT_QPA_PLATFORM='offscreen',QT_QUICK_BACKEND='software')
+    env.pop('WAYLAND_DISPLAY',None)
+    result=subprocess.run(['quickshell','-p',str(cfg)],env=env,capture_output=True,text=True,timeout=25)
+    output=result.stdout+result.stderr
+    print(output)
+    sys.exit(0 if result.returncode==0 and 'READ_PROCESS_PASS 5' in output and 'READ_PROCESS_FAIL' not in output else 1)

@@ -29,7 +29,7 @@ ColumnLayout {
         padding: 16
         Text { text: "One local endpoint for every agent"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
         Text {
-            text: "http://127.0.0.1:8090/v1 · model local → " + (page.current ? page.current.served_name : "no model running yet")
+            text: (page.backend.connection ? page.backend.connection.public : "入口状态读取中") + " · model local → " + (page.current ? page.current.served_name : "no model running yet")
             color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl
         }
     }

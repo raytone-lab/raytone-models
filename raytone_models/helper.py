@@ -170,6 +170,8 @@ def run_argv(instance_id, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=None
 
 def parse_args(argv):
     p = argparse.ArgumentParser(prog="raytone-models-helper")
+    p.add_argument('--protocol', type=int)
+    p.add_argument('--component-version')
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("start")
     for name in ("stop", "run", "unregister"):
@@ -210,6 +212,10 @@ def _store_from_config():
 def main(argv=None):
     a = parse_args(sys.argv[1:] if argv is None else argv)
     try:
+        from . import system_contract
+        system_contract.require()
+        if a.command in ('start', 'stop') and (a.protocol, a.component_version) != (system_contract.PROTOCOL, system_contract.VERSION):
+            raise HelperError('用户组件版本/协议不匹配。')
         store = _store_from_config()
         if a.command == "start":
             s = start(sys.stdin.read(), store=store)

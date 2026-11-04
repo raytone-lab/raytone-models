@@ -1,0 +1,21 @@
+#!/usr/bin/python3
+"""Write the staged system package receipt; never installs or elevates."""
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+source = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(source))
+from raytone_models.system_contract import VERSION, PROTOCOL
+
+stage = Path(sys.argv[1]).resolve()
+root = stage/'usr/lib/raytone-models'
+files = [root/'raytone-models-helper', *sorted((root/'raytone_models').glob('*.py'))]
+if (root/'raytone_models/engines.json').exists():files.append(root/'raytone_models/engines.json')
+digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+system = ('/usr/share/polkit-1/actions/org.raytone.models.policy','/usr/lib/systemd/system/raytone-engine@.service')
+value={'kind':'raytone-models-system','version':VERSION,'protocol':PROTOCOL,
+       'files':{str(p.relative_to(root)):digest(p) for p in files},
+       'systemFiles':{p:digest(stage/p.lstrip('/')) for p in system}}
+(root/'component.json').write_text(json.dumps(value,sort_keys=True)+'\n')

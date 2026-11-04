@@ -34,7 +34,7 @@ import sys
 import time
 import urllib.request
 
-from . import agents, downloads, engines, hf, live, ollama as ollama_mod, recipes, router, spec as spec_mod, store, video
+from . import agents, downloads, engines, hf, live, ollama as ollama_mod, recipes, router, spec as spec_mod, store, video, connection, system_contract
 
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
 ENGINES_FILE = pathlib.Path(__file__).with_name("engines.json")
@@ -58,7 +58,9 @@ def elevate_argv(environ):
 
 
 def _pkexec(args, stdin=None):
-    r = subprocess.run([*elevate_argv(os.environ), *args], input=stdin, capture_output=True, text=True)
+    system_contract.require()
+    r = subprocess.run([*elevate_argv(os.environ), '--protocol', str(system_contract.PROTOCOL),
+                        '--component-version', system_contract.VERSION, *args], input=stdin, capture_output=True, text=True)
     if r.returncode:
         raise SystemExit(r.stderr.strip() or f"helper failed ({r.returncode})")
     return json.loads(r.stdout or "{}")
@@ -129,6 +131,10 @@ class Env:
             self.engines = _engines()
         if self.recipe_dirs is None:
             self.recipe_dirs = [recipes.SYSTEM_DIR, USER_RECIPES]
+            source_root = pathlib.Path(__file__).resolve().parent.parent
+            if (source_root / 'packaging/allowed_signers').is_file():
+                self.recipe_dirs = [source_root / 'recipes', USER_RECIPES]
+                self.allowed_signers = source_root / 'packaging/allowed_signers'
         if self.ollama is None:
             self.ollama = ollama_mod.Ollama()
         if self.hf_endpoint is None:
@@ -535,7 +541,7 @@ def cmd_engines(env):
 def parse(argv):
     p = argparse.ArgumentParser(prog="raytone-models")
     sub = p.add_subparsers(dest="command", required=True)
-    for name in ("models", "instances", "agents"):
+    for name in ("models", "instances", "agents", "status"):
         sub.add_parser(name).add_argument("--json", action="store_true")
     s = sub.add_parser("start")
     s.add_argument("model")
@@ -608,7 +614,7 @@ def parse(argv):
     rc.add_argument("id")
     rc.add_argument("--json", action="store_true")
     r = sub.add_parser("router")
-    r.add_argument("--port", type=int, default=router.DEFAULT_PORT)
+    r.add_argument("--port", type=int, default=None)
     return p.parse_args(argv)
 
 
@@ -652,9 +658,17 @@ def _models(env):
 
 def main(argv=None, env=None):
     a = parse(sys.argv[1:] if argv is None else argv)
+    production = env is None
     env = env or Env()
     try:
-        if a.command == "models":
+        if production and (a.command in ('start', 'stop', 'delete', 'use')
+            or (a.command == 'recipe' and a.action in ('apply', 'stop'))
+            or (a.command == 'ollama' and a.action in ('run', 'stop', 'delete'))):
+            system_contract.require()
+        if a.command == "status":
+            from .status import snapshot
+            _print(snapshot(), a.json)
+        elif a.command == "models":
             _print(_models(env), a.json)
         elif a.command == "instances":
             _print(_instances(env), a.json)
@@ -711,7 +725,7 @@ def main(argv=None, env=None):
         elif a.command == "engines":
             _print(cmd_engines(env), a.json)
         elif a.command == "chat":
-            return live.chat(f"http://127.0.0.1:{router.DEFAULT_PORT}", live.read_request())
+            return live.chat(connection.load().internal, live.read_request())
         elif a.command == "video":
             return cmd_video(a, env)
         elif a.command == "recipes":
@@ -719,9 +733,12 @@ def main(argv=None, env=None):
         elif a.command == "recipe":
             _print(cmd_recipe(a, env), a.json)
         elif a.command == "router":
-            srv = router.make_server("127.0.0.1", a.port)
+            port = connection.load().internal_port
+            if a.port is not None and a.port != port:
+                raise SystemExit('路由端口须与 connection.json 一致，未启动另一个入口。')
+            srv = router.make_server("127.0.0.1", port)
             srv.serve_forever()
-    except agents.AgentError as e:
+    except (agents.AgentError, OSError, ValueError) as e:
         print(f"raytone-models: {e}", file=sys.stderr)
         return 1
     except SystemExit as e:
