@@ -2,6 +2,7 @@
 import pathlib
 import re
 import unittest
+from raytone_models.system_contract import VERSION
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HELPER = "/usr/lib/raytone-models/raytone-models-helper"
@@ -14,11 +15,11 @@ class SystemFilesTests(unittest.TestCase):
 
     def test_the_unit_runs_the_helper_without_a_shell(self):
         unit = (ROOT / "systemd/raytone-engine@.service").read_text()
-        self.assertIn(f"ExecStart={HELPER} --protocol 1 --component-version 0.2.0-batch1 run %i", unit)
+        self.assertIn(f"ExecStart={HELPER} --protocol 1 --component-version {VERSION} run %i", unit)
         self.assertIn("Requires=docker.service", unit)
         self.assertNotIn('ExecStartPre=', unit)
         # an engine that exits or fails leaves the registry (and the router, and the panel)
-        self.assertIn(f"ExecStopPost={HELPER} --protocol 1 --component-version 0.2.0-batch1 unregister %i", unit)
+        self.assertIn(f"ExecStopPost={HELPER} --protocol 1 --component-version {VERSION} unregister %i", unit)
         self.assertNotRegex(unit, r"(?m)^Exec\w*=.*(/bin/sh|bash|;|\||&&)")
 
     def test_the_app_opens_one_window(self):
@@ -76,11 +77,9 @@ class SystemFilesTests(unittest.TestCase):
         policy = (ROOT / "polkit/org.raytone.models.policy").read_text()
         self.assertIn(f'<annotate key="org.freedesktop.policykit.exec.path">{HELPER}</annotate>', policy)
         self.assertIn("<allow_any>no</allow_any>", policy)
-        rules = (ROOT / "polkit/50-raytone-models.rules").read_text()
-        cond = re.search(r"if \((.*)\) \{", rules).group(1)
-        for part in ('action.id == "org.raytone.models.manage"', "subject.local", "subject.active",
-                     'subject.isInGroup("wheel")'):
-            self.assertIn(part, cond)
+        self.assertIn('<allow_active>auth_admin</allow_active>',policy)
+        self.assertNotIn('auth_admin_keep',policy)
+        self.assertFalse((ROOT / 'polkit/50-raytone-models.rules').exists())
 
 
 if __name__ == "__main__":

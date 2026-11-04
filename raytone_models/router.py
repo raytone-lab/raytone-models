@@ -127,15 +127,17 @@ def newest_instance(registry, ports):
 
 
 def current_model(served_now, registry, ports, current_file):
-    """What the fixed name `local` points at: the model chosen as current if it runs, else the chat
-    instance started last. Agents know one address and one name; whatever runs, they use it."""
+    """An explicit choice never silently falls back to a different model after exit.
+    With no saved choice, initial discovery may use the newest chat instance."""
     try:
         with open(current_file, "rb") as f:
             chosen = f.read(1024).decode().strip()    # longer than any served name: never a whole big file
-    except (OSError, UnicodeDecodeError):
+    except FileNotFoundError:
         chosen = ""
-    if chosen and chosen != ALIAS and chosen in served_now:
-        return chosen
+    except (OSError, UnicodeDecodeError):
+        return None
+    if chosen:
+        return chosen if chosen != ALIAS and chosen in served_now else None
     return newest_instance(registry, ports)
 
 
@@ -266,6 +268,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if model == ALIAS:
             real = current_model(served_now, self.server.registry, self.server.ports, self.server.current)
             if real is None:
+                if served_now:return self._error(503, "the selected model is unavailable; explicitly choose a ready model in Raytone Models", "model_unavailable")
                 return self._error(404, "no model is running: start one in Raytone Models", "model_not_found")
             # the engine checks the name it serves: put the real one in
             model = payload["model"] = real
@@ -287,7 +290,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             up.request("POST", self.path, body=body, headers=headers)
             resp = up.getresponse()
-        except (ConnectionRefusedError, ConnectionResetError) as e:
+        except ConnectionError as e:
+            up.close()
             # an engine loads its model for a minute or two, and docker's port forward accepts
             # meanwhile, then resets (RemoteDisconnected is a reset too); one that lists its models is
             # up, and its reset is a real failure
@@ -295,7 +299,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._error(502, f"the engine did not answer: {e}", "upstream_error")
             return self._error(503, f"{model or 'the model'} is not answering yet: it may still be starting (wait until "
                                     "Raytone Models shows it Ready, then try again) or have stopped", "engine_starting")
-        except OSError as e:
+        except (OSError, http.client.HTTPException) as e:
+            up.close()
             return self._error(502, f"the engine did not answer: {e}", "upstream_error")
         self.send_response(resp.status)
         listed = {h.strip().lower() for h in (resp.getheader("Connection") or "").split(",")}

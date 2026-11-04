@@ -106,3 +106,57 @@ Each model keeps its own licence: read its model card before you use it beyond a
 page names MiniMax H3 as the model; the video files themselves carry no attribution.
 
 MIT, © Raytone AI Lab and contributors.
+
+
+## Split component candidate (batch 4)
+
+The managed user component is `0.2.3-batch4`; its matching system contract is
+`0.2.1-batch4`, protocol 1. This software candidate has no real GPU/model/Spark
+acceptance. The source polkit policy requires an administrator authentication for
+each action; there is no passwordless wheel rule. A desktop polkit agent is a
+separate prerequisite: absent authentication returns AUTH_DENIED without starting
+an engine. Cancel returns AUTH_CANCELLED; timeout requires checking actual state
+before retrying.
+
+Build the separate, minimal system bundle without root:
+
+```sh
+python3 scripts/system-component build raytone-models-system.tar.gz
+```
+
+After reviewing the installer and bundle checksums, an administrator can explicitly
+install the system part and prepare a named non-root download account:
+
+```sh
+sudo python3 -IB scripts/system-component install raytone-models-system.tar.gz
+sudo python3 -IB scripts/system-component prepare-store raytone
+python3 -m raytone_models.user_component install .
+systemctl --user daemon-reload
+```
+
+Replace `raytone` with the actual local download account. System install does not
+install a GUI/CLI shadow, start engines, pull images or migrate data. It rejects
+foreign or changed target files and active engines. `status`, `recover` and
+`rollback` use the same standalone administrator entry; rollback preserves runtime
+and model data. Keep the reviewed installer outside writable bundle contents when
+operating a real device. Never use the old whole-package installation over the
+split managed components.
+
+For a compatible RaytoneOS, explicitly start the internal router, inspect its
+status, then activate the OS provider during maintenance with no active requests:
+
+```sh
+systemctl --user start raytone-models-router.service
+raytone-route models-provider status
+raytone-route models-provider activate
+```
+
+This saves the previous provider bytes; it does not restart or enable the public
+router. Link the installed OS `config/systemd/raytone-router.service` and start it
+explicitly when desired. `raytone-route models-provider revert` restores the saved
+bytes (or original absence), then the public service must be restarted explicitly.
+Later user edits block automatic restoration. Internal 19090 feeds public 8090;
+models/agents use public `/v1` and alias `local`. Existing local/cloud policy stays
+in effect. A missing selected instance returns unavailable instead of silently
+selecting another instance. NO_INSTANCE is configured but not ready; it is never an
+inference success.

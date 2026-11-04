@@ -8,9 +8,9 @@ Type=simple
 # the helper re-validates the registered spec and execs the confined docker run
 # Never remove an existing container before the helper checks compatibility.
 # Managed engines already use docker run --rm; a stale name must fail visibly.
-ExecStart=/usr/lib/raytone-models/raytone-models-helper --protocol 1 --component-version 0.2.0-batch1 run %i
+ExecStart=/usr/lib/raytone-models/raytone-models-helper --protocol 1 --component-version 0.2.1-batch4 run %i
 ExecStop=/usr/bin/docker stop --time 30 raytone-%i
-ExecStopPost=/usr/lib/raytone-models/raytone-models-helper --protocol 1 --component-version 0.2.0-batch1 unregister %i
+ExecStopPost=/usr/lib/raytone-models/raytone-models-helper --protocol 1 --component-version 0.2.1-batch4 unregister %i
 TimeoutStartSec=0
 TimeoutStopSec=60
 Restart=no

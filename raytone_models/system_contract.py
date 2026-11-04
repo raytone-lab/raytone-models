@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import stat
 
-VERSION = '0.2.0-batch1'
+VERSION = '0.2.1-batch4'
 PROTOCOL = 1
 ROOT = Path('/usr/lib/raytone-models')
 
@@ -43,10 +43,16 @@ def identity():
         # The authorization policy and unit must also be fixed root files.
         system_files = value.get('systemFiles', {})
         for name in ('/usr/share/polkit-1/actions/org.raytone.models.policy',
-                     '/usr/lib/systemd/system/raytone-engine@.service'):
+                     '/usr/lib/systemd/system/raytone-engine@.service',
+                     '/usr/lib/sysusers.d/raytone-models.conf', '/usr/lib/tmpfiles.d/raytone-models.conf',
+                     '/etc/raytone-models/helper.json', '/etc/raytone-models/connection.json'):
             path = trusted(name)
             if hashlib.sha256(path.read_bytes()).hexdigest() != system_files.get(name):
                 raise ValueError('系统授权策略或引擎 unit 与收据不匹配。')
+        pending = Path('/var/lib/raytone-models/system-component/pending.json')
+        if pending.exists():raise ValueError('系统组件事务待恢复，未执行模型写操作。')
+        for rule in ('/etc/polkit-1/rules.d/50-raytone-models.rules', '/usr/share/polkit-1/rules.d/50-raytone-models.rules'):
+            if Path(rule).exists():raise ValueError('发现旧免密规则，系统组件未就绪。')
         return {'ready': True, 'code': 'OK', 'version': VERSION, 'protocol': PROTOCOL}
     except (OSError, ValueError, TypeError, AttributeError) as error:
         return {'ready': False, 'code': 'SYSTEM_COMPONENT_UNAVAILABLE', 'version': VERSION,

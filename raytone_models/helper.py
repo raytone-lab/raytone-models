@@ -11,11 +11,13 @@ What it runs is only what spec.load() accepts, re-checked at every step, with th
 inside the store: a user who can start engines cannot turn that into root on the host.
 """
 import argparse
+import fcntl
 import grp
 import json
 import os
 import pathlib
 import pwd
+import re
 import stat
 import subprocess
 import sys
@@ -37,7 +39,44 @@ class HelperError(RuntimeError):
 
 
 def _systemctl(args):
-    subprocess.run(["systemctl", *args], check=True)
+    subprocess.run(["/usr/bin/systemctl", *args], check=True, timeout=75)
+
+
+def check_subject(environ=None, run=subprocess.run):
+    """pkexec authenticates; logind independently refuses a locked/inactive caller."""
+    environ=os.environ if environ is None else environ
+    uid=environ.get('PKEXEC_UID')
+    if uid is None:return  # Explicit root administration and systemd lifecycle.
+    if not uid.isdecimal() or int(uid)==0:raise HelperError('AUTH_DENIED：无效的授权主体。')
+    try:
+        r=run(['/usr/bin/loginctl','show-user',uid,'-p','Display','--value'],capture_output=True,text=True,timeout=5)
+        session=r.stdout.strip()
+        if r.returncode or not re.fullmatch(r'[A-Za-z0-9]+',session):raise ValueError()
+        r=run(['/usr/bin/loginctl','show-session',session,'-p','User','-p','Active','-p','Remote','-p','LockedHint'],capture_output=True,text=True,timeout=5)
+        value=dict(line.split('=',1) for line in r.stdout.splitlines() if '=' in line)
+        if r.returncode or value!={'User':uid,'Active':'yes','Remote':'no','LockedHint':'no'}:raise ValueError()
+    except (OSError,ValueError,subprocess.SubprocessError):
+        raise HelperError('SESSION_LOCKED：须由已解锁的本机活动会话发起；未执行引擎操作。') from None
+
+
+def runtime_preflight(s, run=subprocess.run):
+    """Check without pulling, stopping, registering or replacing an existing engine."""
+    try:
+        r=run(['/usr/bin/docker','info','--format','{{.ServerVersion}}'],capture_output=True,text=True,timeout=10)
+        if r.returncode or not r.stdout.strip():raise HelperError('DOCKER_UNAVAILABLE：容器服务未就绪。')
+        image=s.image.split('@',1)[1] if spec_mod.is_local(s.image) else s.image
+        r=run(['/usr/bin/docker','image','inspect','--format','{{.Id}}',image],capture_output=True,text=True,timeout=10)
+        if r.returncode:raise HelperError('IMAGE_MISSING：固定镜像不在本机；未自动拉取。')
+        if spec_mod.is_local(s.image) and r.stdout.strip()!=image:raise HelperError('IMAGE_MISMATCH：本地镜像身份不匹配。')
+        r=run(['/usr/bin/nvidia-ctk','cdi','list'],capture_output=True,text=True,timeout=10)
+        if r.returncode or 'nvidia.com/gpu=all' not in r.stdout:raise HelperError('GPU_UNAVAILABLE：NVIDIA CDI推理设备未就绪。')
+        r=run(['/usr/bin/systemctl','is-active',f'raytone-engine@{s.id}.service'],capture_output=True,text=True,timeout=5)
+        if r.stdout.strip() in ('active','activating','deactivating','reloading'):
+            raise HelperError('INSTANCE_BUSY：该引擎仍在运行，未替换。')
+    except FileNotFoundError as error:
+        raise HelperError('DEPENDENCY_MISSING：缺少系统依赖 '+str(error.filename)) from None
+    except (OSError,subprocess.SubprocessError):
+        raise HelperError('RUNTIME_UNAVAILABLE：运行环境读取失败，未启动或替换引擎。') from None
 
 
 def _engine_user():
@@ -103,11 +142,13 @@ def _write(path, text):
 
 
 def start(text, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=_systemctl, engine_user=_engine_user, chown=os.chown,
-          local_images=local_images):
+          local_images=local_images, preflight=runtime_preflight):
     s = _load(text)
     _check_model(s, store)
     _check_image(s, local_images)
     registered = _registered(run_dir)
+    if s.id in registered:
+        raise HelperError('INSTANCE_BUSY：实例已登记；请先明确停止，未替换原实例。')
     for other_id, other in registered.items():
         if other_id == s.id:
             continue
@@ -115,6 +156,7 @@ def start(text, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=_systemctl, en
             raise HelperError(f"port {s.port} is used by {other_id}")
         if other.served_name == s.served_name:
             raise HelperError(f"{s.served_name} is already served by {other_id}")
+    preflight(s)
     (uid, gid), _ = engine_user()
     pathlib.Path(cache).mkdir(parents=True, exist_ok=True, mode=0o711)
     mine = pathlib.Path(cache) / s.id
@@ -122,9 +164,6 @@ def start(text, *, store, run_dir=RUN_DIR, cache=CACHE, systemctl=_systemctl, en
     os.chmod(mine, 0o700)
     chown(mine, uid, gid)
     unit = f"raytone-engine@{s.id}.service"
-    if s.id in registered:
-        # `systemctl start` leaves a running unit as it is: stop the old instance first
-        systemctl(["stop", unit])
     entry = _registry(run_dir) / f"{s.id}.json"
     _write(entry, s.to_json())
     try:
@@ -216,19 +255,29 @@ def main(argv=None):
         system_contract.require()
         if (a.protocol, a.component_version) != (system_contract.PROTOCOL, system_contract.VERSION):
             raise HelperError('用户组件版本/协议不匹配。')
+        if os.geteuid()!=0:raise HelperError('AUTH_DENIED：此操作须由系统授权执行。')
+        check_subject()
         store = _store_from_config()
         if a.command == "start":
-            s = start(sys.stdin.read(), store=store)
-            print(json.dumps({"started": s.id, "served_name": s.served_name, "port": s.port}))
+            system_contract.trusted(RUN_DIR)
+            fd=os.open(RUN_DIR/'manage.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+            with os.fdopen(fd,'a') as lock:
+                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                s = start(sys.stdin.read(131073), store=store)
+            print(json.dumps({"started": s.id, "served_name": s.served_name, "port": s.port,'state':'starting','ready':False}))
         elif a.command == "stop":
-            stop(a.id, store=store)
+            system_contract.trusted(RUN_DIR)
+            fd=os.open(RUN_DIR/'manage.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+            with os.fdopen(fd,'a') as lock:
+                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                stop(a.id, store=store)
             print(json.dumps({"stopped": a.id}))
         elif a.command == "unregister":
             unregister(a.id)
         else:
             argv = run_argv(a.id, store=store)
             os.execvp(argv[0], argv)
-    except (HelperError, subprocess.CalledProcessError) as e:
+    except (HelperError, OSError, KeyError, subprocess.SubprocessError) as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 1
     return 0

@@ -51,7 +51,7 @@ def elevate_argv(environ):
     """pkexec from the desktop session (polkit lets the local admin in); sudo for work over SSH."""
     how = environ.get("RAYTONE_MODELS_ELEVATE", "pkexec")
     if how == "pkexec":
-        return ["pkexec", HELPER]
+        return ["pkexec", "--disable-internal-agent", HELPER]
     if how == "sudo":
         return ["sudo", "-n", HELPER]
     raise SystemExit("RAYTONE_MODELS_ELEVATE is pkexec or sudo")
@@ -59,9 +59,16 @@ def elevate_argv(environ):
 
 def _pkexec(args, stdin=None):
     system_contract.require()
-    r = subprocess.run([*elevate_argv(os.environ), '--protocol', str(system_contract.PROTOCOL),
-                        '--component-version', system_contract.VERSION, *args], input=stdin, capture_output=True, text=True)
+    from .session_guard import require_unlocked
+    require_unlocked()
+    try:
+        r = subprocess.run([*elevate_argv(os.environ), '--protocol', str(system_contract.PROTOCOL),
+                            '--component-version', system_contract.VERSION, *args], input=stdin, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        raise SystemExit('ACTION_TIMEOUT：授权或执行未返回，请刷新核对状态后再决定是否重试。') from None
     if r.returncode:
+        if r.returncode == 126:raise SystemExit('AUTH_CANCELLED：已取消系统授权，本次操作未执行。')
+        if r.returncode == 127:raise SystemExit('AUTH_DENIED：系统权限被拒绝或认证不可用，本次操作未执行。')
         raise SystemExit(r.stderr.strip() or f"helper failed ({r.returncode})")
     return json.loads(r.stdout or "{}")
 
@@ -668,6 +675,11 @@ def main(argv=None, env=None):
     production = env is None
     env = env or Env()
     try:
+        if production and (a.command in ('start','stop','delete','use','agent','agent-exec','agent-web','download',
+                                         'download-cancel','hf-token','recipe','chat','video')
+                           or (a.command=='ollama' and a.action!='models')):
+            from .session_guard import require_unlocked
+            require_unlocked()
         if production and (a.command in ('start', 'stop', 'delete', 'use')
             or (a.command == 'recipe' and a.action in ('apply', 'stop'))
             or (a.command == 'ollama' and a.action in ('run', 'stop', 'delete'))):

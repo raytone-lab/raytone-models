@@ -22,6 +22,12 @@ def call(fn, *args):
 
 @unittest.skipUnless(shutil.which("node"), "node not installed")
 class AppLogicTests(unittest.TestCase):
+    def test_chat_default_follows_current_and_never_silently_replaces_selection(self):
+        rows=[{'served_name':'a','current':False},{'served_name':'b','current':True}]
+        self.assertEqual(call('chatSelectionIndex',rows,''),1)
+        self.assertEqual(call('chatSelectionIndex',rows,'a'),0)
+        self.assertEqual(call('chatSelectionIndex',rows,'gone'),-1)
+        self.assertEqual(call('chatSelectionIndex',[{'served_name':'a','current':False}],''),-1)
     def test_gib(self):
         self.assertEqual(call("gib", 23770000000), "22.14 GiB")
         self.assertEqual(call("gib", 0), "0 GiB")

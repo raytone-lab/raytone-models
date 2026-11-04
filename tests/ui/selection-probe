@@ -1,0 +1,22 @@
+#!/usr/bin/python3
+"""Real Qt binding probe with labelled fixture models; no CLI or inference."""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+root=Path(__file__).resolve().parents[2]
+with tempfile.TemporaryDirectory(prefix='models-selection-probe-') as tmp:
+    cfg=Path(tmp);shutil.copytree(root/'app',cfg/'app')
+    shutil.copyfile(Path(__file__).with_suffix('.qml'),cfg/'shell.qml')
+    env=dict(os.environ,QT_QPA_PLATFORM='offscreen',QT_QUICK_BACKEND='software')
+    env.pop('WAYLAND_DISPLAY',None)
+    try:r=subprocess.run(['quickshell','-p',str(cfg)],env=env,capture_output=True,text=True,timeout=10)
+    except subprocess.TimeoutExpired as error:
+        print((error.stdout or b'').decode(errors='replace') if isinstance(error.stdout,bytes) else error.stdout)
+        print((error.stderr or b'').decode(errors='replace') if isinstance(error.stderr,bytes) else error.stderr)
+        raise
+    output=r.stdout+r.stderr;print(output)
+    sys.exit(0 if r.returncode==0 and 'SELECTION_PROBE_PASS 8 0' in output and 'SELECTION_PROBE_FAIL' not in output else 1)

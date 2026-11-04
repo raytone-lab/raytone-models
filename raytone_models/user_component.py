@@ -1,5 +1,6 @@
 """User code only. Transactional install/rollback/recover, no model or system changes."""
 import argparse
+import ast
 import base64
 import fcntl
 import hashlib
@@ -57,6 +58,7 @@ class Component:
         self.pending = self.root / 'pending.json'
         self.targets = {'current': self.root / 'current', 'cli': self.home / '.local/bin/raytone-models',
                         'app': self.home / '.local/bin/raytone-models-app',
+                        'router': self.home / '.config/systemd/user/raytone-models-router.service',
                         'desktop': self.data / 'applications/ai.raytone.Models.desktop'}
 
     def safe(self, path):
@@ -90,8 +92,13 @@ class Component:
     def install(self, source):
         if self.pending.exists(): self.recover()
         source = Path(source).resolve()
+        module=ast.parse((source/'raytone_models/__init__.py').read_text())
+        versions=[ast.literal_eval(n.value) for n in module.body if isinstance(n,ast.Assign)
+                  and any(isinstance(t,ast.Name) and t.id=='USER_VERSION' for t in n.targets)]
+        if len(versions)!=1 or not isinstance(versions[0],str):raise ValueError('用户组件版本无效。')
+        version=versions[0]
         files = {}
-        for directory in ('app', 'bin', 'raytone_models', 'recipes'):
+        for directory in ('app', 'bin', 'raytone_models', 'recipes', 'systemd'):
             for path in sorted((source / directory).rglob('*')):
                 if '__pycache__' in path.parts or path.suffix == '.pyc' or not path.is_file(): continue
                 if path.is_symlink(): raise ValueError('组件源不能含文件链接。')
@@ -123,6 +130,8 @@ class Component:
         for key, name in (('cli','raytone-models'),('app','raytone-models-app')):
             after[key] = file_value('#!/bin/sh\n# Raytone Models managed entry\nexec '+shlex.quote(str(self.root/'current/bin'/name))+' "$@"\n',0o755)
         after['desktop'] = file_value('[Desktop Entry]\nType=Application\nName=模型控制台\nExec="'+str(self.targets['app'])+'"\nIcon='+str(self.root/'current/app/models.svg')+'\nTerminal=false\nStartupWMClass=ai.raytone.Models\nCategories=Utility;\n')
+        executable=json.dumps(str(release/'bin/raytone-models'),ensure_ascii=False).replace('%','%%')
+        after['router']=file_value('[Unit]\nDescription=Raytone Models internal loopback router\nStartLimitIntervalSec=30\nStartLimitBurst=2\n\n[Service]\nExecStart='+executable+' router\nRestart=on-failure\nRestartSec=2\nNoNewPrivileges=yes\n\n[Install]\nWantedBy=default.target\n')
         old={}
         for key,path in self.targets.items():
             self.safe(path);old[key]=encoded(path)
@@ -135,12 +144,12 @@ class Component:
             for key,path in self.targets.items():
                 if encoded(path)!=old[key]:raise ValueError('组件入口刚被其他程序修改。')
                 replace(path,after[key])
-            value={'kind':'raytone-models-user','schema':1,'version':VERSION,'current':identity,
+            value={'kind':'raytone-models-user','schema':1,'version':version,'current':identity,
                    'previous':before['current'] if before and before['current']!=identity else (before or {}).get('previous'),
                    'managed':after,'files':files}
             replace(self.receipt,file_value(json.dumps(value)))
             self.pending.unlink()
-            return {'changed':True,'id':identity,'version':VERSION}
+            return {'changed':True,'id':identity,'version':version,'routerReloadRequired':True}
         except BaseException:
             self.recover();raise
 

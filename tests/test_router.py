@@ -260,17 +260,18 @@ class RouterTests(unittest.TestCase):
         self.current.write_text("qwen3:1.7b\n")               # an Ollama model can be current too
         self.assertEqual(self.post_local()[1]["served_by"], self.ol.server_address[1])
         self.assertEqual(self.ol.seen[-1][2]["model"], "qwen3:1.7b")
-        self.current.write_text("stopped-model\n")            # not running: the newest one instead
-        self.assertEqual(self.post_local()[0], 200)
+        self.current.write_text("stopped-model\n")
+        before=len(self.b.seen)
+        status,got=self.post_local()
+        self.assertEqual((status,json.loads(got)['error']['type']),(503,'model_unavailable'))
+        self.assertEqual(len(self.b.seen),before)
 
-    def test_a_garbled_current_file_falls_back(self):
-        # From Codex's review: invalid UTF-8 (or a huge file) is no choice, not a failed request
+    def test_a_garbled_current_file_never_substitutes_another_model(self):
         for data in (b"\xff\xfe\x00", b"x" * 1_000_000):
             with self.subTest(size=len(data)):
                 self.current.write_bytes(data)
                 status, got = self.post_local()
-                self.assertEqual(status, 200)
-                self.assertEqual(got["served_by"], self.b.server_address[1])
+                self.assertEqual((status,json.loads(got)['error']['type']),(503,'model_unavailable'))
 
     def test_local_is_listed_and_never_a_video_engine(self):
         status, _, body = self.request("GET", "/v1/models")

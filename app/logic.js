@@ -1,5 +1,12 @@
 .pragma library
 
+function chatSelectionIndex(ready, selected) {
+    for (var i = 0; i < ready.length; i++) {
+        if (selected ? ready[i].served_name === selected : ready[i].current === true) return i
+    }
+    return -1
+}
+
 // Raytone Models app: pure helpers (tested under node by tests/test_app_logic.py).
 
 var GIB = 1073741824

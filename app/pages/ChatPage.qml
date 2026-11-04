@@ -20,6 +20,8 @@ ColumnLayout {
     function send() {
         var text = input.text.trim()
         if (!text || streaming || model.currentIndex < 0) return
+        var chosen = page.ready[model.currentIndex].served_name
+        page.selectedModel = chosen
         messages.append({ role: "user", content: text })
         var history = []
         for (var i = 0; i < messages.count; i++) history.push({ role: messages.get(i).role, content: messages.get(i).content })
@@ -28,7 +30,7 @@ ColumnLayout {
         input.text = ""
         streaming = true
         lastStats = ""
-        page.backend.chat(page.ready[model.currentIndex].served_name, history)
+        page.backend.chat(chosen, history)
     }
 
     Connections {
@@ -58,15 +60,22 @@ ColumnLayout {
 
     PageHeader {
         title: "对话"
-        subtitle: "先试用已就绪的本机对话模型，再连接智能体。"
+        subtitle: "默认使用当前本地模型；此处另选仅影响本次对话。"
         RComboBox {
             id: model
+            objectName: "chatModelSelection"
             onActivated: page.selectedModel=currentText
-            currentIndex: page.selectedModel ? page.ready.map(function(i){return i.served_name}).indexOf(page.selectedModel) : (page.ready.length?0:-1)
+            readonly property int desiredIndex: Logic.chatSelectionIndex(page.ready, page.selectedModel)
+            function syncSelection() { model.currentIndex = model.desiredIndex }
+            // ComboBox resets its index when an array model is replaced. Apply
+            // identity selection after that reset, including same-order polls.
+            onDesiredIndexChanged: Qt.callLater(syncSelection)
+            onModelChanged: Qt.callLater(syncSelection)
+            Component.onCompleted: Qt.callLater(syncSelection)
             model: page.ready.map(function (i) { return i.served_name })
             implicitWidth: 260
             enabled: page.ready.length > 0
-            displayText: page.ready.length ? currentText : "暂无就绪模型"
+            displayText: currentIndex >= 0 ? currentText : (page.ready.length ? "请选择就绪模型" : "暂无就绪模型")
         }
         // not while a reply streams in: its deltas belong to the conversation on screen
         RButton { text: "新对话"; enabled: !page.streaming; onClicked: { messages.clear(); page.lastStats = "" } }
@@ -84,7 +93,7 @@ ColumnLayout {
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
             visible: messages.count === 0
-            text: page.ready.length ? "向 " + model.currentText + " 提问。" : "请先在配方或本地模型中启动适用的模型。"
+            text: model.currentIndex >= 0 ? "向 " + model.currentText + " 提问。" : (page.ready.length ? "当前选择不可用，请明确选择一个就绪模型。" : "请先在配方或本地模型中启动适用的模型。")
             color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody
         }
         ListView {

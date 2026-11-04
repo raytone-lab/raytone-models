@@ -439,7 +439,20 @@ class CliTests(unittest.TestCase):
         self.assertFalse((self.env.home / ".config/opencode/opencode.json").exists())
 
     def test_elevation_is_pkexec_unless_told_otherwise(self):
-        self.assertEqual(cli.elevate_argv({}), ["pkexec", cli.HELPER])
+        self.assertEqual(cli.elevate_argv({}), ["pkexec", "--disable-internal-agent", cli.HELPER])
+
+    def test_auth_cancel_denial_and_timeout_are_distinct_without_retry(self):
+        from unittest.mock import patch
+        import subprocess
+        for code,label in ((126,'AUTH_CANCELLED'),(127,'AUTH_DENIED')):
+            with patch.object(cli.system_contract,'require'), patch('raytone_models.session_guard.require_unlocked'), \
+                 patch.object(cli.subprocess,'run',return_value=subprocess.CompletedProcess([],code,'','')) as run:
+                with self.assertRaisesRegex(SystemExit,label):cli._pkexec(['stop','qa-fixture'])
+                self.assertEqual(run.call_count,1)
+        with patch.object(cli.system_contract,'require'), patch('raytone_models.session_guard.require_unlocked'), \
+             patch.object(cli.subprocess,'run',side_effect=subprocess.TimeoutExpired([],180)) as run:
+            with self.assertRaisesRegex(SystemExit,'ACTION_TIMEOUT'):cli._pkexec(['stop','qa-fixture'])
+            self.assertEqual(run.call_count,1)
         self.assertEqual(cli.elevate_argv({"RAYTONE_MODELS_ELEVATE": "sudo"}), ["sudo", "-n", cli.HELPER])
         with self.assertRaises(SystemExit):
             cli.elevate_argv({"RAYTONE_MODELS_ELEVATE": "sh -c"})

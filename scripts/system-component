@@ -1,0 +1,229 @@
+#!/usr/bin/python3 -IB
+"""Explicit system-only bundle: build, install, rollback, recover, prepare-store, status.
+
+No GUI/CLI shadowing, passwordless rule, service start, model download or cache migration.
+Run a reviewed copy as root for system mutations; build runs without elevation.
+"""
+import argparse
+import base64
+import fcntl
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import subprocess
+import tarfile
+import tempfile
+
+LIB = 'usr/lib/raytone-models'
+MODULES = ('__init__', 'helper', 'system_contract', 'spec', 'engines')
+EXTERNAL = {
+    'usr/lib/systemd/system/raytone-engine@.service': 'systemd/raytone-engine@.service',
+    'usr/share/polkit-1/actions/org.raytone.models.policy': 'polkit/org.raytone.models.policy',
+    'usr/lib/sysusers.d/raytone-models.conf': 'packaging/raytone-models.sysusers',
+    'usr/lib/tmpfiles.d/raytone-models.conf': 'packaging/raytone-models.tmpfiles',
+    'etc/raytone-models/helper.json': 'packaging/helper.json',
+    'etc/raytone-models/connection.json': 'packaging/connection.json',
+}
+NAMES = {f'{LIB}/raytone-models-helper', f'{LIB}/component.json',
+         *(f'{LIB}/raytone_models/{n}.py' for n in MODULES), *EXTERNAL}
+STATE = 'var/lib/raytone-models/system-component'
+digest = lambda data: hashlib.sha256(data).hexdigest()
+
+
+def build(source, output):
+    source = Path(source).resolve()
+    contract = (source/'raytone_models/system_contract.py').read_text()
+    version = re.search(r"^VERSION = '([^']+)'", contract, re.M).group(1)
+    protocol = int(re.search(r'^PROTOCOL = (\d+)', contract, re.M).group(1))
+    files = {f'{LIB}/raytone-models-helper': ((source/'bin/raytone-models-helper').read_bytes(), 0o755)}
+    files.update({f'{LIB}/raytone_models/{n}.py': ((source/f'raytone_models/{n}.py').read_bytes(), 0o644) for n in MODULES})
+    files.update({name: ((source/origin).read_bytes(), 0o644) for name, origin in EXTERNAL.items()})
+    component = {'kind': 'raytone-models-system', 'version': version, 'protocol': protocol,
+                 'files': {n[len(LIB)+1:]: digest(d) for n, (d, _) in files.items() if n.startswith(LIB+'/')},
+                 'systemFiles': {'/'+n: digest(files[n][0]) for n in EXTERNAL}}
+    files[f'{LIB}/component.json'] = (json.dumps(component, sort_keys=True).encode()+b'\n', 0o644)
+    meta = {'kind': 'raytone-models-system-bundle', 'schema': 1, 'version': version, 'protocol': protocol,
+            'files': {n: {'sha256': digest(d), 'mode': m} for n, (d, m) in files.items()}}
+    files['bundle.json'] = (json.dumps(meta, sort_keys=True).encode()+b'\n', 0o644)
+    with open(output, 'wb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=0) as gz, tarfile.open(fileobj=gz, mode='w') as tar:
+        for name, (data, mode) in sorted(files.items()):
+            info = tarfile.TarInfo(name);info.size=len(data);info.mode=mode
+            tar.addfile(info, io.BytesIO(data))
+    return {'version': version, 'protocol': protocol, 'sha256': digest(Path(output).read_bytes())}
+
+
+def read_bundle(path):
+    # Never extract archive paths. Only the fixed allowlist reaches filesystem writes.
+    data = Path(path).read_bytes()
+    if len(data) > 8 << 20: raise ValueError('系统包过大。')
+    with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tar:
+        members = tar.getmembers()
+        if len(members) != len(NAMES)+1 or {m.name for m in members} != NAMES | {'bundle.json'}:
+            raise ValueError('系统包文件集合无效。')
+        if any(not m.isfile() or m.size > 2 << 20 for m in members): raise ValueError('系统包含不支持的文件。')
+        contents = {m.name: tar.extractfile(m).read() for m in members}
+        meta = json.loads(contents.pop('bundle.json'))
+        if (meta.get('kind'),meta.get('schema')) != ('raytone-models-system-bundle',1) or set(meta.get('files',{})) != NAMES:
+            raise ValueError('系统包清单无效。')
+        files = {}
+        for name, record in meta['files'].items():
+            mode = 0o755 if name == f'{LIB}/raytone-models-helper' else 0o644
+            if record != {'sha256': digest(contents[name]), 'mode': mode}: raise ValueError('系统包摘要或权限不匹配。')
+            files[name] = {'data': base64.b64encode(contents[name]).decode(), 'mode': mode}
+        component=json.loads(contents[f'{LIB}/component.json'])
+        expected={'kind':'raytone-models-system','version':meta.get('version'),'protocol':meta.get('protocol'),
+                  'files':{n[len(LIB)+1:]:digest(contents[n]) for n in NAMES if n.startswith(LIB+'/') and n!=f'{LIB}/component.json'},
+                  'systemFiles':{'/'+n:digest(contents[n]) for n in EXTERNAL}}
+        if component!=expected or type(meta.get('protocol')) is not int or meta['protocol']!=1:
+            raise ValueError('系统组件与包协议/摘要不一致。')
+    return files, meta
+
+
+class Installer:
+    def __init__(self, root=Path('/'), owner=0, run=subprocess.run):
+        # Alternate root/owner are available to unit tests only, never CLI options.
+        self.root=Path(root).resolve();self.owner=owner;self.run=run
+        self.state=self.root/STATE;self.receipt=self.state/'installed.json';self.pending=self.state/'pending.json'
+
+    def safe(self, path):
+        path=Path(path)
+        if not path.is_relative_to(self.root): raise ValueError('目标越界。')
+        for p in (path,*path.parents):
+            if p.exists() or p.is_symlink():
+                s=p.lstat()
+                if stat.S_ISLNK(s.st_mode) or s.st_uid != self.owner or s.st_mode & 0o022:
+                    raise ValueError('系统路径须由root独占管理：'+str(p))
+            if p==self.root: break
+
+    def value(self, path):
+        self.safe(path)
+        if not path.exists(): return None
+        if not path.is_file(): raise ValueError('系统目标不是普通文件。')
+        return {'data':base64.b64encode(path.read_bytes()).decode(),'mode':stat.S_IMODE(path.stat().st_mode)}
+
+    def write(self, path, value):
+        self.safe(path)
+        if value is None:
+            path.unlink(missing_ok=True);return
+        path.parent.mkdir(parents=True,exist_ok=True,mode=0o755);self.safe(path.parent)
+        fd,name=tempfile.mkstemp(prefix='.models-',dir=path.parent)
+        try:
+            with os.fdopen(fd,'wb') as f:
+                f.write(base64.b64decode(value['data']));f.flush();os.fsync(f.fileno())
+            os.chmod(name,value['mode']);os.replace(name,path)
+        finally:
+            Path(name).unlink(missing_ok=True)
+
+    def write_json(self, path, value):
+        self.write(path,{'data':base64.b64encode((json.dumps(value,sort_keys=True)+'\n').encode()).decode(),'mode':0o600})
+
+    def read(self):
+        value=self.value(self.receipt)
+        return json.loads(base64.b64decode(value['data'])) if value else None
+
+    def idle(self):
+        r=self.run(['/usr/bin/systemctl','list-units','raytone-engine@*.service','--state=active,activating,deactivating','--no-legend','--no-pager'],capture_output=True,text=True,timeout=10)
+        if r.returncode or r.stdout.strip(): raise ValueError('引擎运行中或状态未知，未替换系统组件。')
+        for name in ('etc/polkit-1/rules.d/50-raytone-models.rules','usr/share/polkit-1/rules.d/50-raytone-models.rules'):
+            if (self.root/name).exists(): raise ValueError('发现旧免密策略，请管理员先独立审核，未覆盖或删除。')
+
+    def reload(self):
+        self.run(['/usr/bin/systemctl','daemon-reload'],check=True,capture_output=True,text=True,timeout=10)
+
+    def recover(self):
+        if not self.value(self.pending): return {'recovered':False}
+        self.idle();j=json.loads(self.pending.read_text())
+        if set(j['before']) != NAMES or set(j['after']) != NAMES: raise ValueError('系统恢复记录不完整。')
+        for n in NAMES:
+            if self.value(self.root/n) not in (j['before'][n],j['after'][n]): raise ValueError('系统文件已被另外修改，保留恢复记录。')
+        for n in sorted(NAMES):self.write(self.root/n,j['before'][n])
+        self.write(self.receipt,j['receipt']);self.reload();self.pending.unlink()
+        return {'recovered':True}
+
+    def install(self, files, meta):
+        if self.pending.exists():self.recover()
+        before=self.read();old={n:self.value(self.root/n) for n in NAMES}
+        if before and before['managed']==files and old==files:return {'changed':False,'version':before['version']}
+        if old != ((before or {}).get('managed') or {n:None for n in NAMES}):
+            raise ValueError('系统文件不属于当前收据或已修改，未覆盖。')
+        self.idle();j={'before':old,'after':files,'receipt':self.value(self.receipt)}
+        self.write_json(self.pending,j)
+        try:
+            for n in sorted(NAMES):
+                if self.value(self.root/n)!=old[n]:raise ValueError('系统文件刚被其他程序修改。')
+                self.write(self.root/n,files[n])
+            self.reload()
+            self.write_json(self.receipt,{'kind':'raytone-models-system-install','schema':1,'version':meta['version'],
+                'protocol':meta['protocol'],'managed':files,'previous':before})
+            self.pending.unlink();return {'changed':True,'version':meta['version']}
+        except BaseException:
+            self.recover();raise
+
+    def rollback(self):
+        self.idle();before=self.read()
+        if not before:raise ValueError('没有可回退的系统组件。')
+        old={n:self.value(self.root/n) for n in NAMES}
+        if old!=before['managed']:raise ValueError('系统文件已修改，未回退。')
+        previous=before.get('previous');after=previous['managed'] if previous else {n:None for n in NAMES}
+        self.write_json(self.pending,{'before':old,'after':after,'receipt':self.value(self.receipt)})
+        try:
+            for n in sorted(NAMES):self.write(self.root/n,after[n])
+            self.reload()
+            if previous:self.write_json(self.receipt,previous)
+            else:self.write(self.receipt,None)
+            self.pending.unlink();return {'rolledBack':True,'installed':bool(previous),'runtimeDataRemoved':False}
+        except BaseException:
+            self.recover();raise
+
+    def prepare(self, user):
+        if not self.read() or self.pending.exists():raise ValueError('须先完成系统组件安装。')
+        # Provisioning is explicit and data preserving. Never recursively chown existing stores.
+        account=pwd.getpwnam(user)
+        if account.pw_uid==0:raise ValueError('模型下载账户不能是root。')
+        self.run(['/usr/bin/systemd-sysusers','/usr/lib/sysusers.d/raytone-models.conf'],check=True,capture_output=True,text=True,timeout=15)
+        for n,mode in [('var/lib/raytone-models',0o755),('var/lib/raytone-models/hf',0o755),
+                       ('var/cache/raytone-models',0o711),('run/raytone-models',0o755),('run/raytone-models/instances',0o755)]:
+            p=self.root/n;self.safe(p);p.mkdir(parents=True,exist_ok=True,mode=mode)
+        for n in ('hub','xet'):
+            p=self.root/'var/lib/raytone-models/hf'/n
+            if p.exists() or p.is_symlink():
+                s=p.lstat()
+                if not stat.S_ISDIR(s.st_mode) or s.st_uid!=account.pw_uid:raise ValueError('已有模型目录属主不匹配，未更改。')
+            else:p.mkdir(mode=0o755);os.chown(p,account.pw_uid,account.pw_gid)
+        return {'prepared':True,'downloadUser':user,'existingDataChanged':False}
+
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('action',choices=['build','install','rollback','recover','prepare-store','status'])
+    p.add_argument('path',nargs='?');p.add_argument('--source',type=Path,default=Path(__file__).resolve().parents[1])
+    a=p.parse_args()
+    try:
+        if a.action=='build':
+            if not a.path:raise ValueError('须指定输出包。')
+            result=build(a.source,a.path)
+        else:
+            if os.geteuid()!=0:raise ValueError('系统操作须由管理员明确执行。')
+            c=Installer();c.safe(c.state);c.state.mkdir(parents=True,exist_ok=True,mode=0o755)
+            fd=os.open(c.state/'lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+            with os.fdopen(fd,'a') as lock:
+                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                if a.action=='install':
+                    if not a.path:raise ValueError('须指定系统包。')
+                    files,meta=read_bundle(a.path);result=c.install(files,meta)
+                elif a.action=='rollback':result=c.rollback()
+                elif a.action=='recover':result=c.recover()
+                elif a.action=='prepare-store':result=c.prepare(a.path)
+                else:result={'installed':bool(c.read()),'needsRecovery':c.pending.exists()}
+        print(json.dumps({'ok':True,'data':result},ensure_ascii=False));return 0
+    except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as error:
+        print(json.dumps({'ok':False,'error':str(error)},ensure_ascii=False));return 1
+
+
+if __name__=='__main__':raise SystemExit(main())
