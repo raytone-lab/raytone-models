@@ -11,8 +11,8 @@ ColumnLayout {
         "vllm": "OpenAI / Anthropic API；量化与推测解码支持取决于镜像和平台。",
         "sglang": "结构化生成与前缀缓存；镜像的平台支持需单独核对。",
         "llamacpp": "GGUF 模型；本机构建的 GPU 架构需与设备匹配。",
-        "ollama": "GGUF models with Ollama's own library; runs as a system service.",
-        "comfyui": "Video and image generation (MiniMax-H3)."
+        "ollama": "通过 Ollama 模型库运行 GGUF，使用系统服务。",
+        "comfyui": "视频与图像生成（MiniMax-H3）。"
     })
     readonly property var names: ({ "vllm": "vLLM", "sglang": "SGLang", "llamacpp": "llama.cpp", "ollama": "Ollama", "comfyui": "ComfyUI" })
     spacing: 16

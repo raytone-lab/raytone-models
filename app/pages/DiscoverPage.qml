@@ -26,9 +26,9 @@ ColumnLayout {
 
     PageHeader { title: "发现"; subtitle: "在 Hugging Face 查找模型。下载前核对容量，运行支持需另行确认。" }
 
-    RowLayout {
+    ColumnLayout {
         Layout.fillWidth: true
-        spacing: 10
+        spacing: 8
         TextField {
             id: query
             objectName: "discoverQuery"
@@ -42,20 +42,20 @@ ColumnLayout {
             leftPadding: 18
             background: Rectangle { radius: height / 2; color: Theme.surface; border.color: query.activeFocus ? Theme.focus : Theme.border; border.width: query.activeFocus ? 2 : 1 }
             onAccepted: page.submit()
-            Accessible.name: "Search Hugging Face"
+            Accessible.name: "搜索 Hugging Face"
         }
-        Repeater {
-            model: [{ id: "all", label: "全部" }, { id: "llm", label: "LLM" }, { id: "video", label: "Video" }]
-            delegate: Rectangle {
-                required property var modelData
-                readonly property bool on: page.kind === modelData.id
-                implicitWidth: chip.implicitWidth + 32
-                implicitHeight: 32
-                radius: 16
-                color: on ? Theme.text : Theme.surface
-                border.color: Theme.border
-                Text { textFormat: Text.PlainText; id: chip; anchors.centerIn: parent; text: parent.modelData.label; color: parent.on ? Theme.background : Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold }
-                MouseArea { anchors.fill: parent; onClicked: { page.kind = parent.modelData.id; if (query.text.trim()) page.submit() } }
+        Flow {
+            Layout.fillWidth: true
+            spacing: 8
+            Repeater {
+                model: [{ id: "all", label: "全部" }, { id: "llm", label: "语言模型" }, { id: "video", label: "视频" }]
+                delegate: RButton {
+                    required property var modelData
+                    dense: true
+                    text: modelData.label
+                    variant: page.kind === modelData.id ? "primary" : "secondary"
+                    onClicked: { page.kind = modelData.id; if (query.text.trim()) page.submit() }
+                }
             }
         }
     }
@@ -70,13 +70,20 @@ ColumnLayout {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumWidth: 0
+            Layout.minimumHeight: 0
+            Layout.preferredWidth: parent.columns === 1 ? parent.width : Math.max(240, parent.width - 360)
+            Layout.preferredHeight: 240
             radius: Theme.radiusCard
             color: Theme.surface
             border.color: Theme.border
             Text { textFormat: Text.PlainText;
                 anchors.centerIn: parent
+                width: parent.width - 32
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
                 visible: page.visibleResults.length === 0
-                text: page.backend.searching ? "Searching…" : (query.text ? "No models match these filters." : "Search Hugging Face for a model.")
+                text: page.backend.searching ? "正在搜索…" : (query.text ? "没有符合筛选条件的模型。" : "输入关键词搜索 Hugging Face。")
                 color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody
             }
             ListView {
@@ -104,8 +111,8 @@ ColumnLayout {
                         RowLayout {
                             spacing: 10
                             Text { textFormat: Text.PlainText; text: "↓ " + Number(r.modelData.downloads).toLocaleString(Qt.locale("en_US"), "f", 0); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
-                            Text { textFormat: Text.PlainText; text: r.modelData.gguf ? "GGUF" : (r.modelData.library || "Library not specified"); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
-                            Pill { text: r.modelData.gated ? "Gated · access required" : "Ungated"; kind: r.modelData.gated ? "pending" : "neutral" }
+                            Text { textFormat: Text.PlainText; text: r.modelData.gguf ? "GGUF" : (r.modelData.library || "未标注库"); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                            Pill { text: r.modelData.gated ? "需访问授权" : "无需访问授权"; kind: r.modelData.gated ? "pending" : "neutral" }
                         }
                         Item { Layout.fillHeight: true }
                     }
@@ -119,7 +126,11 @@ ColumnLayout {
 
         Rectangle {
             id: detailPane
-            Layout.preferredWidth: parent.columns===1 ? -1 : 344
+            Layout.preferredWidth: parent.columns === 1 ? parent.width : 344
+            Layout.maximumWidth: parent.columns === 1 ? Infinity : 344
+            Layout.minimumWidth: 0
+            Layout.minimumHeight: 0
+            Layout.preferredHeight: 220
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: Theme.radiusCard
@@ -132,16 +143,16 @@ ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 16
                 spacing: 10
-                Text { textFormat: Text.PlainText; text: "REPOSITORY DETAILS"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold }
+                Text { textFormat: Text.PlainText; text: "仓库详情"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold }
                 Text { textFormat: Text.PlainText;
-                    text: page.selectedRepo || "Pick a result to see its variants."
+                    text: page.selectedRepo || "选择结果以查看文件版本。"
                     color: page.selectedRepo ? Theme.text : Theme.muted
                     font.family: Theme.font; font.pixelSize: page.selectedRepo ? Theme.sizeCard : Theme.sizeBody; font.weight: Font.Bold
                     wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
                 }
                 Text { textFormat: Text.PlainText;
                     visible: detailPane.detail !== null
-                    text: detailPane.detail ? Logic.shortRev(detailPane.detail.revision) + " · " + detailPane.variants.length + " variants" : ""
+                    text: detailPane.detail ? Logic.shortRev(detailPane.detail.revision) + " · " + detailPane.variants.length + " 个版本" : ""
                     color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeCaption
                 }
                 PageState {
@@ -175,7 +186,7 @@ ColumnLayout {
                             Rectangle { width: 14; height: 14; radius: 7; color: "transparent"; border.color: v.chosen ? Theme.accent : Theme.border; border.width: 2
                                 Rectangle { anchors.centerIn: parent; width: 6; height: 6; radius: 3; color: Theme.accent; visible: v.chosen } }
                             Text { textFormat: Text.PlainText; text: v.modelData.name; color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                            Pill { visible: v.modelData.name === detailPane.recommended; text: "Recommended"; kind: "ready" }
+                            Pill { visible: v.modelData.name === detailPane.recommended; text: "容量建议"; kind: "ready" }
                             Pill { text: v.fitState; kind: v.fitState === "fits" ? "neutral" : v.fitState === "tight" ? "pending" : "error"; visible: v.fitState !== "fits" }
                             Text { textFormat: Text.PlainText; text: Logic.gib(v.modelData.size); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl }
                         }
@@ -186,11 +197,11 @@ ColumnLayout {
                     Layout.fillWidth: true
                     variant: "primary"
                     readonly property var chosen: (detailPane.variants || []).filter(function (x) { return x.name === page.selectedVariant })[0]
-                    text: chosen ? "Download · " + Logic.gib(chosen.size) : "Choose a variant"
+                    text: chosen ? "下载 · " + Logic.gib(chosen.size) : "请选择文件版本"
                     enabled: !!chosen && page.backend.busy === ""
                     onClicked: page.backend.act("download:" + page.selectedRepo,
                                                 ["download", page.selectedRepo + "@" + detailPane.detail.revision, "--variant", page.selectedVariant, "--json"],
-                                                "Downloading " + page.selectedVariant)
+                                                "正在下载 " + page.selectedVariant)
                 }
             }
         }
@@ -211,8 +222,8 @@ ColumnLayout {
             anchors.margins: 14
             spacing: 10
             RowLayout {
-                Text { textFormat: Text.PlainText; text: "Downloads"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; Layout.fillWidth: true }
-                Text { textFormat: Text.PlainText; text: page.backend.downloads.filter(function (d) { return d.state === "running" }).length + " active"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                Text { textFormat: Text.PlainText; text: "下载任务"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; Layout.fillWidth: true }
+                Text { textFormat: Text.PlainText; text: page.backend.downloads.filter(function (d) { return d.state === "running" }).length + " 个进行中"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
             }
             GridLayout {
                 columns: 2
@@ -229,7 +240,7 @@ ColumnLayout {
                         spacing: 4
                         RowLayout {
                             Text { textFormat: Text.PlainText; text: dl.modelData.repo; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold; elide: Text.ElideMiddle; Layout.fillWidth: true }
-                            Text { textFormat: Text.PlainText; text: dl.modelData.state === "done" ? "Done" : Math.floor(100 * dl.modelData.progress) + "%"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                            Text { textFormat: Text.PlainText; text: dl.modelData.state === "done" ? "完成" : Math.floor(100 * dl.modelData.progress) + "%"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
                         }
                         ProgressLine { Layout.fillWidth: true; value: dl.modelData.progress }
                         Text { textFormat: Text.PlainText;

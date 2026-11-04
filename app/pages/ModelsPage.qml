@@ -32,7 +32,7 @@ ColumnLayout {
     PageHeader {
         title: "本地模型"
         subtitle: "已下载的模型文件与版本；文件存在不代表本机已验证可运行。"
-        Pill { text: page.backend.models.length + " models"; kind: "neutral" }
+        Pill { text: page.backend.models.length + " 个已下载版本"; kind: "neutral" }
     }
 
     Text { textFormat: Text.PlainText;

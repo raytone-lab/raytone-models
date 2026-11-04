@@ -81,7 +81,7 @@ ColumnLayout {
         Text { textFormat: Text.PlainText;
             anchors.centerIn: parent
             visible: messages.count === 0
-            text: page.ready.length ? "Ask " + model.currentText + " anything." : "Start a model on Recipes or Local models to chat."
+            text: page.ready.length ? "向 " + model.currentText + " 提问。" : "请先在配方或本地模型中启动适用的模型。"
             color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody
         }
         ListView {

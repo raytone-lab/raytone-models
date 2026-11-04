@@ -31,13 +31,13 @@ ColumnLayout {
         failed = false
         lastVideo = ""
         started = Date.now()
-        status = "Queued"
+        status = "已排队"
         page.backend.video(text, size.currentText, seconds.currentIndex === 0 ? 5 : 10, turbo.checked)
     }
 
     Timer {
         interval: 1000; repeat: true; running: page.generating
-        onTriggered: page.status = "Generating · " + Logic.clock((Date.now() - page.started) / 1000) + " elapsed"
+        onTriggered: page.status = "正在生成 · " + Logic.clock((Date.now() - page.started) / 1000) + " 已用时"
     }
 
     Connections {
@@ -45,7 +45,7 @@ ColumnLayout {
         function onVideoDone(path, secs) {
             page.generating = false
             page.lastVideo = path
-            page.status = "Done in " + Logic.clock(secs) + " · " + path.split("/").pop()
+            page.status = "生成完成，用时 " + Logic.clock(secs) + " · " + path.split("/").pop()
         }
         function onVideoError(message) { page.generating = false; page.failed = true; page.status = message }
         function onVideoEnded() { page.generating = false }
@@ -69,7 +69,7 @@ ColumnLayout {
     Card {
         Layout.fillWidth: true
         spacing: 12
-        Text { textFormat: Text.PlainText; text: "DESCRIBE THE VIDEO"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
+        Text { textFormat: Text.PlainText; text: "描述视频"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 130
@@ -82,7 +82,7 @@ ColumnLayout {
                 anchors.margins: 10
                 TextArea {
                     id: prompt
-                    placeholderText: "The scene, the shots and the camera, then the sound: dialogue, effects, music."
+                    placeholderText: "描述场景、镜头运动，以及对话、音效和音乐。"
                     placeholderTextColor: Theme.muted
                     color: Theme.text
                     font.family: Theme.font
@@ -92,7 +92,7 @@ ColumnLayout {
                 }
             }
         }
-        RowLayout {
+        Flow {
             Layout.fillWidth: true
             spacing: 10
             // 768p only where the CLI allows it: with JetPack's fan curve it passed the Thor's thermal
@@ -112,14 +112,13 @@ ColumnLayout {
                     Text { textFormat: Text.PlainText; anchors.centerIn: parent; text: "✓"; visible: turbo.checked; color: Theme.accentText; font.pixelSize: 11; font.weight: Font.Bold }
                 }
                 contentItem: Text { textFormat: Text.PlainText;
-                    text: "Turbo (8 steps)"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl
+                    text: "快速（8 步）"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl
                     leftPadding: turbo.indicator.width + 8; verticalAlignment: Text.AlignVCenter
                 }
             }
-            Item { Layout.fillWidth: true }
             RButton {
                 variant: page.generating ? "danger" : "primary"
-                text: page.generating ? "停止" : "Generate"
+                text: page.generating ? "停止" : "生成"
                 enabled: page.generating || (prompt.text.trim() !== "" && page.videoModels.length > 0)
                 onClicked: page.generating ? page.backend.stopVideo() : page.generate()
             }
@@ -132,17 +131,17 @@ ColumnLayout {
                 color: page.failed ? Theme.errorText : Theme.muted
                 font.family: Theme.font; font.pixelSize: Theme.sizeBody; wrapMode: Text.Wrap; Layout.fillWidth: true
             }
-            RButton { text: "Open"; dense: true; visible: page.lastVideo !== ""; onClicked: page.backend.open(page.lastVideo) }
+            RButton { text: "打开"; dense: true; visible: page.lastVideo !== ""; onClicked: page.backend.open(page.lastVideo) }
         }
     }
 
     Card {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        Text { textFormat: Text.PlainText; text: "RECENT VIDEOS"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
+        Text { textFormat: Text.PlainText; text: "最近的视频"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.weight: Font.Bold; font.letterSpacing: 1.4 }
         Text { textFormat: Text.PlainText;
             visible: files.count === 0
-            text: "Videos you generate are saved in ~/Videos/Raytone."
+            text: "生成的视频保存在 ~/Videos/Raytone。"
             color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody
         }
         Repeater {
@@ -162,13 +161,13 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Text { textFormat: Text.PlainText; text: fileName; color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeControl; elide: Text.ElideMiddle; Layout.fillWidth: true }
                 Text { textFormat: Text.PlainText; text: Math.round(fileSize / 1048576 * 10) / 10 + " MiB"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
-                RButton { text: "Open"; dense: true; onClicked: page.backend.open(filePath) }
+                RButton { text: "打开"; dense: true; onClicked: page.backend.open(filePath) }
             }
         }
     }
 
     Text { textFormat: Text.PlainText;
-        text: "Video model: MiniMax H3 by MiniMax, open weights (Comfy-Org's repackage), run locally with ComfyUI."
+        text: "视频模型为 MiniMax H3 开放权重（Comfy-Org 打包版），通过本机 ComfyUI 运行。"
         color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true
     }
 }

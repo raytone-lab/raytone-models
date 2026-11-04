@@ -9,7 +9,7 @@ ColumnLayout {
     id: page
     property var backend
     // A web-only entry (Raytone Codesphere) has no adapter, so it is not "connectable" -- but it
-    // belongs in this grid, first and with its one button, not under "Supported later", which is
+    // belongs in this grid, first and with its one button, not under "待适配", which is
     // where an agent still waiting for an adapter goes.
     readonly property var connectable: page.backend.agents.filter(function (a) { return a.connectable || a.web_only })
     readonly property var later: page.backend.agents.filter(function (a) { return a.supported && !a.connectable && !a.web_only })
@@ -20,17 +20,18 @@ ColumnLayout {
 
     PageHeader {
         title: "智能体"
-        subtitle: "Connect once: every agent uses whichever model runs. Revert puts their settings back exactly."
-        Pill { text: page.backend.agents.length + " coding agents"; kind: "neutral" }
+        subtitle: "为支持的智能体配置本机模型入口；连接会修改对应配置，可恢复原配置。"
+        Pill { text: page.backend.agents.length + " 个集成项"; kind: "neutral" }
     }
 
     Card {
         Layout.fillWidth: true
         padding: 16
-        Text { textFormat: Text.PlainText; text: "One local endpoint for every agent"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
+        Text { textFormat: Text.PlainText; text: "本机模型入口"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
         Text { textFormat: Text.PlainText;
-            text: (page.backend.connection ? page.backend.connection.public : "入口状态读取中") + " · model local → " + (page.current ? page.current.served_name : "no model running yet")
+            text: (page.backend.connection ? page.backend.connection.public : "入口状态读取中") + " · model local → " + (page.current ? page.current.served_name : "当前没有就绪模型")
             color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl
+            wrapMode: Text.Wrap; Layout.fillWidth: true
         }
     }
 
@@ -43,7 +44,7 @@ ColumnLayout {
             width: parent.width
             spacing: 12
             GridLayout {
-                columns: 2
+                columns: width < 620 ? 1 : 2
                 columnSpacing: 14
                 rowSpacing: 14
                 Layout.fillWidth: true
@@ -69,11 +70,11 @@ ColumnLayout {
                                 spacing: 6
                                 Layout.fillWidth: true
                                 Text { textFormat: Text.PlainText; text: a.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold }
-                                // Nothing of a web-only entry is configured here, so "Connected"
+                                // Nothing of a web-only entry is configured here, so "已连接"
                                 // would be a claim about a state that does not exist: say what it is.
                                 Pill {
                                     visible: a.modelData.web_only !== true
-                                    text: a.connected ? "Connected" : "Not connected"
+                                    text: a.connected ? "已连接" : "未连接"
                                     kind: a.connected ? "ready" : "neutral"
                                 }
                                 Text { textFormat: Text.PlainText;
@@ -106,7 +107,7 @@ ColumnLayout {
                             RButton {
                                 visible: a.modelData.connectable === true && !a.connected
                                 variant: "primary"
-                                text: page.backend.busy === "agent:" + a.modelData.id ? "Connecting…" : "连接"
+                                text: page.backend.busy === "agent:" + a.modelData.id ? "正在连接…" : "连接"
                                 enabled: page.backend.busy === ""
                                 onClicked: page.backend.act("agent:" + a.modelData.id, ["agent", "connect", a.modelData.id, "--json"], a.modelData.name + " connected")
                             }
@@ -114,9 +115,9 @@ ColumnLayout {
                     }
                 }
             }
-            Text { textFormat: Text.PlainText; text: "Supported later"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; topPadding: 6 }
+            Text { textFormat: Text.PlainText; text: "待适配"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; topPadding: 6 }
             GridLayout {
-                columns: 3
+                columns: width < 620 ? 1 : 3
                 columnSpacing: 12
                 rowSpacing: 12
                 Layout.fillWidth: true
@@ -128,13 +129,13 @@ ColumnLayout {
                         Layout.preferredWidth: 1
                         padding: 14
                         Text { textFormat: Text.PlainText; text: modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold }
-                        Text { textFormat: Text.PlainText; text: modelData.note || "Connection support planned"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                        Text { textFormat: Text.PlainText; text: modelData.note || "连接功能待适配"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     }
                 }
             }
-            Text { textFormat: Text.PlainText; text: "Unavailable"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; topPadding: 6 }
+            Text { textFormat: Text.PlainText; text: "当前不可用"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.Bold; topPadding: 6 }
             GridLayout {
-                columns: 3
+                columns: width < 620 ? 1 : 3
                 columnSpacing: 12
                 rowSpacing: 12
                 Layout.fillWidth: true

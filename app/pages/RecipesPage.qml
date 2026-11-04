@@ -63,8 +63,8 @@ ColumnLayout {
                             Layout.fillWidth: true
                         }
                         Pill {
-                            text: card.modelData.running ? "Running" : card.fetching ? "Downloading…"
-                                : card.action === "conflict" ? "Conflict" : card.modelData.state === "ready" ? "就绪" : "Not downloaded"
+                            text: card.modelData.running ? "运行中" : card.fetching ? "正在下载…"
+                                : card.action === "conflict" ? "冲突" : card.modelData.state === "ready" ? "就绪" : "尚未下载"
                             kind: card.modelData.running || card.modelData.state === "ready" && card.action !== "conflict" ? "ready"
                                 : card.fetching ? "pending" : card.action === "conflict" ? "error" : "neutral"
                         }
@@ -177,7 +177,7 @@ ColumnLayout {
                             variant: card.action === "stop" ? "danger" : "primary"
                             text: card.action === "stop" ? (page.backend.busy === "recipe:" + card.modelData.id ? "Stopping…" : "停止")
                                 : card.action === "apply" ? (page.backend.busy === "recipe:" + card.modelData.id ? "Starting…" : "应用")
-                                : card.action === "conflict" ? "应用" : (card.fetching ? "Downloading…" : "下载")
+                                : card.action === "conflict" ? "应用" : (card.fetching ? "正在下载…" : "下载")
                             enabled: page.backend.busy === "" && !card.fetching && card.action !== "conflict" && (card.action !== "apply" || (!!card.modelData.applicability && card.modelData.applicability.canApply))
                             onClicked: {
                                 if (card.action === "download") page.backend.fetchRecipe(card.modelData.id)
