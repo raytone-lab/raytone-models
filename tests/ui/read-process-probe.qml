@@ -9,7 +9,7 @@ ShellRoot {
     function check(ok) {
         if (!ok) failures++
         completed++
-        if (completed === 5) { console.log(failures === 0 ? "READ_PROCESS_PASS 5" : "READ_PROCESS_FAIL", failures); Qt.quit() }
+        if (completed === 6) { console.log(failures === 0 ? "READ_PROCESS_PASS 6" : "READ_PROCESS_FAIL", failures); Qt.quit() }
     }
     ReadProcess {
         command: ["/usr/bin/python3", "-c", "print('[]')"]; running: true
@@ -25,6 +25,11 @@ ShellRoot {
         command: ["/usr/bin/python3", "-c", "import sys;sys.exit(3)"]; running: true
         onResult: root.check(false)
         onFailed: root.check(true)
+    }
+    ReadProcess {
+        command: ["/usr/bin/python3", "-c", "import sys;print('{\"error\":\"missing test dependency\"}');sys.exit(1)"]; running: true
+        onResult: root.check(false)
+        onFailed: function(message) { root.check(message==="missing test dependency") }
     }
     ReadProcess {
         command: ["/nonexistent/raytone-models-cli"]; running: true

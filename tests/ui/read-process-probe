@@ -17,4 +17,4 @@ with tempfile.TemporaryDirectory(prefix='models-read-probe-') as tmp:
     result=subprocess.run(['quickshell','-p',str(cfg)],env=env,capture_output=True,text=True,timeout=25)
     output=result.stdout+result.stderr
     print(output)
-    sys.exit(0 if result.returncode==0 and 'READ_PROCESS_PASS 5' in output and 'READ_PROCESS_FAIL' not in output else 1)
+    sys.exit(0 if result.returncode==0 and 'READ_PROCESS_PASS 6' in output and 'READ_PROCESS_FAIL' not in output else 1)

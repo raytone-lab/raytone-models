@@ -20,7 +20,11 @@ Process {
         completed = true; deadline.stop(); killer.stop()
         Qt.callLater(function() {
             if (timedOut) { failed("读取超时，请重试。"); return }
-            if (code !== 0) { failed(errorOutput.trim() || "读取失败（退出码 " + code + "）。"); return }
+            if (code !== 0) {
+                var diagnostic=""
+                try { var data=JSON.parse(output);diagnostic=data.error ? (typeof data.error==="string" ? data.error : data.error.message || "") : "" } catch(_) {}
+                failed((errorOutput.trim() || diagnostic || "读取失败（退出码 " + code + "）。").slice(-1000)); return
+            }
             try {
                 var value = JSON.parse(output)
                 if (value && value.error) { failed(String(value.error)); return }

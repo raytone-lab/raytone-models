@@ -27,7 +27,7 @@ Rectangle {
                     backend.instances.filter(function(i){return i.ready && i.role==="video"}).length,
                     backend.agents.length,backend.engines.length]
         var keys=current===2 && backend.searchAttempted?["stats","search"]:selected.keys
-        return backend.pageState?backend.pageState(keys,counts[current],selected.empty):({phase:"ready",message:""})
+        return backend.pageState?backend.pageState(keys.concat(["connection"]),counts[current],selected.empty):({phase:"ready",message:""})
     }
     readonly property var pageStatus: stateForPage()
 
@@ -65,7 +65,7 @@ Rectangle {
                     wrapMode:Text.Wrap;Layout.fillWidth:true
                 }
                 Text { textFormat: Text.PlainText;
-                    text: view.backend.stats ? Math.round(view.backend.stats.memory.total/1073741824)+" GiB 系统内存" : "内存状态读取中"
+                    text: view.backend.readErrors && view.backend.readErrors.stats ? "内存状态暂不可读" : view.backend.stats ? Math.round(view.backend.stats.memory.total/1073741824)+" GiB 系统内存" : "内存状态读取中"
                     color:Theme.muted;font.family:Theme.font;font.pixelSize:Theme.sizeCaption;Layout.fillWidth:true;wrapMode:Text.Wrap
                 }
             }
