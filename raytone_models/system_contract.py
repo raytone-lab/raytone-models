@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import stat
 
-VERSION = '0.2.2-batch4'
+VERSION = '0.2.3-batch5a'
 PROTOCOL = 1
 ROOT = Path('/usr/lib/raytone-models')
 

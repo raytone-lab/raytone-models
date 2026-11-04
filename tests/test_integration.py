@@ -2,6 +2,8 @@ import json
 import io
 from contextlib import redirect_stderr
 import os
+import shutil
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -76,3 +78,43 @@ class UserComponentTests(unittest.TestCase):
         self.component.targets['cli'].write_text('edited')
         with self.assertRaisesRegex(ValueError,'入口不属于'):self.component.install(ROOT)
         self.assertEqual(self.component.targets['cli'].read_text(),'edited')
+
+    def test_schema_two_and_verified_maintenance_survive_legacy_payload_rollback(self):
+        self.component.install(ROOT);first=self.component.read();entry=self.component.targets['maintenance'].read_bytes()
+        legacy=Path(self.temp.name)/'legacy';shutil.copytree(ROOT,legacy,ignore=shutil.ignore_patterns('.git','__pycache__'))
+        (legacy/'bin/raytone-models-component').unlink()
+        (legacy/'raytone_models/__init__.py').write_text('USER_VERSION = "0.2.2-batch3"\n')
+        self.component.install(legacy);value=self.component.read()
+        self.assertEqual(value['schema'],2);self.assertEqual(value['version'],'0.2.2-batch3')
+        self.assertEqual(value['maintenance'],first['current']);self.assertEqual(self.component.targets['maintenance'].read_bytes(),entry)
+        self.assertTrue(all(self.component.status()[k] for k in ('filesMatch','releaseVerified','maintenanceVerified')))
+        self.component.install(ROOT);self.assertEqual(self.component.read()['current'],first['current'])
+
+    def test_new_reader_recovers_old_four_target_pending_journal(self):
+        self.component.install(ROOT)
+        keys=set(self.component.targets)-{'maintenance','router'}
+        before={k:user_component.encoded(self.component.targets[k]) for k in keys}
+        after={**before,'cli':user_component.file_value('interrupted legacy')}
+        journal={'before':before,'after':after,'receipt':user_component.encoded(self.component.receipt)}
+        user_component.replace(self.component.pending,user_component.file_value(json.dumps(journal)))
+        user_component.replace(self.component.targets['cli'],after['cli'])
+        self.assertTrue(self.component.recover()['recovered']);self.assertEqual(user_component.encoded(self.component.targets['cli']),before['cli'])
+
+    def test_tampered_release_and_maintenance_are_visible(self):
+        self.component.install(ROOT);value=self.component.read()
+        (self.component.root/'releases'/value['current']/'raytone_models/cli.py').write_text('edited')
+        status=self.component.status();self.assertTrue(status['filesMatch']);self.assertFalse(status['releaseVerified']);self.assertFalse(status['maintenanceVerified'])
+
+    def test_live_update_gate_refuses_gui_and_running_router(self):
+        self.component.live=True
+        for rows,state in (([{'class':'ai.raytone.Models'}],'inactive'),([], 'active')):
+            def run(argv,**kw):return subprocess.CompletedProcess(argv,0,json.dumps(rows) if 'hyprctl' in argv[0] else state,'')
+            with patch.object(user_component.subprocess,'run',side_effect=run),self.assertRaises(ValueError):self.component.idle()
+
+    def test_user_version_change_does_not_change_minimal_root_package(self):
+        import runpy
+        build=runpy.run_path(str(ROOT/'scripts/system-component'))['build']
+        source=Path(self.temp.name)/'source';shutil.copytree(ROOT,source,ignore=shutil.ignore_patterns('.git','__pycache__'))
+        a=Path(self.temp.name)/'a.tar.gz';b=Path(self.temp.name)/'b.tar.gz';build(source,a)
+        (source/'raytone_models/__init__.py').write_text('USER_VERSION = "only-ui-change"\n');build(source,b)
+        self.assertEqual(a.read_bytes(),b.read_bytes())

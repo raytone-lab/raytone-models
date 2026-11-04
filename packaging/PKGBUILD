@@ -1,6 +1,6 @@
 # Built from this checkout: cd packaging && makepkg
 pkgname=raytone-models
-pkgver=0.2.3batch4
+pkgver=0.2.4batch5a
 pkgrel=1
 pkgdesc='Raytone Models: local model engines, Hugging Face models, agents and recipes for Omarchy'
 arch=(any)

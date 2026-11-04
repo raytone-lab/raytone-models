@@ -43,6 +43,9 @@ def build(source, output):
     protocol = int(re.search(r'^PROTOCOL = (\d+)', contract, re.M).group(1))
     files = {f'{LIB}/raytone-models-helper': ((source/'bin/raytone-models-helper').read_bytes(), 0o755)}
     files.update({f'{LIB}/raytone_models/{n}.py': ((source/f'raytone_models/{n}.py').read_bytes(), 0o644) for n in MODULES})
+    # The privileged package has its own contract; user UI versions do not
+    # change privileged code or require an incidental system reinstall.
+    files[f'{LIB}/raytone_models/__init__.py'] = (b'"""Raytone Models minimal system package."""\n', 0o644)
     files.update({name: ((source/origin).read_bytes(), 0o644) for name, origin in EXTERNAL.items()})
     component = {'kind': 'raytone-models-system', 'version': version, 'protocol': protocol,
                  'files': {n[len(LIB)+1:]: digest(d) for n, (d, _) in files.items() if n.startswith(LIB+'/')},
@@ -110,15 +113,22 @@ class Installer:
     def write(self, path, value):
         self.safe(path)
         if value is None:
-            path.unlink(missing_ok=True);return
+            path.unlink(missing_ok=True)
+            if path.parent.exists():self.sync_directory(path.parent)
+            return
         path.parent.mkdir(parents=True,exist_ok=True,mode=0o755);self.safe(path.parent)
         fd,name=tempfile.mkstemp(prefix='.models-',dir=path.parent)
         try:
             with os.fdopen(fd,'wb') as f:
                 f.write(base64.b64decode(value['data']));f.flush();os.fsync(f.fileno())
-            os.chmod(name,value['mode']);os.replace(name,path)
+            os.chmod(name,value['mode']);os.replace(name,path);self.sync_directory(path.parent)
         finally:
             Path(name).unlink(missing_ok=True)
+
+    def sync_directory(self, path):
+        fd=os.open(path,os.O_RDONLY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
 
     def write_json(self, path, value):
         self.write(path,{'data':base64.b64encode((json.dumps(value,sort_keys=True)+'\n').encode()).decode(),'mode':0o600})
@@ -143,7 +153,7 @@ class Installer:
         for n in NAMES:
             if self.value(self.root/n) not in (j['before'][n],j['after'][n]): raise ValueError('系统文件已被另外修改，保留恢复记录。')
         for n in sorted(NAMES):self.write(self.root/n,j['before'][n])
-        self.write(self.receipt,j['receipt']);self.reload();self.pending.unlink()
+        self.write(self.receipt,j['receipt']);self.reload();self.write(self.pending,None)
         return {'recovered':True}
 
     def install(self, files, meta):
@@ -161,7 +171,7 @@ class Installer:
             self.reload()
             self.write_json(self.receipt,{'kind':'raytone-models-system-install','schema':1,'version':meta['version'],
                 'protocol':meta['protocol'],'managed':files,'previous':before})
-            self.pending.unlink();return {'changed':True,'version':meta['version']}
+            self.write(self.pending,None);return {'changed':True,'version':meta['version']}
         except BaseException:
             self.recover();raise
 
@@ -177,7 +187,7 @@ class Installer:
             self.reload()
             if previous:self.write_json(self.receipt,previous)
             else:self.write(self.receipt,None)
-            self.pending.unlink();return {'rolledBack':True,'installed':bool(previous),'runtimeDataRemoved':False}
+            self.write(self.pending,None);return {'rolledBack':True,'installed':bool(previous),'runtimeDataRemoved':False}
         except BaseException:
             self.recover();raise
 

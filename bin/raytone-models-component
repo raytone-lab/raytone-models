@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+"""Pinned user-component maintenance; stays available after payload rollback."""
+import os
+import sys
+sys.path.insert(0,os.path.join(os.path.dirname(os.path.realpath(__file__)),os.pardir))
+sys.path.insert(0,os.path.dirname(os.path.realpath(__file__)))
+from raytone_models.user_component import main
+raise SystemExit(main())

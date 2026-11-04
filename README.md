@@ -108,10 +108,10 @@ page names MiniMax H3 as the model; the video files themselves carry no attribut
 MIT, © Raytone AI Lab and contributors.
 
 
-## Split component candidate (batch 4)
+## Split component candidate (batch 5A)
 
-The managed user component is `0.2.3-batch4`; its matching system contract is
-`0.2.2-batch4`, protocol 1. This software candidate has no real GPU/model/Spark
+The managed user component is `0.2.4-batch5a`; its matching system contract is
+`0.2.3-batch5a`, protocol 1. This software candidate has no real GPU/model/Spark
 acceptance. The source polkit policy requires an administrator authentication for
 each action; there is no passwordless wheel rule. A desktop polkit agent is a
 separate prerequisite: absent authentication returns AUTH_DENIED without starting
@@ -160,3 +160,29 @@ models/agents use public `/v1` and alias `local`. Existing local/cloud policy st
 in effect. A missing selected instance returns unavailable instead of silently
 selecting another instance. NO_INSTANCE is configured but not ready; it is never an
 inference success.
+
+
+The user receipt is now schema 2. It migrates existing schema 1 installations, then
+refuses old schema 1 installer replays before changing managed entries. Use the
+new source installer for initial migration and the installed
+`raytone-models-component` for subsequent `status`, `install SOURCE`, `rollback`
+and `recover`. Its entry stays pinned to compatible maintenance code even when
+the UI/CLI payload is rolled back. Pair any user rollback with the matching system
+component before running model mutations; a mismatch remains a refusal.
+
+Close Models after checking foreground chat/video work, and explicitly stop the
+internal router during maintenance before changing user code. The live installer
+refuses an open Models window, an active router or unknown session state. It does
+not stop jobs. For offline image/profile staging only, append `--files-only`;
+this does not verify desktop activation. Status verifies managed entries, payload
+and maintenance files separately. Recovery supports pending schema 1 target sets.
+
+The tested Omarchy desktop already embeds `omarchy.polkit` in Quickshell. A
+separate process named polkit is not required for an authentication agent to exist.
+Launch interactive tests through the graphical session (e.g. its normal launcher
+or uwsm-app); a raw SSH child can be denied as a remote subject even with the
+desktop environment variables copied. Do not add a second agent or weaken policy
+to make a remote authorization appear successful. The system bundle carries a
+minimal init module, so a user-only version change does not rewrite privileged
+code. File and directory synchronization is used for transaction journals and
+entry replacements; actual power-loss behavior still requires device validation.
