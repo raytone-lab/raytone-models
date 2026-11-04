@@ -4,9 +4,15 @@ import QtQuick.Layouts
 import ".."
 import "../components"
 
-ColumnLayout {
-    id: page
+ScrollView {
+    id: scroll
     property var backend
+    contentWidth: availableWidth
+    clip: true
+    ColumnLayout {
+    id: page
+    width: scroll.availableWidth
+    property var backend: scroll.backend
     readonly property var about: ({
         "vllm": "OpenAI / Anthropic API；量化与推测解码支持取决于镜像和平台。",
         "sglang": "结构化生成与前缀缓存；镜像的平台支持需单独核对。",
@@ -26,9 +32,12 @@ ColumnLayout {
             required property var modelData
             Layout.fillWidth: true
             padding: 18
-            RowLayout {
+            GridLayout {
                 Layout.fillWidth: true
+                columns: width < 620 ? 1 : 2
+                columnSpacing: 16; rowSpacing: 10
                 ColumnLayout {
+                    Layout.minimumWidth: 0
                     spacing: 4
                     Layout.fillWidth: true
                     Text { textFormat: Text.PlainText; text: page.names[e.modelData.engine] || e.modelData.engine; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeCard; font.weight: Font.Bold }
@@ -37,13 +46,15 @@ ColumnLayout {
                         visible: !!e.modelData.image
                         text: (e.modelData.tag ? e.modelData.tag + " · " : "") + String(e.modelData.image || "").replace(/@sha256:([0-9a-f]{12}).*/, "@sha256:$1…")
                         color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeCaption
+                        Layout.fillWidth: true; elide: Text.ElideMiddle
                     }
                     Text { textFormat: Text.PlainText; visible: !!e.modelData.checked; text: e.modelData.checked || ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 }
-                Item { Layout.fillWidth: true }
                 Pill { text: e.modelData.configured ? "镜像已配置（运行待验）" : "镜像未配置"; kind: e.modelData.configured ? "ready" : "neutral" }
             }
         }
     }
     Item { Layout.fillHeight: true }
+}
+
 }

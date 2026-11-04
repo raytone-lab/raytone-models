@@ -5,9 +5,15 @@ import ".."
 import "../components"
 import "../logic.js" as Logic
 
-ColumnLayout {
-    id: page
+ScrollView {
+    id: scroll
     property var backend
+    contentWidth: availableWidth
+    clip: true
+    ColumnLayout {
+    id: page
+    width: scroll.availableWidth
+    property var backend: scroll.backend
     property var history: []          // recent tokens/s samples of the first instance
     readonly property var first: page.backend.instances.length ? page.backend.instances[0] : null
     readonly property var rate: first ? Logic.tokensPerSecond(page.backend.previousStats, page.backend.stats, first.id) : null
@@ -47,7 +53,7 @@ ColumnLayout {
                 ColumnLayout {
                     spacing: 4
                     Layout.fillWidth: true
-                    Text { textFormat: Text.PlainText; text: "SERVED MODEL"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold }
+                    Text { textFormat: Text.PlainText; text: "SERVED MODEL"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold; Layout.fillWidth: true; wrapMode: Text.Wrap }
                     Text { textFormat: Text.PlainText; text: inst.modelData.served_name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeFeatured; font.weight: Font.Bold }
                 }
                 Item { Layout.fillWidth: true }
@@ -84,17 +90,18 @@ ColumnLayout {
         }
     }
 
-    RowLayout {
+    GridLayout {
         Layout.fillWidth: true
-        spacing: 16
+        columns: width < 620 ? 1 : 2
+        columnSpacing: 16; rowSpacing: 16
         visible: page.backend.instances.length > 0 || page.mem !== null
         Card {
             Layout.fillWidth: true
             Layout.preferredWidth: 1
-            Text { textFormat: Text.PlainText; text: "GENERATION SPEED"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; font.weight: Font.Bold }
+            Text { textFormat: Text.PlainText; text: "生成速度"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; font.weight: Font.Bold }
             RowLayout {
                 Text { textFormat: Text.PlainText; text: page.rate === null ? "—" : String(page.rate); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeTelemetry; font.weight: Font.DemiBold }
-                Text { textFormat: Text.PlainText; text: page.rate === null ? "Waiting for telemetry" : "tokens/s"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; Layout.alignment: Qt.AlignBottom; bottomPadding: 8 }
+                Text { textFormat: Text.PlainText; text: page.rate === null ? "暂无遥测" : "tokens/s"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; Layout.alignment: Qt.AlignBottom; bottomPadding: 8 }
             }
             Row {
                 spacing: 6
@@ -112,24 +119,24 @@ ColumnLayout {
                     }
                 }
             }
-            Text { textFormat: Text.PlainText; text: "Last minute, sampled every 2 s"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+            Text { textFormat: Text.PlainText; text: "最近一分钟，每 2 秒采样"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; Layout.fillWidth: true; wrapMode: Text.Wrap }
         }
         Card {
             id: memCard
             Layout.fillWidth: true
             Layout.preferredWidth: 1
             readonly property real used: page.mem ? page.mem.total - page.mem.available : 0
-            Text { textFormat: Text.PlainText; text: "UNIFIED MEMORY"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; font.weight: Font.Bold }
+            Text { textFormat: Text.PlainText; text: "系统内存"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; font.weight: Font.Bold }
             RowLayout {
                 Text { textFormat: Text.PlainText; text: page.mem ? (memCard.used / 1073741824).toFixed(1) : "—"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeTelemetry; font.weight: Font.DemiBold }
                 Text { textFormat: Text.PlainText; text: page.mem ? "/ " + (page.mem.total / 1073741824).toFixed(0) + " GiB" : ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; Layout.alignment: Qt.AlignBottom; bottomPadding: 8 }
             }
             ProgressLine { Layout.fillWidth: true; value: page.mem ? memCard.used / page.mem.total : 0 }
             Text { textFormat: Text.PlainText;
-                text: page.mem ? Math.round(100 * memCard.used / page.mem.total) + "% in use · " + (page.mem.available / 1073741824).toFixed(1) + " GiB available" : ""
+                text: page.mem ? Math.round(100 * memCard.used / page.mem.total) + "% 已用 · " + (page.mem.available / 1073741824).toFixed(1) + " GiB 可用" : ""
                 color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption
             }
-            Text { textFormat: Text.PlainText; text: "CPU and GPU share this memory on the Jetson AGX Thor."; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+            Text { textFormat: Text.PlainText; text: "此处为系统内存读数；GPU 能力与显存须另行核对。"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; Layout.fillWidth: true; wrapMode: Text.Wrap }
         }
     }
 
@@ -140,14 +147,16 @@ ColumnLayout {
             ColumnLayout {
                 spacing: 4
                 Layout.fillWidth: true
-                Text { textFormat: Text.PlainText; text: "LOCAL ROUTER · OPENAI- AND ANTHROPIC-COMPATIBLE"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold }
-                Text { textFormat: Text.PlainText; text: "http://127.0.0.1:8090/v1"; color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeCard; font.weight: Font.DemiBold }
-                Text { textFormat: Text.PlainText; text: "model \"local\" is always the current model"; color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl }
+                Text { textFormat: Text.PlainText; text: "本机模型入口（配置值）"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeDense; font.letterSpacing: 1.4; font.weight: Font.Bold; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                Text { textFormat: Text.PlainText; text: (page.backend.connection ? page.backend.connection.public : "入口状态读取中"); color: Theme.text; font.family: Theme.mono; font.pixelSize: Theme.sizeCard; font.weight: Font.DemiBold }
+                Text { textFormat: Text.PlainText; text: "仅在模型路由与实例就绪后可用"; color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeControl; Layout.fillWidth: true; wrapMode: Text.Wrap }
             }
             Item { Layout.fillWidth: true }
-            RButton { text: "Copy"; onClicked: page.backend.copy("http://127.0.0.1:8090/v1") }
+            RButton { text: "复制"; enabled: !!page.backend.connection; onClicked: page.backend.copy((page.backend.connection ? page.backend.connection.public : "入口状态读取中")) }
         }
     }
 
     Item { Layout.fillHeight: true }
+}
+
 }
