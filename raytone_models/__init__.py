@@ -1,2 +1,2 @@
 
-USER_VERSION = "0.2.1-batch2"
+USER_VERSION = "0.2.2-batch3"

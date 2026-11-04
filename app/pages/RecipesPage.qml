@@ -29,13 +29,37 @@ ColumnLayout {
     }
 
     ScrollView {
+        id: scroll
+        objectName: "recipesScroll"
         Layout.fillWidth: true
         Layout.fillHeight: true
+        Layout.minimumHeight: 0
         contentWidth: availableWidth
+        contentHeight: grid.implicitHeight
         clip: true
+        focusPolicy: Qt.StrongFocus
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: scroll.contentHeight > scroll.availableHeight ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+        ScrollBar.vertical.interactive: true
+        Keys.onPressed: function(event) {
+            var y = contentItem.contentY
+            if (event.key === Qt.Key_Down) y += 48
+            else if (event.key === Qt.Key_Up) y -= 48
+            else if (event.key === Qt.Key_PageDown) y += availableHeight * 0.9
+            else if (event.key === Qt.Key_PageUp) y -= availableHeight * 0.9
+            else if (event.key === Qt.Key_Home) y = 0
+            else if (event.key === Qt.Key_End) y = contentHeight
+            else return
+            contentItem.contentY = Math.max(0, Math.min(y, contentHeight - availableHeight))
+            event.accepted = true
+        }
         GridLayout {
-            width: parent.width
-            columns: 2
+            id: grid
+            objectName: "recipesGrid"
+            // Keep a fixed gutter so the scrollbar cannot cover a card or make
+            // wrapped content alternate between two widths at the boundary.
+            width: Math.max(0, scroll.availableWidth - 12)
+            columns: width < 620 ? 1 : 2
             columnSpacing: 16
             rowSpacing: 16
             Repeater {
@@ -44,10 +68,11 @@ ColumnLayout {
                     id: card
                     required property var modelData
                     required property int index
+                    objectName: "recipeCard-" + modelData.id
                     readonly property string action: Logic.recipeAction(modelData)
                     readonly property bool fetching: page.backend.fetching[modelData.id] === true
                     Layout.fillWidth: true
-                    Layout.columnSpan: index === 0 ? 2 : 1
+                    Layout.columnSpan: index === 0 ? grid.columns : 1
                     Layout.preferredWidth: 1
                     highlighted: modelData.running
                     spacing: 10
@@ -174,6 +199,14 @@ ColumnLayout {
                             ToolTip.text: sourceText.text
                         }
                         RButton {
+                            objectName: "recipeAction-" + card.modelData.id
+                            onActiveFocusChanged: if (activeFocus) {
+                                var top = mapToItem(grid, 0, 0).y
+                                var y = scroll.contentItem.contentY
+                                if (top < y) y = top
+                                else if (top + height > y + scroll.availableHeight) y = top + height - scroll.availableHeight
+                                scroll.contentItem.contentY = Math.max(0, Math.min(y, scroll.contentHeight - scroll.availableHeight))
+                            }
                             variant: card.action === "stop" ? "danger" : "primary"
                             text: card.action === "stop" ? (page.backend.busy === "recipe:" + card.modelData.id ? "Stopping…" : "停止")
                                 : card.action === "apply" ? (page.backend.busy === "recipe:" + card.modelData.id ? "Starting…" : "应用")

@@ -1,0 +1,18 @@
+#!/usr/bin/python3
+"""Measure real Qt scrolling and focus through actual CLI polling; no actions."""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+root=Path(__file__).resolve().parents[2]
+with tempfile.TemporaryDirectory(prefix='models-recipes-probe-') as tmp:
+    cfg=Path(tmp);shutil.copytree(root/'app',cfg/'app')
+    shutil.copyfile(Path(__file__).with_suffix('.qml'),cfg/'shell.qml')
+    env=dict(os.environ,QT_QPA_PLATFORM='offscreen',QT_QUICK_BACKEND='software',
+             RAYTONE_PROBE_CLI=os.environ.get('RAYTONE_PROBE_CLI',str(root/'bin/raytone-models')))
+    env.pop('WAYLAND_DISPLAY',None)
+    r=subprocess.run(['quickshell','-p',str(cfg)],env=env,capture_output=True,text=True,timeout=30)
+    output=r.stdout+r.stderr;print(output)
+    sys.exit(0 if r.returncode==0 and 'RECIPES_PROBE_PASS 15 0' in output and 'RECIPES_PROBE_FAIL' not in output else 1)
