@@ -1,11 +1,13 @@
 import json
+import io
+from contextlib import redirect_stderr
 import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from raytone_models import cli, connection, launcher, system_contract, user_component
+from raytone_models import cli, connection, helper, launcher, system_contract, user_component
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,6 +33,12 @@ class IntegrationTests(unittest.TestCase):
         with patch.object(launcher,'window',return_value={**before,'pid':3}),patch.object(launcher,'run') as run:
             with self.assertRaises(RuntimeError):launcher.activate(before)
             run.assert_not_called()
+
+    def test_internal_helper_requests_also_refuse_an_old_protocol(self):
+        with patch.object(system_contract,'require'),patch.object(helper,'unregister') as unregister, \
+             patch.object(helper,'_store_from_config') as store,redirect_stderr(io.StringIO()):
+            self.assertEqual(helper.main(['--protocol','0','--component-version','old','unregister','keep']),1)
+            unregister.assert_not_called();store.assert_not_called()
 
 
 class UserComponentTests(unittest.TestCase):
