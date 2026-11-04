@@ -214,7 +214,7 @@ def main(argv=None):
     try:
         from . import system_contract
         system_contract.require()
-        if a.command in ('start', 'stop') and (a.protocol, a.component_version) != (system_contract.PROTOCOL, system_contract.VERSION):
+        if (a.protocol, a.component_version) != (system_contract.PROTOCOL, system_contract.VERSION):
             raise HelperError('用户组件版本/协议不匹配。')
         store = _store_from_config()
         if a.command == "start":

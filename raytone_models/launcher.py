@@ -55,7 +55,7 @@ def main():
     try:
         cli = Path(sys.argv[0]).resolve().with_name("raytone-models")
         source_app = cli.parent.parent / "app"
-        app = source_app if source_app.is_dir() else Path("/usr/share/raytone-models/app")
+        app = source_app if cli.parent.name == 'bin' else Path("/usr/share/raytone-models/app")
         qs = shutil.which("quickshell") or shutil.which("qs")
         if not qs or not cli.is_file() or not (app / "shell.qml").is_file():
             raise RuntimeError("模型控制台缺少配套程序或 Quickshell。")

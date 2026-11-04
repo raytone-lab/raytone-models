@@ -14,10 +14,10 @@ class SystemFilesTests(unittest.TestCase):
 
     def test_the_unit_runs_the_helper_without_a_shell(self):
         unit = (ROOT / "systemd/raytone-engine@.service").read_text()
-        self.assertIn(f"ExecStart={HELPER} run %i", unit)
+        self.assertIn(f"ExecStart={HELPER} --protocol 1 --component-version 0.2.0-batch1 run %i", unit)
         self.assertIn("Requires=docker.service", unit)
         # an engine that exits or fails leaves the registry (and the router, and the panel)
-        self.assertIn(f"ExecStopPost={HELPER} unregister %i", unit)
+        self.assertIn(f"ExecStopPost={HELPER} --protocol 1 --component-version 0.2.0-batch1 unregister %i", unit)
         self.assertNotRegex(unit, r"(?m)^Exec\w*=.*(/bin/sh|bash|;|\||&&)")
 
     def test_the_app_opens_one_window(self):
