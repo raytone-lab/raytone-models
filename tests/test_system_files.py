@@ -16,6 +16,7 @@ class SystemFilesTests(unittest.TestCase):
         unit = (ROOT / "systemd/raytone-engine@.service").read_text()
         self.assertIn(f"ExecStart={HELPER} --protocol 1 --component-version 0.2.0-batch1 run %i", unit)
         self.assertIn("Requires=docker.service", unit)
+        self.assertNotIn('ExecStartPre=', unit)
         # an engine that exits or fails leaves the registry (and the router, and the panel)
         self.assertIn(f"ExecStopPost={HELPER} --protocol 1 --component-version 0.2.0-batch1 unregister %i", unit)
         self.assertNotRegex(unit, r"(?m)^Exec\w*=.*(/bin/sh|bash|;|\||&&)")
