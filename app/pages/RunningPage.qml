@@ -20,17 +20,18 @@ Flickable {
         property var backend: scroll.backend
         property var history: []          // recent tokens/s samples of the first instance
         readonly property var first: page.backend.instances.length ? page.backend.instances[0] : null
-        readonly property var rate: first ? Logic.tokensPerSecond(page.backend.previousStats, page.backend.stats, first.id) : null
+        readonly property string firstId: first ? first.id : ""
+        readonly property var rate: firstId ? Logic.tokensPerSecond(page.backend.previousStats, page.backend.stats, firstId) : null
         readonly property var mem: page.backend.stats ? page.backend.stats.memory : null
         spacing: 16
+
+        onFirstIdChanged: history = []
 
         Connections {
             target: page.backend
             function onStatsChanged() {
-                if (page.rate === null) return
-                var h = page.history.slice(-29)
-                h.push(page.rate)
-                page.history = h
+                if (!page.firstId) return
+                page.history = page.history.slice(1 - speedHistory.sampleLimit).concat([page.rate])
             }
         }
 
@@ -107,21 +108,12 @@ Flickable {
                     Text { textFormat: Text.PlainText; text: page.rate === null ? "—" : String(page.rate); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeTelemetry; font.weight: Font.DemiBold }
                     Text { textFormat: Text.PlainText; text: page.rate === null ? "暂无遥测" : "tokens/s"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; Layout.alignment: Qt.AlignBottom; bottomPadding: 8 }
                 }
-                Row {
-                    spacing: 6
-                    height: 48
-                    Repeater {
-                        model: page.history
-                        delegate: Rectangle {
-                            required property var modelData
-                            readonly property real peak: Math.max(1, Math.max.apply(null, page.history))
-                            width: 9
-                            height: Math.max(3, 48 * modelData / peak)
-                            anchors.bottom: parent.bottom
-                            radius: 4
-                            color: Theme.accent
-                        }
-                    }
+                HistoryGraph {
+                    id: speedHistory
+                    objectName: "running-speed-history"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 48
+                    samples: page.history
                 }
                 Text { textFormat: Text.PlainText; text: "最近一分钟，每 2 秒采样"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; Layout.fillWidth: true; wrapMode: Text.Wrap }
             }

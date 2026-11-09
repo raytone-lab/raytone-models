@@ -48,14 +48,15 @@ function recipeAction(r) {
 }
 
 function tokensPerSecond(prev, cur, id) {
-    if (!prev || !cur || cur.time <= prev.time) return null
+    if (!prev || !cur || !Number.isFinite(prev.time) || !Number.isFinite(cur.time) || cur.time <= prev.time) return null
     function count(s) {
         var inst = (s.instances || []).filter(function (x) { return x.id === id })[0]
         return inst && inst.counters ? inst.counters.generation_tokens : null
     }
     var a = count(prev), b = count(cur)
-    if (a === null || b === null || a === undefined || b === undefined || b < a) return null
-    return Math.round((b - a) / (cur.time - prev.time))
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < a) return null
+    var rate = Math.round((b - a) / (cur.time - prev.time))
+    return Number.isFinite(rate) ? rate : null
 }
 
 function shortRev(rev) { return String(rev || "").slice(0, 8) }

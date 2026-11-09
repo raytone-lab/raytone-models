@@ -59,6 +59,9 @@ class AppLogicTests(unittest.TestCase):
         self.assertIsNone(call("tokensPerSecond", None, b, "q"))
         c = {"time": 104.0, "instances": [{"id": "q", "counters": None}]}
         self.assertIsNone(call("tokensPerSecond", b, c, "q"))
+        self.assertIsNone(call("tokensPerSecond", b, dict(a, time=104.0), "q"))
+        self.assertIsNone(call("tokensPerSecond", a, dict(b, time="102"), "q"))
+        self.assertEqual(call("tokensPerSecond", b, dict(b, time=104.0), "q"), 0)
 
     def test_short_revision_and_repo_parts(self):
         self.assertEqual(call("shortRev", "009632fef96dd349150baa780c984e62e70e91fe"), "009632fe")
