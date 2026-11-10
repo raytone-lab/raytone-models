@@ -34,9 +34,37 @@ def router_status(config=None, timeout=2):
         return {'ready': False, 'code': 'ROUTER_UNAVAILABLE'}
 
 
+def workbench_state(state, system):
+    if not system['ready']:
+        return {'phase': 'setup'}
+    if state['code'] == 'NO_INSTANCE':
+        return {'phase': 'idle'}
+    if state['code'] not in ('OK', 'MODEL_UNAVAILABLE'):
+        return {'phase': 'unavailable'}
+    from .router import DEFAULT_REGISTRY, instances
+    from .spec import INSTANCE_PORTS
+    current = state.get('current')
+    if not isinstance(current, str) or not current:
+        return {'phase': 'unavailable'}
+    registered = current in instances(DEFAULT_REGISTRY, INSTANCE_PORTS)
+    if registered:
+        return {'phase': 'ready' if state['ready'] else 'waiting', 'model': current}
+    if state['ready']:
+        from .ollama import Ollama, OllamaError
+        try:
+            if any(model['name'] == current for model in Ollama(timeout=1).running()):
+                return {'phase': 'ready', 'model': current}
+        except OllamaError:
+            return {'phase': 'unavailable'}
+    return {'phase': 'idle'}
+
+
 def snapshot():
     config = connection.load()
     from .device import detect
+    state = router_status(config)
+    system = system_contract.identity()
     return {'kind': 'raytone-models', 'schema': 1, 'version': USER_VERSION,
             'cliProtocol': 1, 'internal': config.internal, 'public': config.public,
-            'device': detect(), 'router': router_status(config), 'system': system_contract.identity()}
+            'device': detect(), 'router': state, 'system': system,
+            'workbench': workbench_state(state, system)}

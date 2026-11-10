@@ -9,6 +9,9 @@ Rectangle {
     id: view
     property var backend
     property int current: 0
+    property bool homeAvailable: false
+    property bool showAdvanced: false
+    signal returnHome()
     color: Theme.background
     readonly property var pages: [
         {label:"配方",icon:"recipes",keys:["recipes","instances"],empty:"暂无可用配方。签名未通过的配方不会显示为可运行。"},
@@ -20,6 +23,19 @@ Rectangle {
         {label:"智能体",icon:"agents",keys:["agents","instances"],empty:"未发现支持的智能体。安装或恢复连接后请重试。"},
         {label:"引擎",icon:"engines",keys:["engines"],empty:"暂无引擎配置，请联系管理员完成本机适配。"}]
     readonly property var selected: pages[current]
+    function openPage(page) {
+        if (["models", "running", "chat"].indexOf(page) < 0) return ""
+        current = pages.findIndex(function (entry) { return entry.icon === page })
+        return page
+    }
+    component PageItem: NavItem {
+        required property int modelData
+        objectName: "models-nav-" + modelData
+        label: view.pages[modelData].label
+        current: view.current === modelData
+        iconSource: Qt.resolvedUrl("icons/" + view.pages[modelData].icon + "-" + (Theme.dark ? "dark" : "light") + ".svg")
+        onClicked: view.current = modelData
+    }
     function stateForPage() {
         var counts=[backend.recipes.length,backend.models.length+backend.ollamaModels.length,
                     backend.searchAttempted?backend.searchResults.length:1,backend.instances.length,
@@ -36,25 +52,44 @@ Rectangle {
         Rectangle {
             Layout.preferredWidth: view.width < 820 ? 148 : 176
             Layout.fillHeight: true; color: Theme.rail
-            ColumnLayout {
-                anchors.fill: parent; anchors.margins: 12; spacing: 4
+            Flickable {
+                id: rail
+                anchors.fill: parent
+                anchors.margins: 12
+                contentWidth: width
+                contentHeight: railContent.height
+                clip: true
+                ScrollBar.vertical: ScrollBar {}
+              ColumnLayout {
+                id: railContent
+                width: rail.width - (rail.contentHeight > rail.height ? 8 : 0)
+                height: Math.max(implicitHeight, rail.height)
+                spacing: 4
                 Image {
                     source: Theme.dark ? Theme.logoOnDark : Theme.logoOnLight
                     sourceSize.width: 120;fillMode: Image.PreserveAspectFit
                     Layout.preferredWidth: 120;Layout.preferredHeight: 42
-                    Layout.topMargin: 8;Layout.bottomMargin: 14
+                    Layout.topMargin: 8;Layout.bottomMargin: 8
                     Accessible.name: "模型控制台"
                 }
+                RButton {
+                    text: "返回首页"
+                    visible: view.homeAvailable
+                    Layout.fillWidth: true
+                    onClicked: view.returnHome()
+                }
                 Repeater {
-                    model: view.pages
-                    delegate: NavItem {
-                        required property var modelData
-                        required property int index
-                        objectName: "models-nav-"+index
-                        label: modelData.label;current: view.current===index
-                        iconSource: Qt.resolvedUrl("icons/"+modelData.icon+"-"+(Theme.dark?"dark":"light")+".svg")
-                        onClicked: view.current=index
-                    }
+                    model: [4,1,3,2,5]
+                    delegate: PageItem {}
+                }
+                RButton {
+                    text: view.showAdvanced ? "收起高级工具" : "高级工具"
+                    Layout.fillWidth: true
+                    onClicked: view.showAdvanced = !view.showAdvanced
+                }
+                Repeater {
+                    model: [0,6,7]
+                    delegate: PageItem { visible: view.showAdvanced }
                 }
                 Item { Layout.fillHeight: true;Layout.minimumHeight: 4 }
                 Rectangle { Layout.fillWidth: true;height:1;color:Theme.border }
@@ -68,6 +103,7 @@ Rectangle {
                     text: view.backend.readErrors && view.backend.readErrors.stats ? "内存状态暂不可读" : view.backend.stats ? Math.round(view.backend.stats.memory.total/1073741824)+" GiB 系统内存" : "内存状态读取中"
                     color:Theme.muted;font.family:Theme.font;font.pixelSize:Theme.sizeCaption;Layout.fillWidth:true;wrapMode:Text.Wrap
                 }
+              }
             }
         }
         ColumnLayout {
@@ -86,8 +122,14 @@ Rectangle {
                 RecipesPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
                 ModelsPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
                 DiscoverPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
-                RunningPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
-                ChatPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
+                RunningPage {
+                    backend: view.backend; Layout.minimumHeight: 0; Layout.minimumWidth: 0
+                    onOpenChat: view.openPage("chat")
+                }
+                ChatPage {
+                    backend: view.backend; Layout.minimumHeight: 0; Layout.minimumWidth: 0
+                    onOpenModels: view.openPage("models")
+                }
                 VideoPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
                 AgentsPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
                 EnginesPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }

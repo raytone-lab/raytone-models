@@ -1,1 +1,1 @@
-USER_VERSION = "0.2.4-batch5a"
+USER_VERSION = "0.2.5-workbench"

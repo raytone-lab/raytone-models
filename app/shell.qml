@@ -2,11 +2,26 @@
 //@ pragma ShellId ai.raytone.Models
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "."
 
 // Raytone Models, a Quickshell application: `raytone-models-app` runs `qs -p` on this directory.
 ShellRoot {
+    id: root
+    readonly property string homeCommand: Quickshell.env("RAYTONE_MODELS_HOME_COMMAND") || ""
     Backend { id: backend }
+    IpcHandler {
+        target: "raytone.models"
+        function openPage(page: string): string { return view.openPage(page) }
+        function currentPage(): string { return view.selected.icon }
+    }
+    Process {
+        id: openHome
+        command: [root.homeCommand, "open"]
+        onExited: (exitCode, exitStatus) => {
+            if (exitCode !== 0 || exitStatus !== 0) backend.lastError = "暂时无法打开睿动首页，请从顶栏重试。"
+        }
+    }
     FloatingWindow {
         id: window
         title: "模型控制台"
@@ -30,6 +45,13 @@ ShellRoot {
             sequences: [StandardKey.Close]
             onActivated: Qt.quit()
         }
-        MainView { anchors.fill: parent; backend: backend }
+        MainView {
+            id: view
+            anchors.fill: parent
+            backend: backend
+            current: 1
+            homeAvailable: root.homeCommand !== ""
+            onReturnHome: openHome.running = true
+        }
     }
 }

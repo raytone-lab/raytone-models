@@ -8,3 +8,16 @@ Icon=raytone-models
 Categories=Development;Utility;
 Terminal=false
 StartupWMClass=ai.raytone.Models
+Actions=models;running;chat;
+
+[Desktop Action models]
+Name=本地模型
+Exec=raytone-models-app --page models
+
+[Desktop Action running]
+Name=运行中
+Exec=raytone-models-app --page running
+
+[Desktop Action chat]
+Name=对话
+Exec=raytone-models-app --page chat

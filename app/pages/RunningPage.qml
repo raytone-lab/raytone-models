@@ -7,6 +7,7 @@ import "../logic.js" as Logic
 
 Flickable {
     id: scroll
+    signal openChat()
     property var backend
     contentWidth: width
     contentHeight: page.implicitHeight
@@ -39,6 +40,12 @@ Flickable {
             title: "运行中"
             subtitle: "查看本机实例的真实状态与资源使用。"
             Pill { text: page.backend.instances.filter(function (i) { return i.ready }).length + " running"; kind: "ready"; visible: page.backend.instances.length > 0 }
+            RButton {
+                text: "开始对话"
+                variant: "primary"
+                visible: page.backend.instances.some(function (i) { return i.ready && i.chat !== false })
+                onClicked: scroll.openChat()
+            }
         }
 
         Text { textFormat: Text.PlainText;

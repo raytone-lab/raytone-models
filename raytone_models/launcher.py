@@ -11,6 +11,7 @@ import sys
 import time
 
 APP_ID = "ai.raytone.Models"
+PAGES = {"models", "running", "chat"}
 
 
 def run(args):
@@ -53,6 +54,10 @@ def activate(w):
 
 def main():
     try:
+        args = sys.argv[1:]
+        if args and (len(args) != 2 or args[0] != "--page" or args[1] not in PAGES):
+            raise ValueError("无法识别工作台页面。")
+        page = args[1] if args else ""
         cli = Path(sys.argv[0]).resolve().with_name("raytone-models")
         source_app = cli.parent.parent / "app"
         app = source_app if cli.parent.name == 'bin' else Path("/usr/share/raytone-models/app")
@@ -61,6 +66,12 @@ def main():
             raise RuntimeError("模型控制台缺少配套程序或 Quickshell。")
         if not os.environ.get("WAYLAND_DISPLAY") or not shutil.which("hyprctl"):
             raise RuntimeError("请在已登录的 Hyprland 桌面打开模型控制台。")
+
+        def open_window(w):
+            if page and run([qs, "ipc", "--pid", str(w["pid"]), "call", "raytone.models", "openPage", page]).strip() != page:
+                raise RuntimeError("无法打开指定的工作台页面，请重试。")
+            activate(w)
+
         runtime = Path(os.environ["XDG_RUNTIME_DIR"])
         info = runtime.stat()
         if info.st_uid != os.getuid() or info.st_mode & 0o022:
@@ -75,15 +86,16 @@ def main():
                 for _ in range(60):
                     w = window()
                     if w:
-                        activate(w)
+                        open_window(w)
                         return 0
                     time.sleep(.1)
                 raise RuntimeError("模型控制台启动尚未完成或未响应，请查看启动日志后重试。")
             w = window()
             if w:
-                activate(w)
+                open_window(w)
                 return 0
-            env = dict(os.environ, RAYTONE_MODELS_CLI=str(cli))
+            env = dict(os.environ, RAYTONE_MODELS_CLI=str(cli),
+                       RAYTONE_MODELS_HOME_COMMAND=shutil.which("raytone-workspace") or "")
             with (runtime / "raytone-models-app.log").open("ab") as log:
                 child = subprocess.Popen([qs, "--no-duplicate", "-p", str(app)], env=env,
                                          stdin=subprocess.DEVNULL, stdout=log, stderr=log,
@@ -93,7 +105,7 @@ def main():
                     raise RuntimeError("模型控制台未能启动，请查看用户运行目录的 raytone-models-app.log。")
                 w = window()
                 if w:
-                    activate(w)
+                    open_window(w)
                     return 0
                 time.sleep(.1)
             raise RuntimeError("模型控制台窗口启动超时，未重复创建进程。")

@@ -160,7 +160,13 @@ class Component:
         for key,name in (('cli','raytone-models'),('app','raytone-models-app')):
             after[key]=file_value('#!/bin/sh\n# Raytone Models managed entry\nexec '+shlex.quote(str(self.root/'current/bin'/name))+' "$@"\n',0o755)
         after['maintenance']=file_value('#!/bin/sh\n# Raytone Models pinned maintenance entry\nexec '+shlex.quote(str(self.root/'releases'/maintenance/'bin/raytone-models-component'))+' "$@"\n',0o755)
-        after['desktop']=file_value('[Desktop Entry]\nType=Application\nName=模型控制台\nExec="'+str(self.targets['app'])+'"\nIcon='+str(self.root/'current/app/models.svg')+'\nTerminal=false\nStartupWMClass=ai.raytone.Models\nCategories=Utility;\n')
+        launcher = '"' + str(self.targets['app']) + '"'
+        desktop = ('[Desktop Entry]\nType=Application\nName=模型控制台\nExec=' + launcher +
+                   '\nIcon=' + str(self.root/'current/app/models.svg') +
+                   '\nTerminal=false\nStartupWMClass=ai.raytone.Models\nCategories=Utility;\nActions=models;running;chat;\n')
+        for page, label in (('models', '本地模型'), ('running', '运行中'), ('chat', '对话')):
+            desktop += f'\n[Desktop Action {page}]\nName={label}\nExec={launcher} --page {page}\n'
+        after['desktop'] = file_value(desktop)
         executable=json.dumps(str(release/'bin/raytone-models'),ensure_ascii=False).replace('%','%%')
         after['router']=file_value('[Unit]\nDescription=Raytone Models internal loopback router\nStartLimitIntervalSec=30\nStartLimitBurst=2\n\n[Service]\nExecStart='+executable+' router\nRestart=on-failure\nRestartSec=2\nNoNewPrivileges=yes\n\n[Install]\nWantedBy=default.target\n')
         old={}

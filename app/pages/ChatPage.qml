@@ -8,6 +8,7 @@ import "../logic.js" as Logic
 ColumnLayout {
     id: page
     property var backend
+    signal openModels()
     property bool streaming: false
     property string lastStats: ""
     property string submitted: ""
@@ -78,7 +79,8 @@ ColumnLayout {
             displayText: currentIndex >= 0 ? currentText : (page.ready.length ? "请选择就绪模型" : "暂无就绪模型")
         }
         // not while a reply streams in: its deltas belong to the conversation on screen
-        RButton { text: "新对话"; enabled: !page.streaming; onClicked: { messages.clear(); page.lastStats = "" } }
+        RButton { text: "选择模型"; visible: !page.ready.length; onClicked: page.openModels() }
+        RButton { text: "新对话"; visible: page.ready.length > 0; enabled: !page.streaming; onClicked: { messages.clear(); page.lastStats = "" } }
     }
 
     Rectangle {
