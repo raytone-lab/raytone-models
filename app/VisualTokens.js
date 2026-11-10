@@ -6,6 +6,7 @@ var tokens = {
     "caption": 11,
     "control": 12,
     "label": 13,
+    "meter_height": 6,
     "navigation_height": 34,
     "panel_radius": 10,
     "rail_width": 72,
@@ -65,7 +66,7 @@ var tokens = {
     "pill": 999
   },
   "schema": 1,
-  "sourceSha256": "fddfc7b1920701cf3cb5abd3c5e8c307622b0c62e98eb97641b53b8defcb778e",
+  "sourceSha256": "ada67b4a02b82779759cd8445d0d9b1e42d700189562bf7758917852390be0e3",
   "spacing": {
     "card": 20,
     "compact": 8,

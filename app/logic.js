@@ -17,6 +17,25 @@ function gib(bytes) {
     return (g === 0 ? "0" : g.toFixed(2)) + " GiB"
 }
 
+function meterRatio(value) {
+    return Number.isFinite(value) && value >= 0 ? Math.min(1, value) : null
+}
+
+function meterPercent(value) {
+    var ratio = meterRatio(value)
+    if (ratio === null) return "—"
+    if (ratio > 0 && ratio < 0.01) return "<1%"
+    return (ratio === 1 ? 100 : Math.min(99, Math.round(100 * ratio))) + "%"
+}
+
+function meterAmount(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return "—"
+    var amount = bytes / GIB
+    if (amount >= 1024) return (amount / 1024).toFixed(1) + " TiB"
+    if (amount > 0 && amount < 0.05) return "<0.1 GiB"
+    return amount.toFixed(1) + " GiB"
+}
+
 // Weights plus runtime and a modest KV cache, against the unified pool CPU and GPU share.
 function fit(bytes, total) {
     if (!total) return "unknown"

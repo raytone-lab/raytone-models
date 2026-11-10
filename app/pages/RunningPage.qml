@@ -109,6 +109,7 @@ Flickable {
             visible: page.backend.instances.length > 0 || page.mem !== null
             Card {
                 Layout.fillWidth: true
+                Layout.fillHeight: true
                 Layout.preferredWidth: 1
                 Text { textFormat: Text.PlainText; text: "生成速度"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; font.weight: Font.Bold }
                 RowLayout {
@@ -127,16 +128,26 @@ Flickable {
             Card {
                 id: memCard
                 Layout.fillWidth: true
+                Layout.fillHeight: true
                 Layout.preferredWidth: 1
-                readonly property real used: page.mem ? page.mem.total - page.mem.available : 0
+                readonly property bool hasTotal: !!page.mem && Number.isFinite(page.mem.total) && page.mem.total > 0
+                readonly property bool hasUsage: hasTotal && Number.isFinite(page.mem.available)
+                    && page.mem.available >= 0 && page.mem.available <= page.mem.total
+                readonly property var used: hasUsage ? page.mem.total - page.mem.available : null
+                readonly property var ratio: hasUsage ? used / page.mem.total : null
                 Text { textFormat: Text.PlainText; text: "系统内存"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; font.weight: Font.Bold }
                 RowLayout {
-                    Text { textFormat: Text.PlainText; text: page.mem ? (memCard.used / 1073741824).toFixed(1) : "—"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeTelemetry; font.weight: Font.DemiBold }
-                    Text { textFormat: Text.PlainText; text: page.mem ? "/ " + (page.mem.total / 1073741824).toFixed(0) + " GiB" : ""; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; Layout.alignment: Qt.AlignBottom; bottomPadding: 8 }
+                    Text { textFormat: Text.PlainText; text: Logic.meterAmount(memCard.used); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeTelemetry; font.weight: Font.DemiBold }
+                    Text { textFormat: Text.PlainText; text: "/ " + Logic.meterAmount(memCard.hasTotal ? page.mem.total : null); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; Layout.alignment: Qt.AlignBottom; bottomPadding: 8 }
                 }
-                ProgressLine { Layout.fillWidth: true; value: page.mem ? memCard.used / page.mem.total : 0 }
+                ProgressLine {
+                    objectName: "running-memory-meter"
+                    Layout.fillWidth: true
+                    value: memCard.ratio
+                    Accessible.name: "系统内存"
+                }
                 Text { textFormat: Text.PlainText;
-                    text: page.mem ? Math.round(100 * memCard.used / page.mem.total) + "% 已用 · " + (page.mem.available / 1073741824).toFixed(1) + " GiB 可用" : ""
+                    text: memCard.hasUsage ? Logic.meterPercent(memCard.ratio) + " 已用 · " + Logic.meterAmount(page.mem.available) + " 可用" : "暂无内存用量读数"
                     color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption
                 }
                 Text { textFormat: Text.PlainText; text: "此处为系统内存读数；GPU 能力与显存须另行核对。"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; Layout.fillWidth: true; wrapMode: Text.Wrap }

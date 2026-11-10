@@ -226,7 +226,7 @@ ColumnLayout {
                 Text { textFormat: Text.PlainText; text: page.backend.downloads.filter(function (d) { return d.state === "running" }).length + " 个进行中"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
             }
             GridLayout {
-                columns: 2
+                columns: width < 480 ? 1 : 2
                 columnSpacing: 24
                 rowSpacing: 10
                 Layout.fillWidth: true
@@ -235,16 +235,19 @@ ColumnLayout {
                     delegate: ColumnLayout {
                         id: dl
                         required property var modelData
+                        readonly property bool hasTotal: Number.isFinite(modelData.expected) && modelData.expected > 0
+                        readonly property var ratio: modelData.state === "done" ? 1 : (hasTotal ? modelData.progress : null)
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         spacing: 4
                         RowLayout {
                             Text { textFormat: Text.PlainText; text: dl.modelData.repo; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; font.weight: Font.DemiBold; elide: Text.ElideMiddle; Layout.fillWidth: true }
-                            Text { textFormat: Text.PlainText; text: dl.modelData.state === "done" ? "完成" : Math.floor(100 * dl.modelData.progress) + "%"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
+                            Text { textFormat: Text.PlainText; text: Logic.meterPercent(dl.ratio); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption }
                         }
-                        ProgressLine { Layout.fillWidth: true; value: dl.modelData.progress }
+                        ProgressLine { Layout.fillWidth: true; value: dl.ratio; Accessible.name: dl.modelData.repo }
                         Text { textFormat: Text.PlainText;
-                            text: dl.modelData.state + " · " + Logic.gib(dl.modelData.done) + " / " + Logic.gib(dl.modelData.expected)
+                            text: (dl.modelData.state === "done" ? "已完成" : dl.modelData.state === "failed" ? "下载失败" : "下载中")
+                                + " · " + Logic.meterAmount(dl.modelData.done) + " / " + Logic.meterAmount(dl.hasTotal ? dl.modelData.expected : null)
                             color: dl.modelData.state === "failed" ? Theme.errorText : Theme.muted
                             font.family: Theme.font; font.pixelSize: Theme.sizeCaption
                         }

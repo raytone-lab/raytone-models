@@ -1,18 +1,22 @@
 import QtQuick
 import ".."
+import "../logic.js" as Logic
 
-// 5 px gold bar on a neutral track; the caller always shows the number next to it.
 Rectangle {
-    property real value: 0
-    implicitHeight: 5
+    id: track
+    property var value: null
+    readonly property var ratio: Logic.meterRatio(value)
+    implicitHeight: Theme.meterHeight
     radius: height / 2
     color: Theme.raised
     Accessible.role: Accessible.ProgressBar
+    Accessible.description: Logic.meterPercent(value)
     Rectangle {
-        width: Math.max(parent.height, parent.width * Math.min(1, Math.max(0, parent.value)))
-        height: parent.height
-        radius: height / 2
+        objectName: "meter-fill"
+        width: track.width * (track.ratio ?? 0)
+        height: track.height
+        radius: Math.min(width, height) / 2
         color: Theme.accent
-        visible: parent.value > 0
+        visible: width > 0
     }
 }

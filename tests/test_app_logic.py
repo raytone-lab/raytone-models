@@ -33,6 +33,20 @@ class AppLogicTests(unittest.TestCase):
         self.assertEqual(call("gib", 0), "0 GiB")
         self.assertEqual(call("gib", None), "—")
 
+    def test_meter_readouts_distinguish_zero_small_and_missing_values(self):
+        self.assertEqual(call("meterPercent", None), "—")
+        self.assertEqual(call("meterPercent", -1), "—")
+        self.assertEqual(call("meterPercent", 0), "0%")
+        self.assertEqual(call("meterPercent", 0.001), "<1%")
+        self.assertEqual(call("meterPercent", 0.29), "29%")
+        self.assertEqual(call("meterPercent", 0.999), "99%")
+        self.assertEqual(call("meterPercent", 1), "100%")
+        self.assertEqual(call("meterAmount", None), "—")
+        self.assertEqual(call("meterAmount", 0), "0.0 GiB")
+        self.assertEqual(call("meterAmount", 1), "<0.1 GiB")
+        self.assertEqual(call("meterAmount", 4 * GIB), "4.0 GiB")
+        self.assertEqual(call("meterAmount", 1024 * GIB), "1.0 TiB")
+
     def test_fit_against_the_unified_pool(self):
         self.assertEqual(call("fit", 20 * GIB, TOTAL), "fits")
         self.assertEqual(call("fit", 95 * GIB, TOTAL), "tight")

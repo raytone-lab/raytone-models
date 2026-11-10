@@ -55,6 +55,7 @@ QtObject {
     readonly property int sizeCaption: metrics.caption
     readonly property int sizeDense: 11
     readonly property int radiusCard: metrics.panel_radius
+    readonly property int meterHeight: metrics.meter_height || Defaults.tokens.console.meter_height
     readonly property int radiusCallout: tokens.radius.control
     readonly property int radiusOption: tokens.radius.control
     readonly property var logoOnDark: Qt.resolvedUrl("brand/raytone-lockup-reverse.svg")
