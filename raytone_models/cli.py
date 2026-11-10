@@ -521,6 +521,8 @@ def cmd_stats(env):
 
 def cmd_ollama(a, env):
     try:
+        if a.optional and a.action != "models":
+            raise SystemExit("--optional is only available when listing Ollama models")
         if a.action == "models":
             _print(env.ollama.models(), a.json)
         elif a.action == "pull":
@@ -532,6 +534,9 @@ def cmd_ollama(a, env):
                 _set_current(env, a.name if ":" in a.name else a.name + ":latest")
             _print({a.action: a.name}, a.json)
     except ollama_mod.OllamaError as e:
+        if a.optional and isinstance(e, ollama_mod.OllamaUnavailable):
+            _print([], a.json)
+            return 0
         print(json.dumps({"error": str(e)}), flush=True)
         return 1
     return 0
@@ -615,6 +620,7 @@ def parse(argv):
     ol.add_argument("action", choices=["models", "run", "stop", "pull", "delete"])
     ol.add_argument("name", nargs="?")
     ol.add_argument("--json", action="store_true")
+    ol.add_argument("--optional", action="store_true", help="allow the optional local Ollama service to be absent")
     v = sub.add_parser("video")
     v.add_argument("--prompt", required=True)
     v.add_argument("--model", help="the served name of a ComfyUI instance (the only one when omitted)")

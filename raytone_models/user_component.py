@@ -163,9 +163,18 @@ class Component:
         launcher = '"' + str(self.targets['app']) + '"'
         desktop = ('[Desktop Entry]\nType=Application\nName=模型控制台\nExec=' + launcher +
                    '\nIcon=' + str(self.root/'current/app/models.svg') +
-                   '\nTerminal=false\nStartupWMClass=ai.raytone.Models\nCategories=Utility;\nActions=models;running;chat;\n')
-        for page, label in (('models', '本地模型'), ('running', '运行中'), ('chat', '对话')):
-            desktop += f'\n[Desktop Action {page}]\nName={label}\nExec={launcher} --page {page}\n'
+                   '\nTerminal=false\nStartupWMClass=ai.raytone.Models\nCategories=Utility;\n')
+        # Older payloads lack page navigation. Keep rollback's desktop entry compatible with the payload.
+        try:
+            pages = literal(release/'raytone_models/launcher.py', 'PAGES')
+        except (OSError, ValueError):
+            pages = ()
+        actions = [(page, label) for page, label in (('models', '本地模型'), ('running', '运行中'),
+                   ('chat', '对话')) if page in pages]
+        if actions:
+            desktop += 'Actions=' + ''.join(page + ';' for page, _ in actions) + '\n'
+            for page, label in actions:
+                desktop += f'\n[Desktop Action {page}]\nName={label}\nExec={launcher} --page {page}\n'
         after['desktop'] = file_value(desktop)
         executable=json.dumps(str(release/'bin/raytone-models'),ensure_ascii=False).replace('%','%%')
         after['router']=file_value('[Unit]\nDescription=Raytone Models internal loopback router\nStartLimitIntervalSec=30\nStartLimitBurst=2\n\n[Service]\nExecStart='+executable+' router\nRestart=on-failure\nRestartSec=2\nNoNewPrivileges=yes\n\n[Install]\nWantedBy=default.target\n')

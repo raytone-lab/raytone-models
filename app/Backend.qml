@@ -34,7 +34,8 @@ Item {
     property var connection: null
     readonly property string connectionMessage: !connection ? "正在核对本机模型连接。"
         : (!connection.system.ready ? "系统组件未安装或版本不配套，模型启动、停止和删除暂不可用。"
-           : (!connection.router.ready ? "本机模型连接尚未就绪（" + connection.router.code + "）。" : ""))
+           : (connection.router.code === "NO_INSTANCE" ? "当前没有可用于对话的本机模型。"
+              : (!connection.router.ready ? "本机模型连接尚未就绪（" + connection.router.code + "）。" : "")))
     readonly property string readError: Object.keys(readErrors).map(function(k) { return k + ": " + readErrors[k] }).join("\n")
 
     function readFailed(key, message) {
@@ -229,7 +230,7 @@ Item {
     }
     ReadProcess {
         id: ollamaProc
-        command: [root.cli, "ollama", "models", "--json"]
+        command: [root.cli, "ollama", "models", "--optional", "--json"]
         onResult: function(value) {
             value = root.parse(value, null); root.readList("ollamaModels", value) }
         onFailed: function(message) { root.readFailed("ollamaModels", message) }

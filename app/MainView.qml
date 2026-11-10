@@ -60,50 +60,50 @@ Rectangle {
                 contentHeight: railContent.height
                 clip: true
                 ScrollBar.vertical: ScrollBar {}
-              ColumnLayout {
-                id: railContent
-                width: rail.width - (rail.contentHeight > rail.height ? 8 : 0)
-                height: Math.max(implicitHeight, rail.height)
-                spacing: 4
-                Image {
-                    source: Theme.dark ? Theme.logoOnDark : Theme.logoOnLight
-                    sourceSize.width: 120;fillMode: Image.PreserveAspectFit
-                    Layout.preferredWidth: 120;Layout.preferredHeight: 42
-                    Layout.topMargin: 8;Layout.bottomMargin: 8
-                    Accessible.name: "模型控制台"
+                ColumnLayout {
+                    id: railContent
+                    width: rail.width - (rail.contentHeight > rail.height ? 8 : 0)
+                    height: Math.max(implicitHeight, rail.height)
+                    spacing: 4
+                    Image {
+                        source: Theme.dark ? Theme.logoOnDark : Theme.logoOnLight
+                        sourceSize.width: 120;fillMode: Image.PreserveAspectFit
+                        Layout.preferredWidth: 120;Layout.preferredHeight: 42
+                        Layout.topMargin: 8;Layout.bottomMargin: 8
+                        Accessible.name: "模型控制台"
+                    }
+                    RButton {
+                        text: "返回首页"
+                        visible: view.homeAvailable
+                        Layout.fillWidth: true
+                        onClicked: view.returnHome()
+                    }
+                    Repeater {
+                        model: [4,1,3,2,5]
+                        delegate: PageItem {}
+                    }
+                    RButton {
+                        text: view.showAdvanced ? "收起高级工具" : "高级工具"
+                        Layout.fillWidth: true
+                        onClicked: view.showAdvanced = !view.showAdvanced
+                    }
+                    Repeater {
+                        model: [0,6,7]
+                        delegate: PageItem { visible: view.showAdvanced }
+                    }
+                    Item { Layout.fillHeight: true;Layout.minimumHeight: 4 }
+                    Rectangle { Layout.fillWidth: true;height:1;color:Theme.border }
+                    Text { textFormat: Text.PlainText; text: "当前设备";color:Theme.muted;font.family:Theme.font;font.pixelSize:Theme.sizeCaption;Layout.topMargin:6 }
+                    Text { textFormat: Text.PlainText;
+                        text: view.backend.connection && view.backend.connection.device ? view.backend.connection.device.name : "设备状态读取中"
+                        color:Theme.text;font.family:Theme.font;font.pixelSize:Theme.sizeControl
+                        wrapMode:Text.Wrap;Layout.fillWidth:true
+                    }
+                    Text { textFormat: Text.PlainText;
+                        text: view.backend.readErrors && view.backend.readErrors.stats ? "内存状态暂不可读" : view.backend.stats ? Math.round(view.backend.stats.memory.total/1073741824)+" GiB 系统内存" : "内存状态读取中"
+                        color:Theme.muted;font.family:Theme.font;font.pixelSize:Theme.sizeCaption;Layout.fillWidth:true;wrapMode:Text.Wrap
+                    }
                 }
-                RButton {
-                    text: "返回首页"
-                    visible: view.homeAvailable
-                    Layout.fillWidth: true
-                    onClicked: view.returnHome()
-                }
-                Repeater {
-                    model: [4,1,3,2,5]
-                    delegate: PageItem {}
-                }
-                RButton {
-                    text: view.showAdvanced ? "收起高级工具" : "高级工具"
-                    Layout.fillWidth: true
-                    onClicked: view.showAdvanced = !view.showAdvanced
-                }
-                Repeater {
-                    model: [0,6,7]
-                    delegate: PageItem { visible: view.showAdvanced }
-                }
-                Item { Layout.fillHeight: true;Layout.minimumHeight: 4 }
-                Rectangle { Layout.fillWidth: true;height:1;color:Theme.border }
-                Text { textFormat: Text.PlainText; text: "当前设备";color:Theme.muted;font.family:Theme.font;font.pixelSize:Theme.sizeCaption;Layout.topMargin:6 }
-                Text { textFormat: Text.PlainText;
-                    text: view.backend.connection && view.backend.connection.device ? view.backend.connection.device.name : "设备状态读取中"
-                    color:Theme.text;font.family:Theme.font;font.pixelSize:Theme.sizeControl
-                    wrapMode:Text.Wrap;Layout.fillWidth:true
-                }
-                Text { textFormat: Text.PlainText;
-                    text: view.backend.readErrors && view.backend.readErrors.stats ? "内存状态暂不可读" : view.backend.stats ? Math.round(view.backend.stats.memory.total/1073741824)+" GiB 系统内存" : "内存状态读取中"
-                    color:Theme.muted;font.family:Theme.font;font.pixelSize:Theme.sizeCaption;Layout.fillWidth:true;wrapMode:Text.Wrap
-                }
-              }
             }
         }
         ColumnLayout {
@@ -120,7 +120,10 @@ Rectangle {
                 Layout.fillWidth:true;Layout.fillHeight:true;Layout.minimumHeight:0;Layout.minimumWidth:0
                 currentIndex:view.current
                 RecipesPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
-                ModelsPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
+                ModelsPage {
+                    backend: view.backend; Layout.minimumHeight: 0; Layout.minimumWidth: 0
+                    onOpenDiscover: view.current = 2
+                }
                 DiscoverPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
                 RunningPage {
                     backend: view.backend; Layout.minimumHeight: 0; Layout.minimumWidth: 0

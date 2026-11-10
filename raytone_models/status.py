@@ -50,12 +50,9 @@ def workbench_state(state, system):
     if registered:
         return {'phase': 'ready' if state['ready'] else 'waiting', 'model': current}
     if state['ready']:
-        from .ollama import Ollama, OllamaError
-        try:
-            if any(model['name'] == current for model in Ollama(timeout=1).running()):
-                return {'phase': 'ready', 'model': current}
-        except OllamaError:
-            return {'phase': 'unavailable'}
+        from .ollama import Ollama
+        if any(model['name'] == current for model in Ollama(timeout=1).running()):
+            return {'phase': 'ready', 'model': current}
     return {'phase': 'idle'}
 
 

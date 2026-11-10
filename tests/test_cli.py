@@ -307,6 +307,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual((i["id"], i["served_name"], i["engine"], i["port"], i["ready"], i["chat"], i["context"]),
                          ("ollama:qwen3:1.7b", "qwen3:1.7b", "ollama", 11434, True, True, 4096))
 
+    def test_optional_inventory_allows_absent_ollama(self):
+        rc, out = self.run_cli("ollama", "models", "--optional", "--json")
+        self.assertEqual((rc, json.loads(out)), (0, []))
+        rc, out = self.run_cli("ollama", "models", "--json")
+        self.assertEqual(rc, 1)
+        self.assertIn("error", json.loads(out))
+
     def test_ollama_run_stop_and_library(self):
         fake = self.ollama()
         rc, out = self.run_cli("ollama", "models", "--json")

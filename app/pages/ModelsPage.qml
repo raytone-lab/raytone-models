@@ -8,6 +8,7 @@ import "../logic.js" as Logic
 ColumnLayout {
     id: page
     property var backend
+    signal openDiscover()
     property var pendingDelete: null
     spacing: 18
 
@@ -31,8 +32,14 @@ ColumnLayout {
 
     PageHeader {
         title: "本地模型"
-        subtitle: "已下载的模型文件与版本；文件存在不代表本机已验证可运行。"
+        subtitle: "选择已下载的模型在本机运行，或查找更多模型。"
         Pill { text: page.backend.models.length + " 个已下载版本"; kind: "neutral" }
+        RButton {
+            text: "查找模型"
+            variant: "primary"
+            visible: page.backend.models.length === 0 && page.backend.ollamaModels.length === 0
+            onClicked: page.openDiscover()
+        }
     }
 
     Text { textFormat: Text.PlainText;

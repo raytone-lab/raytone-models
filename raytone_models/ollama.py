@@ -17,6 +17,10 @@ class OllamaError(RuntimeError):
     pass
 
 
+class OllamaUnavailable(OllamaError):
+    pass
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     # Ollama is one fixed address: a redirect never takes a request anywhere else
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -66,6 +70,8 @@ class Ollama:
         try:
             tags = self._json("/api/tags").get("models", [])
         except (OSError, ValueError) as e:
+            if isinstance(getattr(e, "reason", e), ConnectionRefusedError):
+                raise OllamaUnavailable(f"Ollama is not listening: {e}") from None
             raise OllamaError(f"Ollama did not answer: {e}") from None
         loaded = set(self.loaded())
         out = []
