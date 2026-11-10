@@ -1,6 +1,20 @@
 // Generated from RaytoneOS design/tokens.toml; pinned standalone fallback.
 .pragma library
 var tokens = {
+  "console": {
+    "button_height": 28,
+    "caption": 11,
+    "control": 12,
+    "label": 13,
+    "navigation_height": 34,
+    "panel_radius": 10,
+    "rail_width": 72,
+    "sidebar_width": 196,
+    "title": 20,
+    "toolbar_label": 14,
+    "window_height": 760,
+    "window_width": 1050
+  },
   "dark": {
     "accent": "#7AA9FF",
     "canvas": "#202124",
@@ -51,7 +65,7 @@ var tokens = {
     "pill": 999
   },
   "schema": 1,
-  "sourceSha256": "684e4a5b78c0a702dd253d34e71d803ffb14317c9ba97b0faab9a73d86cf300f",
+  "sourceSha256": "fddfc7b1920701cf3cb5abd3c5e8c307622b0c62e98eb97641b53b8defcb778e",
   "spacing": {
     "card": 20,
     "compact": 8,
@@ -60,7 +74,7 @@ var tokens = {
   },
   "typography": {
     "body_px": 14,
-    "family": "Noto Sans, Noto Sans CJK SC, sans-serif",
+    "family": "Noto Sans CJK SC, Noto Sans, sans-serif",
     "qml_caption_px": 11,
     "qml_card_px": 15,
     "qml_family": "Noto Sans CJK SC",

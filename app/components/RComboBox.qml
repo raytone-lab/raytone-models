@@ -2,10 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import ".."
 
-// The theme's select: a pill like the buttons, a surface popup.
 ComboBox {
     id: box
-    implicitHeight: 36
+    implicitHeight: Theme.metrics.button_height
     font.family: Theme.font
     font.pixelSize: Theme.sizeControl
     contentItem: Text { textFormat: Text.PlainText;
@@ -25,8 +24,8 @@ ComboBox {
         font.pixelSize: 12
     }
     background: Rectangle {
-        radius: height / 2
-        color: box.hovered ? Theme.raised : Theme.surface
+        radius: Theme.radiusCallout
+        color: box.hovered ? Theme.hover : Theme.toolbar
         border.color: box.visualFocus ? Theme.focus : Theme.border
         border.width: box.visualFocus ? 2 : 1
     }

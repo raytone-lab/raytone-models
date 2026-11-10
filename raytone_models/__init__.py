@@ -1,1 +1,1 @@
-USER_VERSION = "0.2.5-workbench"
+USER_VERSION = "0.2.6-console"

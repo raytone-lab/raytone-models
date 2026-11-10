@@ -2,17 +2,16 @@ import QtQuick
 import QtQuick.Controls
 import ".."
 
-// primary: gold / navy text; secondary: surface with border; danger: error text and border.
 Button {
     id: control
     property string variant: "secondary"
     property bool dense: false
-    implicitHeight: dense ? 30 : 36
-    leftPadding: 16
-    rightPadding: 16
+    implicitHeight: Theme.metrics.button_height
+    leftPadding: dense ? 9 : 12
+    rightPadding: leftPadding
     font.family: Theme.font
-    font.pixelSize: dense ? Theme.sizeControl : Theme.sizeBody
-    font.weight: Font.DemiBold
+    font.pixelSize: Theme.sizeControl
+    font.weight: Font.Medium
     hoverEnabled: true
     Accessible.name: text
 
@@ -27,10 +26,10 @@ Button {
         elide: Text.ElideRight
     }
     background: Rectangle {
-        radius: height / 2
+        radius: Theme.radiusCallout
         color: !control.enabled ? Theme.raised
              : control.variant === "primary" ? (control.down ? Qt.darker(Theme.accent, 1.12) : Theme.accent)
-             : (control.hovered ? Theme.raised : Theme.surface)
+             : (control.hovered ? Theme.hover : Theme.toolbar)
         border.width: control.visualFocus ? 2 : (control.variant === "primary" ? 0 : 1)
         border.color: control.visualFocus ? Theme.focus
                     : control.variant === "danger" ? Theme.errorText : Theme.border

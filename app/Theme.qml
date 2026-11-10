@@ -22,8 +22,11 @@ QtObject {
     property bool systemModeKnown: false
     readonly property bool dark: (mode || (preferredMode === "system" ? systemMode : preferredMode)) === "dark"
     readonly property var palette: dark ? tokens.dark : tokens.light
-    readonly property color background: palette.canvas
+    readonly property var metrics: tokens.console || Defaults.tokens.console
+    readonly property color background: palette.surface
     readonly property color rail: palette.sidebar
+    readonly property color toolbar: palette.toolbar
+    readonly property color hover: palette.hover
     readonly property color surface: palette.surface
     readonly property color raised: palette.surface_tinted
     readonly property color selection: palette.selection
@@ -43,15 +46,15 @@ QtObject {
     readonly property string font: tokens.typography.qml_family
     readonly property string mono: "monospace"
     readonly property int sizeTelemetry: 30
-    readonly property int sizeTitle: tokens.typography.title_px
+    readonly property int sizeTitle: metrics.title
     readonly property int sizeFeatured: 20
-    readonly property int sizeCard: 16
-    readonly property int sizeNav: 14
-    readonly property int sizeBody: tokens.typography.body_px
-    readonly property int sizeControl: 13
-    readonly property int sizeCaption: 12
+    readonly property int sizeCard: metrics.toolbar_label
+    readonly property int sizeNav: metrics.control
+    readonly property int sizeBody: metrics.label
+    readonly property int sizeControl: metrics.control
+    readonly property int sizeCaption: metrics.caption
     readonly property int sizeDense: 11
-    readonly property int radiusCard: tokens.radius.card
+    readonly property int radiusCard: metrics.panel_radius
     readonly property int radiusCallout: tokens.radius.control
     readonly property int radiusOption: tokens.radius.control
     readonly property var logoOnDark: Qt.resolvedUrl("brand/raytone-lockup-reverse.svg")

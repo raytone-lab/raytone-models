@@ -16,17 +16,21 @@ ShellRoot {
         function currentPage(): string { return view.selected.icon }
     }
     Process {
-        id: openHome
-        command: [root.homeCommand, "open"]
+        id: desktopShortcut
         onExited: (exitCode, exitStatus) => {
-            if (exitCode !== 0 || exitStatus !== 0) backend.lastError = "暂时无法打开睿动首页，请从顶栏重试。"
+            if (exitCode !== 0 || exitStatus !== 0) backend.lastError = "暂时无法打开该入口，请从桌面顶栏重试。"
         }
+    }
+    function launchShortcut(args) {
+        if (homeCommand === "" || desktopShortcut.running) return
+        desktopShortcut.command = [homeCommand].concat(args)
+        desktopShortcut.running = true
     }
     FloatingWindow {
         id: window
         title: "模型控制台"
-        implicitWidth: 1200
-        implicitHeight: 760
+        implicitWidth: Theme.metrics.window_width
+        implicitHeight: Theme.metrics.window_height
         color: Theme.background
         visible: true
         onVisibleChanged: if (!visible) Qt.quit()
@@ -51,7 +55,9 @@ ShellRoot {
             backend: backend
             current: 1
             homeAvailable: root.homeCommand !== ""
-            onReturnHome: openHome.running = true
+            onReturnHome: root.launchShortcut(["open"])
+            onOpenSettings: root.launchShortcut(["request", '{"action":"common","key":"settings"}'])
+            onOpenFiles: root.launchShortcut(["request", '{"action":"common","key":"files"}'])
         }
     }
 }
