@@ -156,7 +156,7 @@ Rectangle {
                     Layout.fillHeight: true
                     Layout.minimumWidth: 0
                     Layout.minimumHeight: 0
-                    Layout.topMargin: view.width <= 620 ? 18 : view.width <= 850 ? 22 : 28
+                    Layout.topMargin: view.width <= 620 ? 26 : view.width <= 850 ? 30 : 36
                     Layout.leftMargin: view.width <= 620 ? 14 : view.width <= 850 ? 20 : 30
                     Layout.rightMargin: Layout.leftMargin
                     Layout.bottomMargin: 20
@@ -167,6 +167,7 @@ Rectangle {
                         RecipesPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
                         ModelsPage {
                             backend: view.backend; Layout.minimumHeight: 0; Layout.minimumWidth: 0
+                        libraryEmpty: view.pageStatus.phase === "empty"
                             onOpenDiscover: view.current = 2
                         }
                         DiscoverPage { backend:view.backend;Layout.minimumHeight:0;Layout.minimumWidth:0 }
@@ -184,14 +185,15 @@ Rectangle {
                     }
                     PageState {
                         Layout.fillWidth:true
-                        phase:view.pageStatus.phase
+                        phase: view.current === 1 && view.pageStatus.phase === "empty" ? "ready" : view.pageStatus.phase
                         message:view.pageStatus.message
                         busy:view.backend.busy!==""
                         onRetry: view.current===2 && view.backend.readErrors.search ? view.backend.retrySearch() : view.backend.refresh()
                     }
                     Text { textFormat: Text.PlainText;
                         Layout.fillWidth:true;wrapMode:Text.Wrap
-                        visible:!!view.backend.connectionMessage
+                        visible: !!view.backend.connectionMessage && !(view.current === 1 && view.pageStatus.phase === "empty" &&
+                                 view.backend.connection && view.backend.connection.router.code === "NO_INSTANCE")
                         text:view.backend.connectionMessage||""
                         color:Theme.muted;font.family:Theme.font;font.pixelSize:Theme.sizeCaption
                     }

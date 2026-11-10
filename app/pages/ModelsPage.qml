@@ -9,6 +9,7 @@ ColumnLayout {
     id: page
     property var backend
     signal openDiscover()
+    property bool libraryEmpty: false
     property var pendingDelete: null
     spacing: 18
 
@@ -33,14 +34,24 @@ ColumnLayout {
     PageHeader {
         title: "本地模型"
         subtitle: "选择已下载的模型在本机运行，或查找更多模型。"
-        Pill { text: page.backend.models.length + " 个已下载版本"; kind: "neutral" }
-        RButton {
-            text: "查找模型"
-            variant: "primary"
-            visible: page.backend.models.length === 0 && page.backend.ollamaModels.length === 0
-            onClicked: page.openDiscover()
+        Pill { text: page.backend.models.length + " 个已下载版本"; kind: "neutral"; visible: page.backend.models.length > 0 }
+    }
+
+    Card {
+        Layout.fillWidth: true
+        visible: page.libraryEmpty
+        RowLayout {
+            Layout.fillWidth: true
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Text { text: "还没有下载模型"; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody; font.weight: Font.DemiBold }
+                Text { text: "查找适合这台设备的模型，下载后可在此运行。"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeCaption; wrapMode: Text.Wrap; Layout.fillWidth: true }
+            }
+            RButton { text: "查找模型"; variant: "primary"; onClicked: page.openDiscover() }
         }
     }
+    Item { Layout.fillHeight: true; visible: page.libraryEmpty }
 
     Text { textFormat: Text.PlainText;
         visible: page.backend.models.length === 0 && !page.backend.pageState
