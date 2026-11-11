@@ -1,0 +1,23 @@
+#!/usr/bin/python3
+"""D03/R07: chat failures stay out of the model-bound history and send validity is aligned."""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+here = Path(__file__).resolve().parent
+with tempfile.TemporaryDirectory(prefix="models-chat-probe-") as tmp:
+    config = Path(tmp)
+    shutil.copytree(here.parents[1] / "app", config / "app")
+    shutil.copyfile(here / "chat-error-probe.qml", config / "shell.qml")
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
+               QT_SCALE_FACTOR="1", XDG_CONFIG_HOME=str(config / "config"),
+               XDG_DATA_HOME=str(config / "data"), XDG_STATE_HOME=str(config / "state"))
+    env.pop("WAYLAND_DISPLAY", None)
+    result = subprocess.run(["quickshell", "-p", str(config)], env=env,
+                            capture_output=True, text=True, timeout=30)
+    output = result.stdout + result.stderr
+    print(output)
+    sys.exit(0 if result.returncode == 0 and "CHAT_PROBE_PASS" in output and "CHAT_PROBE_FAIL" not in output else 1)
