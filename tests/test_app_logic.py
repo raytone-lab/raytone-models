@@ -104,6 +104,31 @@ class AppLogicTests(unittest.TestCase):
                 {"served_name": "m", "ready": False, "chat": True}]
         self.assertEqual([i["served_name"] for i in call("chatModels", inst)], ["q"])
 
+    def test_chat_send_allowed_matches_button_and_send(self):
+        # text blank or selection missing/stale: no send, and the button must agree
+        self.assertFalse(call("chatSendAllowed", "", 0, 1))
+        self.assertFalse(call("chatSendAllowed", "   ", 0, 1))
+        self.assertFalse(call("chatSendAllowed", "hi", -1, 3))    # nothing selected, models ready
+        self.assertFalse(call("chatSendAllowed", "hi", 3, 3))     # index fell off the refreshed list
+        self.assertFalse(call("chatSendAllowed", "hi", 0, 0))     # nothing ready at all
+        self.assertTrue(call("chatSendAllowed", "hi", 0, 1))
+        self.assertTrue(call("chatSendAllowed", " hi ", 2, 3))
+
+    def test_chat_history_never_contains_error_or_empty_entries(self):
+        entries = [
+            {"role": "user", "content": "问题"},
+            {"role": "assistant", "content": ""},
+            {"role": "error", "content": "the router did not answer"},
+            {"role": "assistant", "content": "部分回答"},
+            {"role": "user", "content": "追问"},
+        ]
+        self.assertEqual(call("chatHistory", entries),
+                         [{"role": "user", "content": "问题"},
+                          {"role": "assistant", "content": "部分回答"},
+                          {"role": "user", "content": "追问"}])
+        self.assertEqual(call("chatHistory", []), [])
+        self.assertEqual(call("chatHistory", None), [])
+
     def test_include_patterns_match_like_fnmatch(self):
         import fnmatch
         cases = [("x-Q8_0.gguf", "x-Q[8]_0.gguf"), ("x-Q8_0.gguf", "x-Q[!4]_0.gguf"), ("x-Q4_0.gguf", "x-Q[!4]_0.gguf"),

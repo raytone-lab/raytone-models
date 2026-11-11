@@ -151,6 +151,27 @@ function chatModels(instances) {
     return (instances || []).filter(function (i) { return i.ready && i.chat !== false })
 }
 
+// One predicate shared by the send button and send(), so an enabled button can never
+// click into a silent no-op: text must be non-blank and the combo box must point at an
+// entry that is still in the ready chat list (V1.1 D03/R07).
+function chatSendAllowed(text, selectedIndex, readyCount) {
+    return !!(text && String(text).trim() !== ""
+        && selectedIndex >= 0 && selectedIndex < readyCount)
+}
+
+// The message list for the request body: user and assistant turns with content only.
+// "error" entries are UI state and must never reach the model as assistant content,
+// and an empty placeholder carries nothing (V1.1 D03/R07).
+function chatHistory(entries) {
+    var history = []
+    for (var i = 0; i < (entries || []).length; i++) {
+        var e = entries[i]
+        if ((e.role === "user" || e.role === "assistant") && e.content)
+            history.push({ role: e.role, content: e.content })
+    }
+    return history
+}
+
 // The GGUF files llama.cpp runs for a model: the main file (a split model's first part) and the
 // vision projector if there is one; the downloaded variant first, else the usual 4-bit one.
 // Include patterns match as the downloader's do: fnmatch, * crosses directories, "dir/" is all below.

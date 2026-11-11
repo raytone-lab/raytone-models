@@ -18,14 +18,25 @@ ColumnLayout {
 
     ListModel { id: messages }
 
+    function messageEntries() {
+        var entries = []
+        for (var i = 0; i < messages.count; i++)
+            entries.push({ role: messages.get(i).role, content: messages.get(i).content })
+        return entries
+    }
+
+    // Read-only transcript hooks for probes and accessibility; they do not mutate state.
+    function messagesCount() { return messages.count }
+    function messageRole(i) { return messages.get(i).role }
+    function messageContent(i) { return messages.get(i).content }
+
     function send() {
         var text = input.text.trim()
-        if (!text || streaming || model.currentIndex < 0) return
+        if (streaming || !Logic.chatSendAllowed(text, model.currentIndex, page.ready.length)) return
         var chosen = page.ready[model.currentIndex].served_name
         page.selectedModel = chosen
         messages.append({ role: "user", content: text })
-        var history = []
-        for (var i = 0; i < messages.count; i++) history.push({ role: messages.get(i).role, content: messages.get(i).content })
+        var history = Logic.chatHistory(messageEntries())
         messages.append({ role: "assistant", content: "" })
         page.submitted = text
         input.text = ""
@@ -38,7 +49,7 @@ ColumnLayout {
         target: page.backend
         function onChatDelta(text) {
             var last = messages.count - 1
-            if (last < 0) return
+            if (last < 0 || messages.get(last).role !== "assistant") return
             messages.setProperty(last, "content", messages.get(last).content + text)
             list.positionViewAtEnd()
         }
@@ -51,11 +62,21 @@ ColumnLayout {
         }
         function onChatEnded() { page.streaming = false }
         function onChatError(message) {
-            if(input.text === "") input.text=page.submitted
             page.streaming = false
             var last = messages.count - 1
-            if (last < 0) return
-            messages.setProperty(last, "content", (messages.get(last).content ? messages.get(last).content+"\n\n" : "")+"! "+message)
+            // An error is UI state, never assistant content (V1.1 D03/R07). With no reply
+            // received the failed turn is rolled back and the draft restored, so retrying
+            // resubmits the question once instead of duplicating it in the history. With a
+            // partial reply the received text stays a real assistant turn and the failure
+            // becomes a separate entry; the draft is not force-restored over new typing.
+            if (last >= 0 && messages.get(last).role === "assistant" && messages.get(last).content === "") {
+                messages.remove(last)
+                if (messages.count > 0 && messages.get(messages.count - 1).role === "user")
+                    messages.remove(messages.count - 1)
+                if (input.text === "") input.text = page.submitted
+            } else {
+                messages.append({ role: "error", content: message })
+            }
         }
     }
 
@@ -127,7 +148,7 @@ ColumnLayout {
                         anchors.leftMargin: 14
                         anchors.rightMargin: 14
                         text: msg.content || (page.streaming ? "…" : "")
-                        color: msg.content.indexOf("! ") === 0 ? Theme.errorText : Theme.text
+                        color: msg.role === "error" ? Theme.errorText : Theme.text
                         font.family: Theme.font
                         font.pixelSize: Theme.sizeNav
                         wrapMode: TextEdit.Wrap
@@ -171,9 +192,10 @@ ColumnLayout {
             }
         }
         RButton {
+            objectName: "chatSendButton"
             variant: page.streaming ? "danger" : "primary"
             text: page.streaming ? "停止" : "发送"
-            enabled: page.streaming || (input.text.trim() !== "" && page.ready.length > 0)
+            enabled: page.streaming || Logic.chatSendAllowed(input.text, model.currentIndex, page.ready.length)
             onClicked: page.streaming ? page.backend.stopChat() : page.send()
         }
     }

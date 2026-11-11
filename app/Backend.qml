@@ -143,7 +143,9 @@ Item {
     }
 
     function stopChat() {
-        if (chatProc.running) chatProc.signal(15)
+        // A user stop is a clean end of the turn, not a failure: the CLI dies to the signal
+        // with a non-zero exit, which must not surface as a chatError (V1.1 D03/R07).
+        if (chatProc.running) { chatProc.userStop = true; chatProc.signal(15) }
     }
 
     function video(prompt, size, seconds, turbo) {
@@ -322,11 +324,12 @@ Item {
     Process {
         id: chatProc
         property bool reportedError: false
+        property bool userStop: false
         property string diagnostic: ""
         property string request: ""
         command: [root.cli, "chat"]
         stdinEnabled: true
-        onStarted: { reportedError=false;diagnostic="";write(request); stdinEnabled = false }
+        onStarted: { reportedError=false;userStop=false;diagnostic="";write(request); stdinEnabled = false }
         stdout: SplitParser {
             onRead: function(line) {
                 var d = root.parse(line, null)
@@ -339,7 +342,8 @@ Item {
         }
         stderr: StdioCollector { waitForEnd:true;onStreamFinished:chatProc.diagnostic=String(text).trim().slice(-1000) }
         onExited: function(code) {
-            if(code!==0 && !reportedError) root.chatError(diagnostic || "对话命令未完成（退出码 "+code+"）。")
+            if(code!==0 && !reportedError && !userStop) root.chatError(diagnostic || "对话命令未完成（退出码 "+code+"）。")
+            userStop=false
             stdinEnabled = true; root.chatEnded()
         }
     }
