@@ -126,6 +126,7 @@ function modelState(m) {
 // What omarchy-launch-tui gets for an agent: its command, or for an agent that reads its endpoint
 // from the environment, raytone-models starting it with the variables connect wrote.
 function launchArgs(id) {
+    if (id === "claude") return ["raytone-models", "agent-exec", "claude"]
     if (id === "copilot") return ["--app-id=org.omarchy.copilot", "raytone-models", "agent-exec", "copilot"]
     if (id === "openclaw") return ["omarchy-launch-openclaw", "--tui"]
     // Pi and Oh My Pi keep a saved default model (maybe a cloud one): name ours

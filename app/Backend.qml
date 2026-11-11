@@ -277,6 +277,9 @@ Item {
         id: hubComponent
         ReadProcess {
             id: hubProc
+            // A Hub HTTP request may take 20s; do not kill it at the ordinary
+            // local-read deadline. File listing can include several pages.
+            timeoutMs: kind === "repo" ? 90000 : 30000
             property string kind: ""
             property int seq: 0
             readonly property bool latest: seq === (kind === "search" ? root.searchSeq : root.repoSeq)

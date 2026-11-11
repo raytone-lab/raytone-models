@@ -29,7 +29,10 @@ ColumnLayout {
     ColumnLayout {
         Layout.fillWidth: true
         spacing: 8
-        TextField {
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: 8
+          TextField {
             id: query
             objectName: "discoverQuery"
             Layout.fillWidth: true
@@ -43,6 +46,13 @@ ColumnLayout {
             background: Rectangle { radius: height / 2; color: Theme.surface; border.color: query.activeFocus ? Theme.focus : Theme.border; border.width: query.activeFocus ? 2 : 1 }
             onAccepted: page.submit()
             Accessible.name: "搜索 Hugging Face"
+          }
+          RButton {
+            objectName: "discoverSearch"
+            text: page.backend.searching ? "搜索中…" : "搜索"
+            enabled: query.text.trim() !== "" && !page.backend.searching
+            onClicked: page.submit()
+          }
         }
         Flow {
             Layout.fillWidth: true
@@ -57,6 +67,16 @@ ColumnLayout {
                     onClicked: { page.kind = modelData.id; if (query.text.trim()) page.submit() }
                 }
             }
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: !!page.backend.readErrors.search && page.backend.searchResults.length > 0
+            text: "本次搜索未完成，下面保留上次成功的结果。请重试。"
+            textFormat: Text.PlainText
+            color: Theme.muted
+            font.family: Theme.font
+            font.pixelSize: Theme.sizeBody
+            wrapMode: Text.Wrap
         }
     }
 
@@ -83,7 +103,8 @@ ColumnLayout {
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 visible: page.visibleResults.length === 0
-                text: page.backend.searching ? "正在搜索…" : (query.text ? "没有符合筛选条件的模型。" : "输入关键词搜索 Hugging Face。")
+                text: page.backend.searching ? "正在搜索…" : (page.backend.readErrors.search ? "搜索未完成，请检查网络后重试。"
+                    : (page.backend.searchAttempted ? "没有符合筛选条件的模型。" : "输入关键词后点击搜索，或按回车。"))
                 color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody
             }
             ListView {

@@ -358,6 +358,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual((env["COPILOT_MODEL"], env["COPILOT_OFFLINE"]), ("local", "true"))
         self.assertIn("PATH", env)                    # the rest of the environment stays
 
+    def test_claude_local_launcher_overrides_inherited_cloud_model_without_changing_parent(self):
+        from unittest.mock import patch
+        ran=[]
+        self.env.execvpe=lambda file,argv,env:ran.append((file,argv,env))
+        self.assertNotEqual(self.run_cli('agent-exec','claude')[0],0)
+        self.run_cli('agent','connect','claude')
+        with patch.dict(os.environ,ANTHROPIC_MODEL='cloud-model',ANTHROPIC_BASE_URL='https://cloud.invalid',ANTHROPIC_AUTH_TOKEN='old-token',CLAUDE_CODE_USE_BEDROCK='1',ANTHROPIC_API_KEY='cloud-key'):
+            self.run_cli('agent-exec','claude','-p','fixture prompt')
+            self.assertEqual(os.environ['ANTHROPIC_MODEL'],'cloud-model')
+        file,argv,env=ran[0]
+        self.assertEqual(argv,['claude','--model','local','-p','fixture prompt'])
+        self.assertEqual(env['ANTHROPIC_BASE_URL'],'http://127.0.0.1:8090')
+        self.assertEqual(env['ANTHROPIC_MODEL'],'local')
+        self.assertEqual(env['ANTHROPIC_AUTH_TOKEN'],'raytone-local')
+        self.assertEqual(env['ANTHROPIC_API_KEY'],'')
+        self.assertEqual(env['CLAUDE_CODE_USE_BEDROCK'],'0')
+
     def web(self, agent, answering):
         ran, execs, probes = [], [], []
         self.env.run = lambda cmd, env: ran.append(cmd) or 0

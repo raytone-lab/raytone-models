@@ -8,6 +8,7 @@ Process {
     property string errorOutput: ""
     property bool timedOut: false
     property bool completed: false
+    property int timeoutMs: 12000
     onRunningChanged: if (!running && !completed) Qt.callLater(function() {
         if (!reader.running && !reader.completed) reader.failed("后端程序无法启动，请检查依赖与配套路径。")
     })
@@ -33,7 +34,7 @@ Process {
         })
     }
     property Timer deadline: Timer {
-        interval: 12000
+        interval: reader.timeoutMs
         onTriggered: { reader.timedOut = true; reader.signal(15); reader.killer.restart() }
     }
     property Timer killer: Timer { interval: 1000; onTriggered: if (reader.running) reader.signal(9) }

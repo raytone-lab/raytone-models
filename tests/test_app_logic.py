@@ -160,6 +160,7 @@ class AppLogicTests(unittest.TestCase):
 
     def test_launch_arguments(self):
         self.assertEqual(call("launchArgs", "opencode"), ["opencode"])
+        self.assertEqual(call("launchArgs", "claude"), ["raytone-models", "agent-exec", "claude"])
         self.assertEqual(call("launchArgs", "copilot"),
                          ["--app-id=org.omarchy.copilot", "raytone-models", "agent-exec", "copilot"])
         self.assertIsNone(call("launchArgs", "gemini"))

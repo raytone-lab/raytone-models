@@ -1,1 +1,1 @@
-USER_VERSION = "0.2.7-console-charts"
+USER_VERSION = "0.2.8-local-agents-search"

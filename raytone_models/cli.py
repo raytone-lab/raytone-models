@@ -264,6 +264,17 @@ def cmd_start(a, env):
 def cmd_agent_exec(a, env):
     """Start an agent that reads its endpoint from the environment, with the variables connect wrote."""
     ad = agents.get(a.agent, home=env.home, state=env.state)
+    if isinstance(ad, agents.Claude):
+        if not ad.status()["connected"]:
+            raise SystemExit("claude is not connected: raytone-models agent connect claude")
+        # A terminal may already export cloud variables. The product's local
+        # launcher must override those without changing the parent session.
+        cfg = json.loads(ad.path.read_text())
+        variables = cfg.get("env", {})
+        if variables.get("ANTHROPIC_BASE_URL") != agents.ROUTER.removesuffix("/v1") or variables.get("ANTHROPIC_MODEL") != agents.MODEL:
+            raise SystemExit("Claude local settings changed: reconnect Claude in the workbench")
+        env.execvpe("claude", ["claude", "--model", agents.MODEL, *a.rest], {**os.environ, **variables})
+        return
     if not isinstance(ad, agents.EnvAdapter):
         raise SystemExit(f"{a.agent} keeps its settings in its own files: start it as usual")
     variables = ad.env()
