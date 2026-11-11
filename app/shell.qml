@@ -53,6 +53,7 @@ ShellRoot {
             id: view
             anchors.fill: parent
             backend: backend
+            onMoveWindow: window.startSystemMove()
             current: 1
             homeAvailable: root.homeCommand !== ""
             onReturnHome: root.launchShortcut(["open"])

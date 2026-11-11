@@ -1,1 +1,1 @@
-USER_VERSION = "0.2.8-local-agents-search"
+USER_VERSION = "0.2.9-local-window"

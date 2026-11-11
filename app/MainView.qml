@@ -7,6 +7,7 @@ import "pages"
 
 Rectangle {
     id: view
+    signal moveWindow()
     property var backend
     property int current: 0
     property bool homeAvailable: false
@@ -98,9 +99,15 @@ Rectangle {
             Layout.minimumWidth: 0
             spacing: 0
             Rectangle {
+                objectName: "models-titlebar"
                 Layout.fillWidth: true
                 implicitHeight: Theme.tokens.desktop.toolbar_height
                 color: Theme.toolbar
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
+                    onPressed: view.moveWindow()
+                }
                 Text {
                     anchors.left: parent.left; anchors.leftMargin: 22; anchors.verticalCenter: parent.verticalCenter
                     text: "本地 AI"; color: Theme.text; font.family: Theme.font
