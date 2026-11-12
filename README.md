@@ -110,9 +110,19 @@ MIT, © Raytone AI Lab and contributors.
 
 ## Split component candidate (batch 5A)
 
-The managed user component is `0.2.4-batch5a`; its matching system contract is
-`0.2.3-batch5a`, protocol 1. This software candidate has no real GPU/model/Spark
-acceptance. The source polkit policy requires an administrator authentication for
+2026-11-12 field follow-up: see the [Spark fixes, installation checklist and pending acceptance](https://github.com/raytone-lab/RaytoneOS/blob/codex/ai-box-productization/docs/field-fixes/2026-11-spark.md).
+The [N1X user-component snapshot](packaging/n1x/om65-2026-11-12/README.md)
+preserves the installed device adapters; a plain branch checkout is not byte-identical
+to that combined user component. Reconstruct and review the appropriate source before
+upgrading an existing N1X device. This snapshot does not deliver the system component,
+engine images, trust store or model weights.
+
+The split-component contract introduced with user `0.2.4-batch5a` uses system
+`0.2.3-batch5a`, protocol 1. The current generic user version is declared in
+`raytone_models/__init__.py`; device-specific versions are recorded separately.
+The original batch 5A evidence did not include real GPU/model/Spark acceptance;
+the dated field record above describes the later device evidence and its limits.
+The source polkit policy requires an administrator authentication for
 each action; there is no passwordless wheel rule. A desktop polkit agent is a
 separate prerequisite: absent authentication returns AUTH_DENIED without starting
 an engine. Cancel returns AUTH_CANCELLED; timeout requires checking actual state

@@ -1,0 +1,695 @@
+--- a/raytone_models/__init__.py
++++ b/raytone_models/__init__.py
+@@ -1 +1 @@
+-USER_VERSION = "0.2.11-model-list"
++USER_VERSION = "0.2.11-model-list-om65"
+--- a/raytone_models/cli.py
++++ b/raytone_models/cli.py
+@@ -22,6 +22,7 @@
+ Starting and stopping go through the privileged helper (pkexec), with the spec on stdin; the CLI
+ checks the spec first, so the helper sees only what it would accept anyway.
+ """
++# EmbeddingGemma Recipe integration (2026-11-10).
+ import argparse
+ import dataclasses
+ import json
+@@ -115,6 +116,7 @@
+     probe: object = _probe
+     page: object = _page
+     recipe_dirs: list = None
++    local_signers_dir: pathlib.Path = recipes.LOCAL_SIGNERS_DIR
+     allowed_signers: pathlib.Path = recipes.ALLOWED_SIGNERS
+     run: object = _run
+     hf_endpoint: str = None
+@@ -195,7 +197,7 @@
+         out.append({"id": d.get("id"), "served_name": d.get("served_name"), "engine": d.get("engine"), "port": port,
+                     "model": d.get("model"),
+                     "role": _role(d),
+-                    "chat": d.get("engine") not in engines.NOT_CHAT,
++                    "chat": engines.is_chat(d.get("engine"), _role(d)),
+                     "context": next((a[k] for a in [d.get("args") or {}]
+                                      for k in ("max-model-len", "context-length", "ctx-size") if k in a), None),
+                     "ready": bool(port) and env.probe(f"http://127.0.0.1:{port}{engines.health_path(d.get('engine'))}")})
+@@ -251,13 +253,13 @@
+         args[k] = _value(v if eq else None)
+     data = {"id": re.sub(r"[^a-z0-9-]+", "-", a.name.lower()).strip("-")[:64], "engine": a.engine, "image": image,
+             "model": m.snapshot, "served_name": a.name, "port": a.port or _free_port(env), "args": args, "env": {},
+-            "memory_gib": a.memory_gib, "role": a.role}
++            "memory_gib": a.memory_gib, "role": a.role, "cpu_cores": getattr(a, "cpu_cores", None)}
+     try:
+         s = spec_mod.load(data)
+     except spec_mod.SpecError as e:
+         raise SystemExit(f"refused: {e}") from None
+     out = env.helper(["start"], stdin=s.to_json())
+-    if s.engine not in engines.NOT_CHAT:
++    if engines.is_chat(s.engine, s.role):
+         _set_current(env, s.served_name)
+     return out
+ 
+@@ -344,7 +346,7 @@
+ 
+ 
+ def _recipes(env):
+-    return recipes.available(env.recipe_dirs, env.allowed_signers)
++    return recipes.available(env.recipe_dirs, env.allowed_signers, env.local_signers_dir)
+ 
+ 
+ def _recipe(env, rid):
+@@ -366,7 +368,7 @@
+         if name not in {c.served_name for c in r.components}:
+             continue
+         if name in want and (d.get("image"), d.get("model"), d.get("args") or {}, d.get("env") or {},
+-                             d.get("memory_gib")) == want[name]:
++                             d.get("memory_gib"), d.get("cpu_cores")) == want[name]:
+             matching[name] = d.get("id")
+         else:
+             conflicts.append(name)
+@@ -382,6 +384,7 @@
+         st["running"] = len(matching) == len(r.components)
+         st["conflicts"] = conflicts
+         st["description"] = r.description
++        st["signed_by"] = r.signed_by
+         from .device import detect, applicability
+         st["applicability"] = applicability(r.platforms, env.device or detect())
+         st["platforms"] = list(r.platforms)
+@@ -407,7 +410,7 @@
+             if other is not None and other != s.served_name:
+                 raise SystemExit(f"instance {s.id} serves {other}, not {s.served_name}; stop it first")
+         out = [env.helper(["start"], stdin=s.to_json()) for s in specs]
+-        chat = [s.served_name for s in specs if s.engine not in engines.NOT_CHAT]
++        chat = [s.served_name for s in specs if engines.is_chat(s.engine, s.role)]
+         if chat:
+             _set_current(env, chat[0])
+         return out
+@@ -581,6 +584,7 @@
+     s.add_argument("--port", type=int)
+     s.add_argument("--image", help="another image of the engine, pinned by digest (default: the configured one)")
+     s.add_argument("--memory-gib", type=int, help="a hard memory limit for the container")
++    s.add_argument("--cpu-cores", type=int, help="Docker CPU quota in whole cores")
+     # Without this, nothing started by hand could say what it was for, and an engine that serves
+     # more than one kind of thing -- comfyui serves video and stills -- would be picked for the
+     # wrong one. A recipe says it per component; this is the same field, said by hand.
+--- a/raytone_models/device.py
++++ b/raytone_models/device.py
+@@ -24,6 +24,11 @@
+             gpu={'available':r.returncode==0 and bool(names),'name':names[0][:120] if names else None,
+                  'message':'已检测到NVIDIA GPU；引擎运行仍须另行验证。' if r.returncode==0 and names else '未检测到可用的NVIDIA推理环境。'}
+         except (OSError,subprocess.TimeoutExpired):gpu['message']='GPU状态读取失败，请重试。'
++    # N1X desktop boards expose an OEM DMI name rather than a device tree.
++    # Identify this platform only from the explicit NVIDIA-reported GPU product.
++    if platform == 'unknown' and gpu.get('available') and (gpu.get('name') or '').startswith('NVIDIA RTX Spark N1X'):
++        platform = 'rtx-spark-n1x'
++        name = 'NVIDIA RTX Spark N1X' + (' (' + model[:80] + ')' if model else '')
+     return {'platform':platform,'name':name,'gpu':gpu,'source':'system-hardware'}
+ 
+ 
+--- a/raytone_models/engines.py
++++ b/raytone_models/engines.py
+@@ -5,15 +5,21 @@
+ It runs as the dedicated engine user with no capabilities: nothing it writes to the host cache
+ can be a root-owned setuid file, and the cache belongs to that user alone.
+ """
++# EmbeddingGemma Recipe integration (2026-11-10).
+ import json
+ 
+ from . import spec as spec_mod
+ 
+ CONTAINER_PORT = 8000
+ # where each engine says it is up; the OpenAI-compatible ones answer /v1/models
+-HEALTH = {"comfyui": "/system_stats"}
++HEALTH = {"comfyui": "/system_stats", "acestep": "/health"}
+ # engines that serve no OpenAI API: never listed to agents or routed to by the router
+-NOT_CHAT = {"comfyui"}
++NOT_CHAT = {"comfyui", "acestep"}
++
++
++def is_chat(engine, role=""):
++    """An explicit embedding role never becomes an agent chat default."""
++    return engine not in NOT_CHAT and role not in {"embedding", "draft", "image", "video", "music"}
+ 
+ 
+ def health_path(engine):
+@@ -26,7 +32,7 @@
+         v = args[k]
+         if v is True:
+             out.append(f"--{k}")
+-        elif isinstance(v, (dict, str)) and k.endswith(("-config", "-per-prompt")):
++        elif isinstance(v, (dict, str)) and (k.endswith(("-config", "-per-prompt")) or k == "hf-overrides"):
+             obj = json.loads(v) if isinstance(v, str) else v
+             out += [f"--{k}", json.dumps(obj, separators=(",", ":"), sort_keys=True)]
+         else:
+@@ -63,6 +69,8 @@
+     ]
+     if spec.memory_gib:
+         argv += [f"--memory={spec.memory_gib}g", f"--memory-swap={spec.memory_gib}g"]
++    if spec.cpu_cores is not None:
++        argv += [f"--cpus={spec.cpu_cores}"]
+     argv += [f"--env={k}={v}" for k, v in sorted(spec.env.items())]
+     # a locally built image has no registry digest; its image ID pins it
+     argv.append(spec.image.split("@", 1)[1] if spec_mod.is_local(spec.image) else spec.image)
+@@ -86,6 +94,8 @@
+         argv += ["--alias", spec.served_name, "--host", "0.0.0.0", "--port", str(CONTAINER_PORT), "--metrics"]
+         argv += _engine_args(args)
+         return argv
++    if spec.engine == "acestep":
++        return argv + ["--models", f"/hf/hub/{spec.model}"]
+     if spec.engine == "comfyui":
+         argv += ["raytone-comfyui", "--models", f"/hf/hub/{spec.model}", "--port", str(CONTAINER_PORT)]
+         argv += _engine_args(spec.args)
+--- a/raytone_models/recipes.py
++++ b/raytone_models/recipes.py
+@@ -5,30 +5,37 @@
+ is one instance: a model at a pinned revision (optionally only some of its files), an engine, a
+ pinned image, and arguments that pass the same checks as any spec.
+ """
++# EmbeddingGemma Recipe integration (2026-11-10).
+ import dataclasses
++import errno
++import os
++import shlex
++import stat
++import tempfile
+ import fnmatch
+ import json
+ import pathlib
+ import re
+ import subprocess
+ 
+-from . import spec as spec_mod, store
++from . import engines, spec as spec_mod, store
+ 
+ NAMESPACE = "raytone-recipe"
+ SIGNER = "recipes@raytone.ai"
+ SYSTEM_DIR = pathlib.Path("/usr/share/raytone-models/recipes")
+ ALLOWED_SIGNERS = pathlib.Path("/usr/share/raytone-models/allowed_signers")
++LOCAL_SIGNERS_DIR = pathlib.Path("/etc/raytone/recipe-allowed-signers.d")
+ ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+ REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+ REV_RE = re.compile(r"^[0-9a-f]{40}$")
+ PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*?/-]{1,200}$")
+ TOP = {"schema", "id", "title", "description", "platforms", "requires", "source", "components", "agents"}
+-COMPONENT = {"role", "served_name", "model", "draft", "engine", "image", "args", "env", "memory_gib"}
++COMPONENT = {"role", "served_name", "model", "draft", "engine", "image", "args", "env", "memory_gib", "cpu_cores"}
+ # "image" is text-to-image. It is a separate role rather than a reuse of "video"
+ # because a recipe can carry both at once -- the Studio trio runs MiniMax H3 for
+ # video and Z-Image Turbo for stills -- while the engine behind them is the same
+ # one, which spec.py already calls "video and image generation".
+-ROLES = {"chat", "coder", "vision", "video", "image", "embedding", "draft"}
++ROLES = {"chat", "coder", "vision", "video", "image", "embedding", "draft", "music"}
+ 
+ 
+ class RecipeError(ValueError):
+@@ -49,6 +56,7 @@
+     draft_repo: str = None       # a speculative decoder's own weights (DFlash, DSpark drafts)
+     draft_revision: str = None
+     memory_gib: int = None       # a hard memory limit for its container
++    cpu_cores: int = None
+ 
+ 
+ @dataclasses.dataclass(frozen=True)
+@@ -62,6 +70,7 @@
+     source: str
+     components: tuple
+     default_model: str
++    signed_by: str = ""
+ 
+     def to_dict(self):
+         return dataclasses.asdict(self)
+@@ -107,14 +116,14 @@
+     # the engine, image, name, arguments and environment get the same checks as an instance spec
+     probe = {"id": "recipe-check", "engine": c["engine"], "image": image, "role": c["role"],
+              "model": f"models--x--y/snapshots/{'0' * 40}", "served_name": c["served_name"],
+-             "port": spec_mod.INSTANCE_PORTS.start, "args": args, "env": c.get("env", {}), "memory_gib": c.get("memory_gib")}
++             "port": spec_mod.INSTANCE_PORTS.start, "args": args, "env": c.get("env", {}), "memory_gib": c.get("memory_gib"), "cpu_cores": c.get("cpu_cores")}
+     try:
+         spec_mod.load(probe)
+     except spec_mod.SpecError as e:
+         raise RecipeError(f"component {c.get('served_name')!r}: {e}") from None
+     return Component(c["role"], c["served_name"], m["repo"], m["revision"], include, c["engine"], c["image"],
+                      args, dict(c.get("env", {})),
+-                     draft["repo"] if draft else None, draft["revision"] if draft else None, c.get("memory_gib"))
++                     draft["repo"] if draft else None, draft["revision"] if draft else None, c.get("memory_gib"), c.get("cpu_cores"))
+ 
+ 
+ def load(data):
+@@ -144,31 +153,278 @@
+         raise RecipeError("two components would be the same instance (names differing only in punctuation)")
+     req = data["requires"]
+     default = (data.get("agents") or {}).get("default_model")
+-    if default not in names:
++    if ((default is not None and default not in names)
++            or (default is None and any(engines.is_chat(c.engine, c.role) for c in comps))):
+         raise RecipeError("agents.default_model must be one of the components")
+     return Recipe(data["id"], str(data["title"]), str(data.get("description", "")), tuple(data["platforms"]),
+                   int(req.get("memory_gib", 0)), int(req.get("disk_gib", 0)), str(data.get("source", "")),
+                   comps, default)
+ 
+ 
+-def verify(data, sig, allowed_signers=ALLOWED_SIGNERS, name="recipe"):
+-    """The signature over these bytes (the signature file may change: it cannot make other bytes valid)."""
++# A drop-in's file name is the identity it signs under, so the name is checked as strictly as an
++# id: a file called "recipes@raytone.ai" would otherwise verify and be reported as the Lab's own
++# key, which is the single thing this whole arrangement exists to prevent (codex review).
++LOCAL_SIGNER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
++KEY_TYPE_RE = re.compile(r"^(ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)[A-Za-z0-9@.+-]+$")
++# O_DIRECTORY and O_NOFOLLOW are POSIX. They are what stops a symlink in the signers directory
++# from being followed, so on a platform without them this whole path is unavailable rather than
++# quietly weaker -- which is academic, since the app ships for the Linux it is written against.
++_O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
++_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
++# O_NONBLOCK, because opening a FIFO for reading waits for a writer that may never come: a FIFO
++# named like a signer would wedge the whole read before the "not a regular file" check could refuse
++# it. It is a no-op on regular files, which is all this directory is ever supposed to hold.
++_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
++# errno values that say this process or machine ran out of descriptors or memory. Those are not
++# facts about the key file in hand, so they must not be reported as "this key is broken" once per
++# file -- they stop the whole read.
++_EXHAUSTED = frozenset(e for e in (getattr(errno, n, None)
++                                   for n in ("EMFILE", "ENFILE", "ENOMEM")) if e is not None)
++MAX_LOCAL_SIGNERS = 16          # bounds recipes x signers, and ssh-keygen runs, per read
++MAX_SIGNERS_BYTES = 64 * 1024
++VERIFY_TIMEOUT = 20
++
++
++def local_signers(d=LOCAL_SIGNERS_DIR, problems=None):
++    """(identity, allowed_signers line) for each dropped-in key. The identity is the file's name.
++
++    The line is returned as bytes read from the descriptor we checked, not as a path, because
++    anything that re-opens by path afterwards is checking one inode and trusting another.
++
++    A problem with the DIRECTORY disables local trust entirely -- that is root's own configuration, and if it
++    cannot be read as root's then none of it can be believed. A problem with a single FILE skips
++    that file and is appended to `problems`, so one unreadable key does not take the other keys
++    with it, and the caller can report it once about the directory instead of once per recipe.
++    """
++    if d is None:
++        return []
++    d = pathlib.Path(d)
++    def note(msg):
++        if problems is not None:
++            problems.append(msg)
++    try:
++        # O_NOFOLLOW: a symlink in this position raises rather than being followed. Everything
++        # below goes through this descriptor, so the directory cannot be swapped underneath us.
++        dfd = os.open(d, os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW)
++    except FileNotFoundError:
++        return []                               # not configured on this machine: not an error
++    except NotADirectoryError:
++        raise RecipeError(f"{d}: is not a directory, so the keys in it are not root's to pin") from None
++    except OSError as e:
++        raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
++    try:
++        _require_root_owned(d, os.fstat(dfd))
++        try:
++            names = sorted(os.listdir(dfd))
++        except OSError as e:
++            raise RecipeError(f"{d}: cannot be read ({e.strerror})") from None
++        out, considered = [], 0
++        for name in names:
++            if name.startswith("."):
++                continue
++            if not LOCAL_SIGNER_RE.fullmatch(name) or name == SIGNER:
++                note(f"{name}: a signer file is named like an id, and never {SIGNER!r}")
++                continue
++            # count what is opened, not what parses: each candidate costs an open and a
++            # ssh-keygen run, so counting only the successes bounds nothing
++            considered += 1
++            if considered > MAX_LOCAL_SIGNERS:
++                raise RecipeError(f"{d}: more than {MAX_LOCAL_SIGNERS} local signers")
++            line = _read_signer(dfd, name, note)
++            if line is None:
++                continue
++            out.append((name, line))
++        return out
++    finally:
++        os.close(dfd)
++
++
++def _read_signer(dfd, name, note):
++    """The one allowed_signers line in `name`, or None with a note saying why not."""
++    try:
++        fd = os.open(name, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK, dir_fd=dfd)
++    except OSError as e:
++        if e.errno in _EXHAUSTED:
++            raise RecipeError(f"the signers directory cannot be read ({e.strerror})") from None
++        note(f"{name}: cannot be opened ({e.strerror})")
++        return None
++    try:
++        st = os.fstat(fd)
++        if not stat.S_ISREG(st.st_mode):
++            note(f"{name}: a signer file is a regular file, not a link or device")
++            return None
++        try:
++            _require_root_owned(pathlib.PurePath(name), st)
++        except RecipeError as e:
++            note(str(e))
++            return None
++        if not 0 < st.st_size <= MAX_SIGNERS_BYTES:
++            note(f"{name}: a signer file holds one key, and is not empty")
++            return None
++        raw = os.read(fd, MAX_SIGNERS_BYTES)
++    except OSError as e:
++        if e.errno in _EXHAUSTED:
++            raise RecipeError(f"the signers directory cannot be read ({e.strerror})") from None
++        note(f"{name}: cannot be read ({e.strerror})")
++        return None
++    finally:
++        os.close(fd)
++    try:
++        text = raw.decode("utf-8")
++    except UnicodeDecodeError:
++        note(f"{name}: is not text, so it is not an allowed_signers line")
++        return None
++    key = _sole_key(name, text)
++    if key is None:
++        note(f"{name}: holds exactly one key, whose principal is {name!r}")
++        return None
++    if not _is_a_public_key(*key):
++        note(f"{name}: names a key type but not a key ssh-keygen recognises")
++        return None
++    return raw
++
++
++def _split_fields(line):
++    """Yield (field, inside an unclosed quote) for each whitespace-separated field, keeping a
++    double-quoted option value whole.
++
++    OpenSSH's options scanner treats only a backslash before a double quote as an escape, and does
++    not require that it already be inside quotes -- so that is the only escape honoured here, and
++    honoured in both states. The quotes stay in the token, so a value holding a word like
++    ssh-ed25519 can never match KEY_TYPE_RE.
++    """
++    cur, quoted, i = [], False, 0
++    q = '"'
++    bs = chr(92)
++    while i < len(line):
++        c = line[i]
++        if c == bs and i + 1 < len(line) and line[i + 1] == q:
++            cur.append(c)
++            cur.append(q)
++            i += 2
++            continue
++        if c == q:
++            quoted = not quoted
++            cur.append(c)
++            i += 1
++            continue
++        if not quoted and (c == " " or c == chr(9)):
++            if cur:
++                yield "".join(cur), quoted
++                cur = []
++            i += 1
++            continue
++        cur.append(c)
++        i += 1
++    if cur:
++        yield "".join(cur), quoted
++
++
++def _sole_key(name, text):
++    """(key type, key) from the single record in a drop-in file, or None.
++
++    An allowed_signers record is `principal [options] keytype key [comment]`. The options sit
++    between the principal and the key type -- `namespaces="raytone-recipe"` is the one that matters
++    here -- so the key type is found rather than assumed to be the second field.
++
++    Scanning stops as soon as the key is in hand. What follows is a comment, and its quoting is not
++    part of this grammar: `nvidia@thor "spare key"` is a legal comment, and a lone quote in one must
++    not make the record unreadable.
++    """
++    lines = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
++    if len(lines) != 1:
++        return None
++    fields = []
++    for field, unclosed in _split_fields(lines[0]):
++        fields.append(field)
++        if fields[0] != name:
++            return None
++        if len(fields) >= 3 and KEY_TYPE_RE.fullmatch(fields[-2]):
++            return fields[-2], fields[-1]
++        if unclosed:
++            return None     # an option's quote never closed, so every field after it is a guess
++    return None
++
++
++def _is_a_public_key(keytype, key):
++    """Whether ssh-keygen reads these two fields as a key. A key type with a plausible name in
++    front of something that is not a key would otherwise pass to verification and come back as
++    "the signature does not verify", blaming the recipe for a malformed key file."""
++    try:
++        with tempfile.TemporaryDirectory() as t:
++            # TemporaryDirectory is 0700 and unpredictable, so a fixed name inside it is not a
++            # path anyone else can pre-empt with a symlink
++            f = pathlib.Path(t) / "key.pub"
++            f.write_text(keytype + " " + key + chr(10), encoding="utf-8")
++            try:
++                r = subprocess.run(["ssh-keygen", "-l", "-f", str(f)],
++                                   capture_output=True, timeout=VERIFY_TIMEOUT)
++            except subprocess.TimeoutExpired:
++                return False
++    except FileNotFoundError:
++        # no ssh-keygen is a fact about the machine, not about this key: every recipe is
++        # unverifiable, and saying "this key is malformed" about each one would be a lie
++        raise RecipeError("ssh-keygen is not installed, so no signature can be checked") from None
++    except OSError as e:
++        raise RecipeError(f"ssh-keygen could not be run ({e.strerror})") from None
++    return r.returncode == 0
++
++
++def _require_root_owned(path, st=None):
++    """Root's, and only root's, to rewrite. `st` is the caller's own fstat()/lstat() so the check
++    reads the inode the caller is actually holding rather than re-resolving the path."""
++    if st is None:
++        st = path.lstat()
++    if st.st_uid != 0:
++        raise RecipeError(f"{path.name}: trusting a signing key is root's to decide, and this is not root's")
++    if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
++        raise RecipeError(f"{path.name}: is group- or world-writable, so the key in it is not pinned")
++
++
++def _verified_by(data, sig, signers, identity):
++    try:
++        r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", str(signers), "-I", identity,
++                            "-n", NAMESPACE, "-s", str(sig)], input=data, capture_output=True,
++                           timeout=VERIFY_TIMEOUT)
++    except subprocess.TimeoutExpired:
++        return False
++    return r.returncode == 0
++
++
++def verify(data, sig, allowed_signers=ALLOWED_SIGNERS, name="recipe", local_dir=LOCAL_SIGNERS_DIR,
++           signers=None):
++    """The signature over these bytes (the signature file may change: it cannot make other bytes
++    valid). Returns the identity that vouched for it: SIGNER for the Lab's key, otherwise the name
++    of the dropped-in file, so a caller can tell the two apart and say so.
++
++    `signers` is the already-read local trust store; pass it to read the directory once for a whole
++    set of recipes instead of once each. Omit it and this reads `local_dir` itself."""
+     sig = pathlib.Path(sig)
+     if not sig.exists():
+         raise RecipeError(f"{name} is not signed")
+-    r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", str(allowed_signers), "-I", SIGNER,
+-                        "-n", NAMESPACE, "-s", str(sig)], input=data, capture_output=True)
+-    if r.returncode:
+-        raise RecipeError(f"{name}: the signature does not verify")
+-
+-
+-def read(path, allowed_signers=ALLOWED_SIGNERS):
++    if _verified_by(data, sig, allowed_signers, SIGNER):
++        return SIGNER
++    if signers is None:
++        signers = local_signers(local_dir)
++    for identity, line in signers:
++        # ssh-keygen takes a path, so write out the bytes we read through the checked descriptor
++        # into a file only this process can reach, rather than handing it back the original path
++        with tempfile.TemporaryDirectory() as t:
++            f = pathlib.Path(t) / "allowed_signers"
++            f.write_bytes(line)
++            if _verified_by(data, sig, f, identity):
++                return identity
++    raise RecipeError(f"{name}: the signature does not verify")
++
++
++def read(path, allowed_signers=ALLOWED_SIGNERS, local_dir=LOCAL_SIGNERS_DIR, signers=None):
+     """A recipe file, read once: the bytes verified are the bytes parsed."""
+     path = pathlib.Path(path)
+     data = path.read_bytes()
+-    verify(data, str(path) + ".sig", allowed_signers, name=path.name)
+-    try:
+-        return load(json.loads(data))
++    signed_by = verify(data, str(path) + ".sig", allowed_signers, name=path.name,
++                       local_dir=local_dir, signers=signers)
++    try:
++        return dataclasses.replace(load(json.loads(data)), signed_by=signed_by)
+     except ValueError as e:
+         raise RecipeError(f"{path.name}: {e}") from None
+ 
+@@ -255,12 +511,12 @@
+         out.append(spec_mod.load({"id": instance_id(c.served_name), "engine": c.engine, "image": _image(c, images, True),
+                                   "model": s["snapshot"], "served_name": c.served_name, "port": port,
+                                   "args": args, "env": c.env, "memory_gib": c.memory_gib,
+-                                  "role": c.role}))
++                                  "role": c.role, "cpu_cores": c.cpu_cores}))
+     return out
+ 
+ 
+ def expected(recipe, hf_home=None, *, images=None):
+-    """What each downloaded component runs as: {served_name: (image, model, args, env, memory_gib)}."""
++    """What each downloaded component runs as: {served_name: (image, model, args, env, memory_gib, cpu_cores)}."""
+     st = status(recipe, hf_home)
+     out = {}
+     for c, s in zip(recipe.components, st["components"]):
+@@ -269,7 +525,7 @@
+         args = dict(c.args)
+         if c.draft_repo:
+             _fill_draft(c.engine, args, f"/hf/hub/{s['draft_snapshot']}")
+-        out[c.served_name] = (_image(c, images, False), s["snapshot"], args, c.env, c.memory_gib)
++        out[c.served_name] = (_image(c, images, False), s["snapshot"], args, c.env, c.memory_gib, c.cpu_cores)
+     return out
+ 
+ 
+@@ -285,13 +541,22 @@
+     return cmds
+ 
+ 
+-def available(dirs=(SYSTEM_DIR,), allowed_signers=ALLOWED_SIGNERS):
++def available(dirs=(SYSTEM_DIR,), allowed_signers=ALLOWED_SIGNERS, local_dir=LOCAL_SIGNERS_DIR):
+     """Every signed recipe found, and why the others were left out."""
+     good, bad = [], []
++    # Read the local trust store once. A broken drop-in file then shows up as one line about the
++    # directory, instead of the same line repeated on every recipe that needed a local key -- which
++    # reads as several broken recipes rather than one piece of misconfiguration.
++    problems = []
++    try:
++        signers = local_signers(local_dir, problems)
++    except (RecipeError, OSError) as e:
++        signers, problems = [], problems + [str(e)]
++    bad.extend({"file": str(local_dir), "error": p} for p in problems)
+     for d in dirs:
+         for f in sorted(pathlib.Path(d).glob("*.json")):
+             try:
+-                good.append(read(f, allowed_signers))
++                good.append(read(f, allowed_signers, local_dir, signers=signers))
+             except (RecipeError, OSError) as e:
+                 bad.append({"file": str(f), "error": str(e)})
+     return good, bad
+--- a/raytone_models/router.py
++++ b/raytone_models/router.py
+@@ -6,6 +6,7 @@
+ Binding is loopback only and the Host header must be loopback too, so a web page cannot reach it
+ through DNS rebinding.
+ """
++# EmbeddingGemma Recipe integration (2026-11-10).
+ import http.client
+ import http.server
+ import ipaddress
+@@ -49,7 +50,7 @@
+     return _loopback(host)
+ 
+ 
+-def instances(registry, ports):
++def instances(registry, ports, *, chat_only=False):
+     """served_name -> port, from the registry files that make sense."""
+     out = {}
+     for f in sorted(pathlib.Path(registry).glob("*.json")):
+@@ -58,7 +59,8 @@
+         except (OSError, ValueError):
+             continue
+         name, port = d.get("served_name"), d.get("port")
+-        if d.get("engine") in engines.NOT_CHAT:
++        if d.get("engine") in engines.NOT_CHAT or (
++                chat_only and not engines.is_chat(d.get("engine"), d.get("role", ""))):
+             continue
+         if (isinstance(name, str) and spec_mod.NAME_RE.fullmatch(name) and isinstance(port, int)
+                 and not isinstance(port, bool) and port in ports):
+@@ -113,7 +115,7 @@
+ 
+ def newest_instance(registry, ports):
+     """The chat instance registered last: what `local` means when no current model is chosen."""
+-    names = instances(registry, ports)
++    names = instances(registry, ports, chat_only=True)
+     best = None
+     for f in pathlib.Path(registry).glob("*.json"):
+         try:
+@@ -137,7 +139,10 @@
+     except (OSError, UnicodeDecodeError):
+         return None
+     if chosen:
+-        return chosen if chosen != ALIAS and chosen in served_now else None
++        registered = instances(registry, ports)
++        chat_names = instances(registry, ports, chat_only=True)
++        return chosen if (chosen != ALIAS and chosen in served_now
++                          and (chosen not in registered or chosen in chat_names)) else None
+     return newest_instance(registry, ports)
+ 
+ 
+--- a/raytone_models/spec.py
++++ b/raytone_models/spec.py
+@@ -5,6 +5,7 @@
+ engine's whitelist with typed, bounded values. Nothing else reaches `docker run`: no volumes,
+ no extra flags, no free-form strings that could carry a second argument.
+ """
++# EmbeddingGemma Recipe integration (2026-11-10).
+ import dataclasses
+ import json
+ import re
+@@ -83,13 +84,22 @@
+ ENGRAM = _schema({"cpu_offload": _bool, "embedding_across_dp": _bool, "dp_shared_memory": _bool})
+ LIMIT_MM = _schema({"image": _int(0, 64), "video": _int(0, 64), "audio": _int(0, 64)})
+ 
++HF_OVERRIDES = _schema({"matryoshka_dimensions": lambda v: (
++    isinstance(v, list) and 1 <= len(v) <= 4
++    and all(type(d) is int and d in (128, 256, 512, 768) for d in v)
++    and len(set(v)) == len(v))})
++
+ # Per engine: the image repositories it may come from, its arguments with their checks, and the
+ # environment variables it may receive.
+ ENGINES = {
++    "acestep": {"images": ("raytone/acestep",), "local": True, "args": {}, "env": {}},
+     "vllm": {
+         # raytone/vllm-NAME: a vLLM image built on this machine (with a model's own patches, say)
+         "images": ("vllm/vllm-openai", "nvcr.io/nvidia/vllm", "raytone/vllm-*"),
+         "args": {
++            "runner": _choice("auto", "pooling", "generate"),
++            "dtype": _choice("auto", "bfloat16", "float16", "float32"),
++            "hf-overrides": HF_OVERRIDES,
+             "gpu-memory-utilization": _float(0.05, 0.95),
+             "max-model-len": _int(512, 4_194_304),
+             "max-num-seqs": _int(1, 1024),
+@@ -198,7 +208,7 @@
+     },
+ }
+ 
+-FIELDS = ("id", "engine", "image", "model", "served_name", "port", "args", "env", "memory_gib", "role")
++FIELDS = ("id", "engine", "image", "model", "served_name", "port", "args", "env", "memory_gib", "role", "cpu_cores")
+ LOCAL_REPO_RE = re.compile(r"raytone/[a-z0-9][a-z0-9.-]*")
+ 
+ 
+@@ -230,6 +240,8 @@
+     memory_gib: int = None      # a hard memory limit for the container, without swap
+     role: str = ""              # what the recipe runs this instance for; "" when it had no recipe
+ 
++    cpu_cores: int = None       # Docker CPU quota, in whole cores
++
+     def to_json(self):
+         return json.dumps(dataclasses.asdict(self), sort_keys=True, indent=2) + "\n"
+ 
+@@ -237,7 +249,7 @@
+ def load(data):
+     if not isinstance(data, dict) or set(data) - set(FIELDS) or set(FIELDS[:6]) - set(data):
+         raise SpecError(f"a spec has exactly the fields {', '.join(FIELDS)}")
+-    d = {"args": {}, "env": {}, "memory_gib": None, "role": "", **data}
++    d = {"args": {}, "env": {}, "memory_gib": None, "role": "", "cpu_cores": None, **data}
+     if not isinstance(d["id"], str) or not ID_RE.fullmatch(d["id"]):
+         raise SpecError("id: lowercase letters, digits and dashes, at most 64")
+     # Only the shape is checked here. The vocabulary is recipes.ROLES, and recipes imports this
+@@ -264,6 +276,9 @@
+     mem = d["memory_gib"]
+     if mem is not None and (not isinstance(mem, int) or isinstance(mem, bool) or not 8 <= mem <= 128):
+         raise SpecError("memory_gib: 8-128, or none")
++    cpu = d["cpu_cores"]
++    if cpu is not None and not _int(1, 64)(cpu):
++        raise SpecError("cpu_cores: 1-64 whole cores, or none")
+     if not isinstance(d["args"], dict) or not isinstance(d["env"], dict):
+         raise SpecError("args and env are objects")
+     for k, v in d["args"].items():
