@@ -1,0 +1,245 @@
+diff --git a/app/pages/DiscoverPage.qml b/app/pages/DiscoverPage.qml
+index 35e0e96..73cb73b 100644
+--- a/app/pages/DiscoverPage.qml
++++ b/app/pages/DiscoverPage.qml
+@@ -103,7 +103,7 @@ ColumnLayout {
+                 horizontalAlignment: Text.AlignHCenter
+                 wrapMode: Text.Wrap
+                 visible: page.visibleResults.length === 0
+-                text: page.backend.searching ? "正在搜索…" : (page.backend.readErrors.search ? "搜索未完成，请检查网络后重试。"
++                text: page.backend.searching ? "正在搜索…" : (page.backend.readErrors.search ? "暂时无法读取模型源，请查看下方原因并重试。"
+                     : (page.backend.searchAttempted ? "没有符合筛选条件的模型。" : "输入关键词后点击搜索，或按回车。"))
+                 color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody
+             }
+diff --git a/raytone_models/cli.py b/raytone_models/cli.py
+index 0b0bce0..7c97442 100644
+--- a/raytone_models/cli.py
++++ b/raytone_models/cli.py
+@@ -145,8 +145,6 @@ class Env:
+                 self.allowed_signers = source_root / 'packaging/allowed_signers'
+         if self.ollama is None:
+             self.ollama = ollama_mod.Ollama()
+-        if self.hf_endpoint is None:
+-            self.hf_endpoint = os.environ.get("HF_ENDPOINT") or hf.DEFAULT_ENDPOINT
+ 
+     def token(self):
+         try:
+@@ -155,7 +153,10 @@ class Env:
+             return None
+ 
+     def hub(self):
+-        return hf.Hub(endpoint=self.hf_endpoint, token=self.token())
++        return hf.Hub(endpoint=self.hub_endpoint(), token=self.token())
++
++    def hub_endpoint(self):
++        return hf.resolve_endpoint(self.hf_endpoint, home=self.home)
+ 
+ 
+ def _value(text):
+@@ -415,7 +416,7 @@ def cmd_recipe(a, env):
+         # only the instances that run as this recipe; another instance with the same name stays
+         matching, _ = _matching(r, env)
+         return [env.helper(["stop", iid]) for iid in matching.values()]
+-    hf_env = dict(os.environ, HF_HOME=str(env.hf_home), HF_HUB_DISABLE_TELEMETRY="1")
++    hf_env = hf.download_environment(env.hf_home, env.hub_endpoint(), env.token())
+     for cmd in recipes.fetch_commands(r):
+         if env.run(cmd, hf_env):
+             raise SystemExit(f"download failed: {' '.join(cmd[:3])}")
+@@ -446,7 +447,7 @@ def cmd_download(a, env):
+         include = v["include"]
+     try:
+         return downloads.start(repo, sha, files, include=include, hf_home=env.hf_home, token=env.token(),
+-                               state_dir=env.downloads_dir, spawn=env.spawn)
++                               endpoint=env.hub_endpoint(), state_dir=env.downloads_dir, spawn=env.spawn)
+     except downloads.DownloadError as e:
+         raise SystemExit(str(e)) from None
+ 
+@@ -775,7 +776,7 @@ def main(argv=None, env=None):
+                 raise SystemExit('路由端口须与 connection.json 一致，未启动另一个入口。')
+             srv = router.make_server("127.0.0.1", port)
+             srv.serve_forever()
+-    except (agents.AgentError, OSError, ValueError) as e:
++    except (agents.AgentError, hf.HubError, OSError, ValueError) as e:
+         print(f"raytone-models: {e}", file=sys.stderr)
+         return 1
+     except SystemExit as e:
+diff --git a/raytone_models/downloads.py b/raytone_models/downloads.py
+index aa2f389..2ca0a3c 100644
+--- a/raytone_models/downloads.py
++++ b/raytone_models/downloads.py
+@@ -85,7 +85,7 @@ def _kill(pid):
+         pass
+ 
+ 
+-def start(repo, revision, files, *, include=(), hf_home, token=None, state_dir=STATE, spawn=_spawn, alive=_alive,
++def start(repo, revision, files, *, include=(), hf_home, token=None, endpoint=None, state_dir=STATE, spawn=_spawn, alive=_alive,
+           identity=_identity):
+     include = list(include)
+     wanted = [f for f in files if not include or _matches(f["path"], include)]
+@@ -94,10 +94,10 @@ def start(repo, revision, files, *, include=(), hf_home, token=None, state_dir=S
+     did = download_id(repo, revision, include)
+     state_dir = pathlib.Path(state_dir)
+     with _locked(state_dir):
+-        return _start(repo, revision, include, wanted, did, hf_home, token, state_dir, spawn, alive, identity)
++        return _start(repo, revision, include, wanted, did, hf_home, token, endpoint, state_dir, spawn, alive, identity)
+ 
+ 
+-def _start(repo, revision, include, wanted, did, hf_home, token, state_dir, spawn, alive, identity):
++def _start(repo, revision, include, wanted, did, hf_home, token, endpoint, state_dir, spawn, alive, identity):
+     path = state_dir / f"{did}.json"
+     if path.exists():
+         old = json.loads(path.read_text())
+@@ -106,10 +106,8 @@ def _start(repo, revision, include, wanted, did, hf_home, token, state_dir, spaw
+     argv = ["hf", "download", repo, "--revision", revision]
+     for p in include:
+         argv += ["--include", p]
+-    env = dict(os.environ, HF_HOME=str(hf_home), HF_HUB_DISABLE_TELEMETRY="1")
+-    env.pop("HF_TOKEN", None)
+-    if token:
+-        env["HF_TOKEN"] = token
++    from . import hf
++    env = hf.download_environment(hf_home, hf.resolve_endpoint(endpoint), token)
+     proc = spawn(argv, env, state_dir / f"{did}.log")
+     d = {"id": did, "repo": repo, "revision": revision, "include": include, "files": wanted,
+          "expected": sum(f["size"] for f in wanted), "pid": proc.pid, "ident": identity(proc.pid), "state": "running"}
+diff --git a/raytone_models/hf.py b/raytone_models/hf.py
+index 64ffe37..cc1d91f 100644
+--- a/raytone_models/hf.py
++++ b/raytone_models/hf.py
+@@ -8,7 +8,10 @@ token never reaches another host.
+ """
+ import ipaddress
+ import json
++import os
++import pathlib
+ import re
++import tomllib
+ import urllib.error
+ import urllib.parse
+ import urllib.request
+@@ -24,6 +27,54 @@ class HubError(RuntimeError):
+     pass
+ 
+ 
++def validate_endpoint(endpoint):
++    try:
++        if not isinstance(endpoint, str) or not endpoint.strip():
++            raise ValueError()
++        endpoint = endpoint.strip().rstrip("/")
++        u = urllib.parse.urlsplit(endpoint)
++        if (not u.hostname or u.username is not None or u.password is not None or u.query or u.fragment
++                or any(c.isspace() for c in endpoint)
++                or (u.scheme != "https" and not (u.scheme == "http" and _loopback(u.hostname)))):
++            raise ValueError()
++        _origin(endpoint)
++        return endpoint
++    except (ValueError, TypeError):
++        raise HubError("模型源地址无效：请使用不含账号、密码或查询参数的 HTTPS 地址。") from None
++
++
++def resolve_endpoint(explicit=None, *, home=None, environ=None):
++    """Resolve only for network operations; bad Hub config never blocks local inference."""
++    environ = os.environ if environ is None else environ
++    if explicit is not None:
++        return validate_endpoint(explicit)
++    if environ.get("HF_ENDPOINT", "").strip():
++        return validate_endpoint(environ["HF_ENDPOINT"])
++    path = pathlib.Path(environ.get("RAYTONE_PROVIDER_CONFIG") or
++                        pathlib.Path(home or pathlib.Path.home()) / ".config/raytone/provider.toml")
++    try:
++        with path.open("rb") as stream:
++            data = tomllib.load(stream)
++    except FileNotFoundError:
++        return DEFAULT_ENDPOINT
++    except (OSError, ValueError):
++        raise HubError("无法读取模型下载源配置，请检查 provider.toml；本地模型仍可使用。") from None
++    section = data.get("downloads", {})
++    if not isinstance(section, dict):
++        raise HubError("模型下载源配置格式错误，请检查 provider.toml 的 downloads 节。")
++    value = section.get("hf_endpoint")
++    return DEFAULT_ENDPOINT if value is None or value == "" else validate_endpoint(value)
++
++
++def download_environment(hf_home, endpoint, token=None):
++    env = dict(os.environ, HF_HOME=str(hf_home), HF_ENDPOINT=validate_endpoint(endpoint),
++               HF_HUB_DISABLE_TELEMETRY="1")
++    env.pop("HF_TOKEN", None)
++    if token:
++        env["HF_TOKEN"] = token
++    return env
++
++
+ def _loopback(host):
+     try:
+         return ipaddress.ip_address(host).is_loopback
+@@ -48,12 +99,12 @@ class _SameOrigin(urllib.request.HTTPRedirectHandler):
+ 
+ class Hub:
+     def __init__(self, endpoint=DEFAULT_ENDPOINT, token=None, timeout=20):
+-        u = urllib.parse.urlsplit(endpoint)
+-        if u.scheme != "https" and not (u.scheme == "http" and _loopback(u.hostname or "")):
+-            raise HubError(f"{endpoint}: a Hub endpoint must be https")
+-        self.endpoint, self.token, self.timeout = endpoint.rstrip("/"), token, timeout
++        self.endpoint, self.token, self.timeout = validate_endpoint(endpoint), token, timeout
+         self.origin = _origin(self.endpoint)
+         self.opener = urllib.request.build_opener(_SameOrigin(self.origin))
++        # The mirror's ordinary response supplies these fields; expand[]
++        # currently times out/502s. One request stays within the UI deadline.
++        self.expanded_metadata = self.origin != ("https", "hf-mirror.com", 443)
+ 
+     def _get(self, path, params=None):
+         url = self.endpoint + urllib.parse.quote(path) + ("?" + urllib.parse.urlencode(params, doseq=True) if params else "")
+@@ -65,6 +116,8 @@ class Hub:
+         out = []
+         while url:
+             rows, link = self._fetch(url, path)
++            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
++                raise HubError("模型源文件清单格式错误，请稍后重试。")
+             out += rows
+             m = LINK_NEXT_RE.search(link or "")
+             url = m.group(1) if m else None
+@@ -81,19 +134,28 @@ class Hub:
+                 return json.load(r), r.headers.get("Link")
+         except urllib.error.HTTPError as e:
+             if e.code in (401, 403):
+-                raise HubError(f"{path}: needs a Hugging Face token with access (gated or private)") from None
++                raise HubError("模型源拒绝访问（HTTP %s），请检查访问限制或模型授权。" % e.code) from None
+             if e.code == 404:
+-                raise HubError(f"{path}: not found") from None
+-            raise HubError(f"{path}: the Hub answered {e.code}") from None
+-        except (OSError, ValueError) as e:
+-            raise HubError(f"cannot reach {self.endpoint}: {e}") from None
++                raise HubError("模型仓库或版本不存在（HTTP 404）。") from None
++            if e.code == 429:
++                raise HubError("模型源请求过于频繁（HTTP 429），请稍后重试。") from None
++            raise HubError("模型源服务暂不可用（HTTP %s），请稍后重试。" % e.code) from None
++        except TimeoutError:
++            raise HubError("连接模型源超时，请检查网络或稍后重试。") from None
++        except ValueError:
++            raise HubError("模型源返回了无效数据，请稍后重试。") from None
++        except OSError:
++            raise HubError("无法连接模型源，请检查网络、代理和 HTTPS 连接。") from None
+ 
+     def search(self, query, kind=None, limit=30):
+-        params = {"search": query, "sort": "downloads", "direction": "-1", "limit": str(limit),
+-                  "expand[]": ["downloads", "gated", "pipeline_tag", "library_name", "tags"]}
++        params = {"search": query, "sort": "downloads", "direction": "-1", "limit": str(limit)}
++        if self.expanded_metadata:
++            params["expand[]"] = ["downloads", "gated", "pipeline_tag", "library_name", "tags"]
+         if kind in KINDS:
+             params["pipeline_tag"] = KINDS[kind]
+         rows = self._get("/api/models", params)
++        if not isinstance(rows, list) or any(not isinstance(r, dict) or not isinstance(r.get("id"), str) for r in rows):
++            raise HubError("模型源搜索结果格式错误，请稍后重试。")
+         return [{"id": r["id"], "downloads": r.get("downloads", 0), "gated": bool(r.get("gated")),
+                  "pipeline": r.get("pipeline_tag") or "", "library": r.get("library_name") or "",
+                  "gguf": "gguf" in (r.get("tags") or []) or r.get("library_name") == "gguf"} for r in rows]
+@@ -101,7 +163,7 @@ class Hub:
+     def files(self, repo, revision=None):
+         # a branch, tag or short hash resolves to the full commit hf caches the snapshot under
+         path = f"/api/models/{repo}" + (f"/revision/{revision}" if revision else "")
+-        info = self._get(path, {"expand[]": ["sha", "gated"]})
++        info = self._get(path, {"expand[]": ["sha", "gated"]} if self.expanded_metadata else None)
+         sha = info.get("sha") if isinstance(info, dict) else None
+         if not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
+             raise HubError(f"{repo}: the Hub did not name a full commit for {revision or 'the main branch'}")
