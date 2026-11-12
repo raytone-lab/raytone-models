@@ -22,6 +22,27 @@ def call(fn, *args):
 
 @unittest.skipUnless(shutil.which("node"), "node not installed")
 class AppLogicTests(unittest.TestCase):
+    def test_manual_video_start_uses_the_downloaded_workflow_without_starting_chat(self):
+        from raytone_models.video import FILES
+        files = ["diffusion_models/" + FILES["unet"], "text_encoders/" + FILES["clip"],
+                 "vae/" + FILES["vae"], "vae/" + FILES["audio_vae"], "loras/" + FILES["lora"]]
+        model = {"repo": "Comfy-Org/MiniMax-H3", "revision": "bf92c4091e333e69b8ca1998e0a669f15cb0832b",
+                 "complete": False, "files": files, "download": {"state": "done", "recipe": "raytone-studio"}}
+        args = call("minimaxStartArgs", model)
+        self.assertEqual(args[0:2], ["start", model["repo"] + "@" + model["revision"]])
+        self.assertEqual(args[args.index("--engine") + 1], "comfyui")
+        self.assertEqual(args[args.index("--role") + 1], "video")
+        self.assertNotIn("recipe", args)
+        for wrong in ({"repo": "Comfy-Org/z_image_turbo"}, {"revision": "0" * 40},
+                      {"download": None}, {"files": files[:-1]}, {"files": []}):
+            self.assertIsNone(call("minimaxStartArgs", {**model, **wrong}))
+
+    def test_manual_video_start_recognizes_running_and_starting_instances(self):
+        video = {"served_name": "minimax-h3", "role": "video", "ready": False}
+        self.assertEqual(call("minimaxInstance", [video]), video)
+        self.assertEqual(call("minimaxInstance", [{**video, "ready": True}])["ready"], True)
+        self.assertIsNone(call("minimaxInstance", [{**video, "role": "image"}]))
+
     def test_chat_default_follows_current_and_never_silently_replaces_selection(self):
         rows=[{'served_name':'a','current':False},{'served_name':'b','current':True}]
         self.assertEqual(call('chatSelectionIndex',rows,''),1)

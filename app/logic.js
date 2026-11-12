@@ -123,6 +123,25 @@ function modelState(m) {
     return "unverified"
 }
 
+// This exact H3 snapshot is the one the bundled video workflow consumes.
+// Other diffusion downloads still need their own engine/workflow parameters.
+function minimaxStartArgs(m) {
+    if (!m || m.repo !== "Comfy-Org/MiniMax-H3"
+            || m.revision !== "bf92c4091e333e69b8ca1998e0a669f15cb0832b"
+            || modelState(m) !== "ready") return null
+    var needed = ["diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+        "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "vae/minimax_h3_video_vae_fp16.safetensors", "vae/minimax_h3_audio_vae_fp32.safetensors",
+        "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"]
+    if (!needed.every(function(path) { return (m.files || []).indexOf(path) >= 0 })) return null
+    return ["start", m.repo + "@" + m.revision, "--engine", "comfyui",
+            "--name", "minimax-h3", "--role", "video", "--arg", "disable-smart-memory", "--json"]
+}
+
+function minimaxInstance(instances) {
+    return (instances || []).filter(function(i) { return i.served_name === "minimax-h3" && i.role === "video" })[0] || null
+}
+
 // What omarchy-launch-tui gets for an agent: its command, or for an agent that reads its endpoint
 // from the environment, raytone-models starting it with the variables connect wrote.
 function launchArgs(id) {

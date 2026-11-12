@@ -21,6 +21,8 @@ ColumnLayout {
     // model" card -- then the CLI refused the request it had just invited. The CLI sends the role
     // already resolved (cli._role), so there is one answer rather than a default on each side.
     readonly property var videoModels: page.backend.instances.filter(function (i) { return i.role === "video" && i.ready })
+    readonly property var startableModel: page.backend.models.filter(function(m) { return !!Logic.minimaxStartArgs(m) })[0] || null
+    readonly property var waitingInstance: Logic.minimaxInstance(page.backend.instances)
     readonly property string folder: Quickshell.env("HOME") + "/Videos/Raytone"
     spacing: 14
 
@@ -61,8 +63,18 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: page.videoModels.length === 0
         Text { textFormat: Text.PlainText;
-            text: "当前没有就绪的视频实例。请在配方中核对声明平台、文件及引擎状态。"
+            text: page.waitingInstance ? "视频模型正在启动，服务就绪后可生成。"
+                : page.startableModel ? "MiniMax H3 已下载。启动视频模型后即可生成。"
+                : "当前没有就绪的视频实例。请在本地模型中确认视频模型已完整下载。"
             color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody; wrapMode: Text.Wrap; Layout.fillWidth: true
+        }
+        RButton {
+            objectName: "video-start-model"
+            visible: !!page.startableModel && !page.waitingInstance
+            text: page.backend.busy === "run:" + (page.startableModel ? page.startableModel.repo : "") ? "正在启动…" : "启动视频模型"
+            variant: "primary"
+            enabled: page.backend.busy === "" && page.backend.mutationAvailable()
+            onClicked: page.backend.act("run:" + page.startableModel.repo, Logic.minimaxStartArgs(page.startableModel), "视频模型启动请求已提交，正在等待服务就绪。")
         }
     }
 

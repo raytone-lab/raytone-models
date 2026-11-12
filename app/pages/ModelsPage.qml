@@ -14,6 +14,8 @@ ColumnLayout {
     spacing: 18
 
     function runArgs(m) {
+        var videoArgs = Logic.minimaxStartArgs(m)
+        if (videoArgs) return videoArgs
         // conservative settings until a recipe carries the model's own
         var name = Logic.servedName(m.repo)
         if (m.format === "gguf") {
@@ -81,8 +83,10 @@ ColumnLayout {
                 required property int index
                 readonly property string state: Logic.modelState(modelData)
                 readonly property bool draft: modelData.role === "draft"
+                readonly property var videoArgs: Logic.minimaxStartArgs(modelData)
+                readonly property var videoInstance: videoArgs ? Logic.minimaxInstance(page.backend.instances) : null
                 readonly property bool runnable: state === "ready" && !draft
-                                                 && (modelData.format === "safetensors" || (modelData.format === "gguf" && Logic.ggufFiles(modelData) !== null))
+                                                 && (!!videoArgs || modelData.format === "safetensors" || (modelData.format === "gguf" && Logic.ggufFiles(modelData) !== null))
                 width: list.width
                 implicitHeight: 64
                 color: index % 2 ? "transparent" : Qt.rgba(0, 0, 0, 0)
@@ -112,8 +116,9 @@ ColumnLayout {
                     RButton {
                         dense: true
                         variant: "primary"
-                        text: page.backend.busy === "run:" + row.modelData.repo ? "Starting…" : "运行"
-                        enabled: row.runnable && page.backend.busy === ""
+                        text: row.videoInstance ? (row.videoInstance.ready ? "运行中" : "启动中…")
+                            : page.backend.busy === "run:" + row.modelData.repo ? "启动中…" : "运行"
+                        enabled: row.runnable && !row.videoInstance && page.backend.busy === "" && page.backend.mutationAvailable()
                         ToolTip.visible: hovered && !row.runnable
                         ToolTip.text: row.draft ? "A speculative-decoding draft: it runs inside a recipe, next to its model"
                                     : row.modelData.format === "gguf" ? "No GGUF model file in this download"
