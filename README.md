@@ -82,6 +82,27 @@ where polkit does not let a remote session in, use `RAYTONE_MODELS_ELEVATE=sudo 
 
 After an upgrade, restart the router: `systemctl --user restart raytone-models-router`.
 
+### Hugging Face endpoint
+
+Hub search, repository details, background downloads and recipe fetches use the same endpoint:
+an explicitly injected endpoint, then nonempty `HF_ENDPOINT`, then `[downloads].hf_endpoint`
+in `~/.config/raytone/provider.toml` (or `RAYTONE_PROVIDER_CONFIG`), then the official Hub.
+For a machine that needs the mirror, merge this section into its existing provider file:
+
+```toml
+[downloads]
+hf_endpoint = "https://hf-mirror.com"
+```
+
+The configured mirror uses its ordinary metadata responses rather than unsupported `expand[]`
+requests. There is no silent fallback to another host. Invalid endpoint configuration affects
+network operations only; local model operations remain available. Keep credentials out of URLs.
+The `hf` download child explicitly receives the same endpoint, including for recipes.
+
+For isolated download diagnostics, set **both** `RAYTONE_MODELS_HOME` and `HF_HOME` to the test
+cache and use a separate `XDG_STATE_HOME`. The product store is selected by
+`RAYTONE_MODELS_HOME`; `HF_HOME` alone does not relocate it.
+
 Tests: `python3 -m unittest discover -s tests`. On a machine with Quickshell,
 `tests/ui/render DATA_DIR SHOTS_DIR` renders every page offscreen (fixture data from `DATA_DIR`, or
 the machine's own with `RAYTONE_UI_REAL=1`), and `tests/ui/probe` and `tests/ui/logic-probe` check the

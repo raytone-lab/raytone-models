@@ -85,7 +85,7 @@ def _kill(pid):
         pass
 
 
-def start(repo, revision, files, *, include=(), hf_home, token=None, state_dir=STATE, spawn=_spawn, alive=_alive,
+def start(repo, revision, files, *, include=(), hf_home, token=None, endpoint=None, state_dir=STATE, spawn=_spawn, alive=_alive,
           identity=_identity):
     include = list(include)
     wanted = [f for f in files if not include or _matches(f["path"], include)]
@@ -94,10 +94,10 @@ def start(repo, revision, files, *, include=(), hf_home, token=None, state_dir=S
     did = download_id(repo, revision, include)
     state_dir = pathlib.Path(state_dir)
     with _locked(state_dir):
-        return _start(repo, revision, include, wanted, did, hf_home, token, state_dir, spawn, alive, identity)
+        return _start(repo, revision, include, wanted, did, hf_home, token, endpoint, state_dir, spawn, alive, identity)
 
 
-def _start(repo, revision, include, wanted, did, hf_home, token, state_dir, spawn, alive, identity):
+def _start(repo, revision, include, wanted, did, hf_home, token, endpoint, state_dir, spawn, alive, identity):
     path = state_dir / f"{did}.json"
     if path.exists():
         old = json.loads(path.read_text())
@@ -106,10 +106,8 @@ def _start(repo, revision, include, wanted, did, hf_home, token, state_dir, spaw
     argv = ["hf", "download", repo, "--revision", revision]
     for p in include:
         argv += ["--include", p]
-    env = dict(os.environ, HF_HOME=str(hf_home), HF_HUB_DISABLE_TELEMETRY="1")
-    env.pop("HF_TOKEN", None)
-    if token:
-        env["HF_TOKEN"] = token
+    from . import hf
+    env = hf.download_environment(hf_home, hf.resolve_endpoint(endpoint), token)
     proc = spawn(argv, env, state_dir / f"{did}.log")
     d = {"id": did, "repo": repo, "revision": revision, "include": include, "files": wanted,
          "expected": sum(f["size"] for f in wanted), "pid": proc.pid, "ident": identity(proc.pid), "state": "running"}

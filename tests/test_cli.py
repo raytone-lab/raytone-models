@@ -620,10 +620,12 @@ class CliTests(unittest.TestCase):
     def test_recipe_fetch_downloads_into_the_store(self):
         self.signed_recipe()
         ran = []
-        self.env.run = lambda argv, env: ran.append((argv, env["HF_HOME"])) or 0
+        self.env.hf_endpoint = 'https://hf-mirror.com'
+        self.env.run = lambda argv, env: ran.append((argv, env["HF_HOME"], env["HF_ENDPOINT"])) or 0
         rc, _ = self.run_cli("recipe", "fetch", "qwen38-27b-coder")
         self.assertEqual(rc, 0)
-        [(argv, hf_home)] = ran
+        [(argv, hf_home, endpoint)] = ran
+        self.assertEqual(endpoint, 'https://hf-mirror.com')
         self.assertEqual(argv[:3], ["hf", "download", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead"])
         self.assertEqual(hf_home, str(self.hf))
 
@@ -655,6 +657,7 @@ class CliTests(unittest.TestCase):
         rc, out = self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q4_K_M", "--json")
         self.assertEqual(rc, 0, out)
         [(argv, env)] = self.spawned
+        self.assertEqual(env["HF_ENDPOINT"], self.env.hub_endpoint())
         self.assertEqual(argv, ["hf", "download", "unsloth/Qwen3.8-27B-GGUF", "--revision", "a" * 40,
                                 "--include", "Qwen3.8-27B-Q4_K_M.gguf", "--include", "mmproj-F16.gguf"])
         rc, out = self.run_cli("downloads", "--json")

@@ -103,7 +103,7 @@ ColumnLayout {
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 visible: page.visibleResults.length === 0
-                text: page.backend.searching ? "正在搜索…" : (page.backend.readErrors.search ? "搜索未完成，请检查网络后重试。"
+                text: page.backend.searching ? "正在搜索…" : (page.backend.readErrors.search ? "暂时无法读取模型源，请查看下方原因并重试。"
                     : (page.backend.searchAttempted ? "没有符合筛选条件的模型。" : "输入关键词后点击搜索，或按回车。"))
                 color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeBody
             }

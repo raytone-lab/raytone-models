@@ -145,8 +145,6 @@ class Env:
                 self.allowed_signers = source_root / 'packaging/allowed_signers'
         if self.ollama is None:
             self.ollama = ollama_mod.Ollama()
-        if self.hf_endpoint is None:
-            self.hf_endpoint = os.environ.get("HF_ENDPOINT") or hf.DEFAULT_ENDPOINT
 
     def token(self):
         try:
@@ -155,7 +153,10 @@ class Env:
             return None
 
     def hub(self):
-        return hf.Hub(endpoint=self.hf_endpoint, token=self.token())
+        return hf.Hub(endpoint=self.hub_endpoint(), token=self.token())
+
+    def hub_endpoint(self):
+        return hf.resolve_endpoint(self.hf_endpoint, home=self.home)
 
 
 def _value(text):
@@ -415,7 +416,7 @@ def cmd_recipe(a, env):
         # only the instances that run as this recipe; another instance with the same name stays
         matching, _ = _matching(r, env)
         return [env.helper(["stop", iid]) for iid in matching.values()]
-    hf_env = dict(os.environ, HF_HOME=str(env.hf_home), HF_HUB_DISABLE_TELEMETRY="1")
+    hf_env = hf.download_environment(env.hf_home, env.hub_endpoint(), env.token())
     for cmd in recipes.fetch_commands(r):
         if env.run(cmd, hf_env):
             raise SystemExit(f"download failed: {' '.join(cmd[:3])}")
@@ -446,7 +447,7 @@ def cmd_download(a, env):
         include = v["include"]
     try:
         return downloads.start(repo, sha, files, include=include, hf_home=env.hf_home, token=env.token(),
-                               state_dir=env.downloads_dir, spawn=env.spawn)
+                               endpoint=env.hub_endpoint(), state_dir=env.downloads_dir, spawn=env.spawn)
     except downloads.DownloadError as e:
         raise SystemExit(str(e)) from None
 
@@ -775,7 +776,7 @@ def main(argv=None, env=None):
                 raise SystemExit('路由端口须与 connection.json 一致，未启动另一个入口。')
             srv = router.make_server("127.0.0.1", port)
             srv.serve_forever()
-    except (agents.AgentError, OSError, ValueError) as e:
+    except (agents.AgentError, hf.HubError, OSError, ValueError) as e:
         print(f"raytone-models: {e}", file=sys.stderr)
         return 1
     except SystemExit as e:

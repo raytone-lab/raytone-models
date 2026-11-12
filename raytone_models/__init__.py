@@ -1,1 +1,1 @@
-USER_VERSION = "0.2.11-model-list"
+USER_VERSION = "0.2.12-hf-source"
