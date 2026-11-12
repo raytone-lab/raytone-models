@@ -193,6 +193,7 @@ def _instances(env):
     for d in _registered(env):
         port = d.get("port")
         out.append({"id": d.get("id"), "served_name": d.get("served_name"), "engine": d.get("engine"), "port": port,
+                    "model": d.get("model"),
                     "role": _role(d),
                     "chat": d.get("engine") not in engines.NOT_CHAT,
                     "context": next((a[k] for a in [d.get("args") or {}]

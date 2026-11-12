@@ -176,6 +176,19 @@ class CliTests(unittest.TestCase):
         got = {i["served_name"]: i["ready"] for i in json.loads(out)}
         self.assertEqual(got, {"qwen3.8-27b": True, "muse": False})
 
+    def test_instances_expose_the_snapshot_for_library_status(self):
+        model = f"models--org--chat/snapshots/{SHA}"
+        (self.reg / "renamed.json").write_text(json.dumps(
+            {"id": "renamed", "served_name": "custom-name", "model": model,
+             "port": 18000, "engine": "vllm"}))
+        (self.reg / "legacy.json").write_text(json.dumps(
+            {"id": "legacy", "served_name": "legacy", "port": 18001, "engine": "vllm"}))
+        rc, out = self.run_cli("instances", "--json")
+        self.assertEqual(rc, 0)
+        rows = {i["id"]: i for i in json.loads(out)}
+        self.assertEqual(rows["renamed"]["model"], model)
+        self.assertIsNone(rows["legacy"]["model"])
+
     def test_a_video_engine_is_ready_by_its_own_health_check(self):
         (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3", "port": 18002, "engine": "comfyui"}))
         self.env.probe = lambda url: url == "http://127.0.0.1:18002/system_stats"

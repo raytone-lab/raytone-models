@@ -123,6 +123,24 @@ function modelState(m) {
     return "unverified"
 }
 
+// Match the cached snapshot, not a display/served name: recipes can rename a
+// model, and another revision of the same repository may be running instead.
+function modelInstance(m, instances) {
+    if (!m || !m.repo || !m.revision) return null
+    var snapshot = "models--" + m.repo.replace(/\//g, "--") + "/snapshots/" + m.revision
+    return (instances || []).filter(function(i) { return i.model === snapshot })[0] || null
+}
+
+function libraryStatus(m, instance, starting) {
+    if (instance) return instance.ready ? "运行中" : "启动中…"
+    if (starting) return "启动中…"
+    if (m.role === "draft") return "辅助模型"
+    var state = modelState(m)
+    if (state === "ready") return "已下载"
+    if (state === "unverified") return "待校验"
+    return state.replace("incomplete ", "未完成 ").replace("downloading", "下载中")
+}
+
 // This exact H3 snapshot is the one the bundled video workflow consumes.
 // Other diffusion downloads still need their own engine/workflow parameters.
 function minimaxStartArgs(m) {

@@ -1,1 +1,1 @@
-USER_VERSION = "0.2.10-video-start"
+USER_VERSION = "0.2.11-model-list"

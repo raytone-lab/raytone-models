@@ -22,6 +22,24 @@ def call(fn, *args):
 
 @unittest.skipUnless(shutil.which("node"), "node not installed")
 class AppLogicTests(unittest.TestCase):
+    def test_library_running_status_matches_the_snapshot_even_when_renamed(self):
+        model = {"repo": "org/chat-gguf", "revision": "a" * 40, "complete": True}
+        instance = {"served_name": "custom-name", "ready": True,
+                    "model": "models--org--chat-gguf/snapshots/" + model["revision"]}
+        self.assertEqual(call("modelInstance", model, [instance]), instance)
+        self.assertIsNone(call("modelInstance", {**model, "revision": "b" * 40}, [instance]))
+        self.assertIsNone(call("modelInstance", {**model, "repo": "other/chat-gguf"}, [instance]))
+        self.assertIsNone(call("modelInstance", model, [{"served_name": "chat-gguf", "ready": True}]))
+
+    def test_library_status_separates_runtime_state_from_download_state(self):
+        model = {"complete": True}
+        self.assertEqual(call("libraryStatus", model, None, False), "已下载")
+        self.assertEqual(call("libraryStatus", model, None, True), "启动中…")
+        self.assertEqual(call("libraryStatus", model, {"ready": False}, False), "启动中…")
+        self.assertEqual(call("libraryStatus", model, {"ready": True}, False), "运行中")
+        self.assertEqual(call("libraryStatus", {"complete": None}, None, False), "待校验")
+        self.assertEqual(call("libraryStatus", {"complete": False, "progress": 0.36}, None, False), "未完成 36%")
+
     def test_manual_video_start_uses_the_downloaded_workflow_without_starting_chat(self):
         from raytone_models.video import FILES
         files = ["diffusion_models/" + FILES["unet"], "text_encoders/" + FILES["clip"],

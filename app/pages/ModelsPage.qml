@@ -85,6 +85,9 @@ ColumnLayout {
                 readonly property bool draft: modelData.role === "draft"
                 readonly property var videoArgs: Logic.minimaxStartArgs(modelData)
                 readonly property var videoInstance: videoArgs ? Logic.minimaxInstance(page.backend.instances) : null
+                readonly property var runningInstance: Logic.modelInstance(modelData, page.backend.instances) || videoInstance
+                readonly property bool starting: page.backend.busy === "run:" + modelData.repo
+                                                || (!!runningInstance && !runningInstance.ready)
                 readonly property bool runnable: state === "ready" && !draft
                                                  && (!!videoArgs || modelData.format === "safetensors" || (modelData.format === "gguf" && Logic.ggufFiles(modelData) !== null))
                 width: list.width
@@ -99,39 +102,51 @@ ColumnLayout {
                     ColumnLayout {
                         spacing: 2
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         Text { textFormat: Text.PlainText; text: Logic.modelName(row.modelData.repo); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
                         Text { textFormat: Text.PlainText;
                             text: Logic.repoOrg(row.modelData.repo) + " · " + Logic.shortRev(row.modelData.revision)
                             color: Theme.muted; font.family: Theme.mono; font.pixelSize: Theme.sizeCaption
+                            elide: Text.ElideRight; Layout.fillWidth: true
                         }
                     }
-                    Text { textFormat: Text.PlainText; text: Logic.gib(row.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight }
-                    Text { textFormat: Text.PlainText; text: row.modelData.format; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 78 }
-                    Text { textFormat: Text.PlainText; text: row.modelData.quant || "Not specified"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 118; elide: Text.ElideRight }
+                    Text { textFormat: Text.PlainText; text: Logic.gib(row.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.minimumWidth: 80; Layout.preferredWidth: 80; Layout.maximumWidth: 80; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
+                    Text { textFormat: Text.PlainText; text: row.modelData.format; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.minimumWidth: 78; Layout.preferredWidth: 78; Layout.maximumWidth: 78; elide: Text.ElideRight }
+                    Text { textFormat: Text.PlainText; text: row.modelData.quant || "未指定"; color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.minimumWidth: 118; Layout.preferredWidth: 118; Layout.maximumWidth: 118; elide: Text.ElideRight }
                     Pill {
-                        text: row.draft ? "draft" : row.state
-                        kind: row.draft ? "neutral" : row.state === "ready" ? "ready" : row.state === "unverified" ? "neutral" : "pending"
+                        text: Logic.libraryStatus(row.modelData, row.runningInstance, row.starting)
+                        kind: row.starting ? "pending" : row.draft ? "neutral" : row.state === "ready" ? "ready" : row.state === "unverified" ? "neutral" : "pending"
+                        Layout.minimumWidth: 110
                         Layout.preferredWidth: 110
+                        Layout.maximumWidth: 110
                     }
                     RButton {
                         dense: true
                         variant: "primary"
-                        text: row.videoInstance ? (row.videoInstance.ready ? "运行中" : "启动中…")
-                            : page.backend.busy === "run:" + row.modelData.repo ? "启动中…" : "运行"
-                        enabled: row.runnable && !row.videoInstance && page.backend.busy === "" && page.backend.mutationAvailable()
-                        ToolTip.visible: hovered && !row.runnable
-                        ToolTip.text: row.draft ? "A speculative-decoding draft: it runs inside a recipe, next to its model"
-                                    : row.modelData.format === "gguf" ? "No GGUF model file in this download"
+                        Layout.minimumWidth: 88
+                        Layout.preferredWidth: 88
+                        Layout.maximumWidth: 88
+                        Layout.alignment: Qt.AlignVCenter
+                        text: "运行"
+                        enabled: row.runnable && !row.runningInstance && page.backend.busy === "" && page.backend.mutationAvailable()
+                        ToolTip.visible: hovered && (!row.runnable || !!row.runningInstance)
+                        ToolTip.text: row.runningInstance ? (row.runningInstance.ready ? "模型已运行，可在“运行中”页面管理。" : "模型正在启动，请稍候。")
+                                    : row.draft ? "辅助模型需要与主模型一起通过配方运行。"
+                                    : row.modelData.format === "gguf" ? "本次下载没有可运行的 GGUF 文件。"
                                     // Z-Image Turbo is text-to-image, not video: what these have in
                                     // common is the engine, and ComfyUI needs a workflow to be any use.
                                     // The app drives one from a recipe, and Apply is how a recipe starts.
-                                    : row.modelData.format === "diffusion" ? "Start this diffusion model with Apply, on Recipes"
-                                    : "Not downloaded completely"
-                        onClicked: page.backend.act("run:" + row.modelData.repo, page.runArgs(row.modelData), "Starting " + Logic.modelName(row.modelData.repo))
+                                    : row.modelData.format === "diffusion" ? "请在“配方”页面启动此模型。"
+                                    : "模型尚未下载完整。"
+                        onClicked: page.backend.act("run:" + row.modelData.repo, page.runArgs(row.modelData), "正在启动 " + Logic.modelName(row.modelData.repo))
                     }
                     RButton {
                         dense: true
                         variant: "danger"
+                        Layout.minimumWidth: 64
+                        Layout.preferredWidth: 64
+                        Layout.maximumWidth: 64
+                        Layout.alignment: Qt.AlignVCenter
                         text: "删除"
                         enabled: page.backend.busy === ""
                         onClicked: { page.pendingDelete = row.modelData; confirm.open() }
@@ -164,11 +179,14 @@ ColumnLayout {
                 Text { textFormat: Text.PlainText; text: orow.modelData.name; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeNav; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                 Text { textFormat: Text.PlainText; text: Logic.gib(orow.modelData.size); color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight }
                 Text { textFormat: Text.PlainText; text: (orow.modelData.parameters || "") + " " + (orow.modelData.quant || ""); color: Theme.muted; font.family: Theme.font; font.pixelSize: Theme.sizeControl; Layout.preferredWidth: 118 }
-                Pill { text: orow.modelData.loaded ? "running" : "on disk"; kind: orow.modelData.loaded ? "ready" : "neutral"; Layout.preferredWidth: 110 }
+                Pill { text: page.backend.busy === "ollama:" + orow.modelData.name ? (orow.modelData.loaded ? "停止中…" : "启动中…") : orow.modelData.loaded ? "运行中" : "已下载"; kind: orow.modelData.loaded ? "ready" : "neutral"; Layout.minimumWidth: 110; Layout.preferredWidth: 110; Layout.maximumWidth: 110 }
                 RButton {
                     dense: true
                     variant: orow.modelData.loaded ? "danger" : "primary"
-                    text: page.backend.busy === "ollama:" + orow.modelData.name ? "…" : (orow.modelData.loaded ? "停止" : "运行")
+                    Layout.minimumWidth: 88
+                    Layout.preferredWidth: 88
+                    Layout.maximumWidth: 88
+                    text: orow.modelData.loaded ? "停止" : "运行"
                     enabled: page.backend.busy === ""
                     onClicked: page.backend.act("ollama:" + orow.modelData.name,
                                                 ["ollama", orow.modelData.loaded ? "stop" : "run", orow.modelData.name, "--json"],
