@@ -1,1 +1,1 @@
-USER_VERSION = "0.2.12-hf-source"
+USER_VERSION = "0.3.0-workbench"

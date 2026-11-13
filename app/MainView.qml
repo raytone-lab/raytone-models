@@ -86,10 +86,7 @@ Rectangle {
                 anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
                 anchors.topMargin: 16; anchors.leftMargin: 6; anchors.rightMargin: 6
                 spacing: 2
-                RailButton { label: "返回首页"; iconName: "home"; visible: view.homeAvailable; onClicked: view.returnHome() }
                 RailButton { label: "本地 AI"; iconName: "chat"; selected: true; onClicked: view.openPage("models") }
-                RailButton { label: "系统设置"; iconName: "engines"; visible: view.homeAvailable; onClicked: view.openSettings() }
-                RailButton { label: "文件"; iconName: "files"; visible: view.homeAvailable; onClicked: view.openFiles() }
             }
             Rectangle { anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.right: parent.right; width: 1; color: Theme.border }
         }

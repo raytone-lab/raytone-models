@@ -628,6 +628,8 @@ def parse(argv):
     tk.add_argument("--json", action="store_true")
     for name in ("stats", "engines"):
         sub.add_parser(name).add_argument("--json", action="store_true")
+    sub.add_parser("workbench")
+    sub.add_parser("workbench-worker").add_argument("id")
     sub.add_parser("chat")
     ol = sub.add_parser("ollama")
     ol.add_argument("action", choices=["models", "run", "stop", "pull", "delete"])
@@ -703,7 +705,15 @@ def main(argv=None, env=None):
             or (a.command == 'recipe' and a.action in ('apply', 'stop'))
             or (a.command == 'ollama' and a.action in ('run', 'stop', 'delete'))):
             system_contract.require()
-        if a.command == "status":
+        if a.command == "workbench":
+            from .workbench import handle
+            raw = sys.stdin.read(16385)
+            if len(raw) > 16384:raise ValueError("Request too large")
+            _print(handle(json.loads(raw), env), True)
+        elif a.command == "workbench-worker":
+            from .workbench import Jobs
+            Jobs().worker(a.id, env)
+        elif a.command == "status":
             from .status import snapshot
             _print(snapshot(), a.json)
         elif a.command == "models":

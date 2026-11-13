@@ -105,8 +105,10 @@ class Component:
         r=subprocess.run(['/usr/bin/hyprctl','clients','-j'],capture_output=True,text=True,timeout=5)
         rows=json.loads(r.stdout)
         if r.returncode or not isinstance(rows,list):raise ValueError('无法确认图形前端状态，未切换组件。')
-        if any(w.get('class')=='ai.raytone.Models' for w in rows):
+        if any(w.get('class') in ('ai.raytone.Models', 'chrome-127.0.0.1__raytone-visual-preview_-Default') for w in rows):
             raise ValueError('请先结束前台对话/视频并关闭模型控制台，再更新组件；后台下载不会由安装器停止。')
+        from .workbench import Jobs
+        if any(j['phase'] in ('running','unknown') for j in Jobs().recent()):raise ValueError('工作台操作尚未结束，未切换组件。')
         r=subprocess.run(['/usr/bin/systemctl','--user','is-active','raytone-models-router.service'],capture_output=True,text=True,timeout=5)
         if r.stdout.strip() not in ('inactive','failed','unknown'):
             raise ValueError('内部路由仍在运行或状态未知；请在无请求时明确停止该服务，再更新组件。')

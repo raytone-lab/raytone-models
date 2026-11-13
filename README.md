@@ -217,3 +217,27 @@ to make a remote authorization appear successful. The system bundle carries a
 minimal init module, so a user-only version change does not rewrite privileged
 code. File and directory synchronization is used for transaction journals and
 entry replacements; actual power-loss behavior still requires device validation.
+
+## Unified console protocol 1
+
+`raytone-models workbench` accepts one bounded stdin JSON request. The OS adapter
+sends `state`, `job`, `ack`, or a fixed operation with a UUID v4 requestId. The
+implementation and operation allowlist are in `raytone_models/workbench.py`.
+There is no new HTTP listener or generic command execution. The installed user
+component must include this module (version 0.3.0-workbench); the existing system
+protocol 1 remains compatible and unchanged.
+
+Jobs retain private receipts in `~/.local/state/raytone-models/workbench`. Repeating
+a request ID reads the original receipt; workers claim it once. Lost outcomes
+remain unknown until explicitly acknowledged after checking actual state. A
+returned command never substitutes for engine readiness. Recipe resources,
+matching instances, health and applicability are separate observations. Source
+selection and resumable downloads use the existing provider/HF configuration.
+Missing `hf` is a dependency state, not a network error. No test/fixture switch is
+accepted in production. Explicitly injected tests do not establish GPU support.
+
+The normal console no longer opens this package's legacy GUI. Its old rail links
+to home, settings and files have been removed. Before maintenance, close both the
+legacy GUI and the new console, finish/acknowledge outstanding console operations,
+and explicitly stop the internal router once idle. Maintenance checks these
+conditions; it does not stop business tasks for the user.
