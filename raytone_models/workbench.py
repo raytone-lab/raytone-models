@@ -58,6 +58,19 @@ def agent_rows(env):
         out.append({k:a[k] for k in ('id','name','supported','connectable','web','web_only','reason','note')} | {'connected':connected,'installed':installed})
     return out
 
+def instance_phase(instance):
+    if instance.get('ready') is True:return 'ready'
+    iid=instance.get('id')
+    if not isinstance(iid,str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}',iid):return 'unknown'
+    try:
+        r=subprocess.run(['systemctl','show','raytone-engine@'+iid+'.service','--property=LoadState,ActiveState'],capture_output=True,text=True,timeout=3)
+        props=dict(line.split('=',1) for line in r.stdout.splitlines() if '=' in line)
+        if r.returncode or props.get('LoadState')!='loaded':return 'unknown'
+        if props.get('ActiveState') in ('failed','inactive'):return 'failed'
+        if props.get('ActiveState') in ('active','activating','reloading'):return 'waiting'
+    except (OSError,ValueError,subprocess.SubprocessError):pass
+    return 'unknown'
+
 def snapshot(page, env):
     from . import cli, downloads, status
     if page not in PAGES:raise ValueError('Invalid page')
@@ -66,14 +79,15 @@ def snapshot(page, env):
             'systemReady':conn['system']['ready'] is True,'downloaderReady':bool(shutil.which('hf'))}
     if page=='agents':return common|{'rows':agent_rows(env)}
     instances=cli._instances(env)
-    inst=[{k:x.get(k) for k in ('id','served_name','engine','ready','current','chat','role')} for x in rows(instances)]
+    inst=[{k:x.get(k) for k in ('id','served_name','engine','ready','current','chat','role')} | {'phase':instance_phase(x)} for x in rows(instances)]
+    phases={x['id']:x['phase'] for x in inst}
     if page=='recipes':
         data=cli.cmd_recipes(env);out=[]
         for r in rows(data['recipes']):
             matching,conflicts=cli._matching(cli._recipe(env,r['id']),env)
             mine=[x for x in instances if x.get('id') in matching.values()]
             ready=r['running'] and len(mine)==len(matching) and all(x.get('ready') is True for x in mine)
-            phase='ready' if ready else 'waiting' if matching else 'conflict' if conflicts else 'prepared' if r['state']=='ready' else r['state']
+            phase='ready' if ready else 'failed' if any(phases.get(x.get('id'))=='failed' for x in mine) else 'unknown' if any(phases.get(x.get('id'))=='unknown' for x in mine) else 'waiting' if matching else 'conflict' if conflicts else 'prepared' if r['state']=='ready' else r['state']
             out.append({k:r.get(k) for k in ('id','title','description','state','running','memory_gib','applicability')} |
                        {'phase':phase,'conflicts':conflicts,'partial':bool(matching) and not r['running']})
         return common|{'rows':out,'refusedCount':len(data['refused'])}

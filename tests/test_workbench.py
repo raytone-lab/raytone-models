@@ -65,7 +65,7 @@ class WorkbenchTests(unittest.TestCase):
                 apply.assert_not_called()
     def test_partial_recipe_waiting_is_not_ready_and_signature_refusals_reported(self):
         env=Mock();r={'id':'r','state':'ready','running':True,'applicability':{'canApply':True}}
-        with patch('raytone_models.status.snapshot',return_value={'system':{'ready':True}}),patch.object(cli,'_instances',return_value=[{'id':'i','ready':False}]),patch.object(cli,'cmd_recipes',return_value={'recipes':[r],'refused':[{}]}),patch.object(cli,'_recipe'),patch.object(cli,'_matching',return_value=({'local':'i'},[])):
+        with patch('raytone_models.status.snapshot',return_value={'system':{'ready':True}}),patch.object(w,'instance_phase',return_value='waiting'),patch.object(cli,'_instances',return_value=[{'id':'i','ready':False}]),patch.object(cli,'cmd_recipes',return_value={'recipes':[r],'refused':[{}]}),patch.object(cli,'_recipe'),patch.object(cli,'_matching',return_value=({'local':'i'},[])):
             result=w.snapshot('recipes',env);self.assertEqual(result['rows'][0]['phase'],'waiting');self.assertEqual(result['refusedCount'],1)
     def test_prepared_recipe_is_not_a_running_service(self):
         env=Mock();r={'id':'r','state':'ready','running':False,'applicability':{'canApply':True}}
@@ -102,7 +102,7 @@ class WorkbenchTests(unittest.TestCase):
                 else:(case.reg/(argv[1]+'.json')).unlink()
                 return {'ok':True}
             env.helper=helper
-            with patch.object(w.shutil,'which',return_value='/fixture/hf'),patch('raytone_models.system_contract.require'),patch.object(w,'idle'),patch('raytone_models.status.snapshot',return_value={'system':{'ready':True}}):
+            with patch.object(w,'instance_phase',side_effect=lambda x:'ready' if x.get('ready') else 'waiting'),patch.object(w.shutil,'which',return_value='/fixture/hf'),patch('raytone_models.system_contract.require'),patch.object(w,'idle'),patch('raytone_models.status.snapshot',return_value={'system':{'ready':True}}):
                 self.assertEqual(w.snapshot('recipes',env)['rows'][0]['phase'],'missing')
                 w.execute('recipe-fetch',['qwen38-27b-coder'],env);self.assertEqual(len(requests),1)
                 self.assertEqual(w.snapshot('recipes',env)['rows'][0]['phase'],'prepared')
@@ -122,3 +122,10 @@ class WorkbenchTests(unittest.TestCase):
                 self.assertTrue(next(a for a in w.agent_rows(env) if a['id']=='opencode')['connected'])
                 w.execute('agent-launch',['opencode'],env);self.assertEqual(env.run.call_args.args[0],['omarchy-launch-tui','opencode'])
                 w.execute('agent-revert',['opencode'],env);self.assertEqual(config.read_text(),'{"theme":"original"}')
+
+    def test_failed_engine_is_distinct_from_waiting_and_unknown(self):
+        for active,wanted in [('failed','failed'),('inactive','failed'),('activating','waiting'),('active','waiting')]:
+            with patch.object(w.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='LoadState=loaded\nActiveState='+active)):
+                self.assertEqual(w.instance_phase({'id':'model-1','ready':False}),wanted)
+        with patch.object(w.subprocess,'run',side_effect=OSError()):self.assertEqual(w.instance_phase({'id':'model-1','ready':False}),'unknown')
+        self.assertEqual(w.instance_phase({'id':'model-1','ready':True}),'ready')

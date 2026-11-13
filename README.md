@@ -224,7 +224,7 @@ entry replacements; actual power-loss behavior still requires device validation.
 sends `state`, `job`, `ack`, or a fixed operation with a UUID v4 requestId. The
 implementation and operation allowlist are in `raytone_models/workbench.py`.
 There is no new HTTP listener or generic command execution. The installed user
-component must include this module (version 0.3.0-workbench); the existing system
+component must include this module (version 0.3.1-workbench); the existing system
 protocol 1 remains compatible and unchanged.
 
 Jobs retain private receipts in `~/.local/state/raytone-models/workbench`. Repeating
