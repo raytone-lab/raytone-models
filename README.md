@@ -241,3 +241,22 @@ to home, settings and files have been removed. Before maintenance, close both th
 legacy GUI and the new console, finish/acknowledge outstanding console operations,
 and explicitly stop the internal router once idle. Maintenance checks these
 conditions; it does not stop business tasks for the user.
+
+### Durable conversation tasks (0.4.0-conversation)
+
+The fixed workbench protocol also accepts task-create, task-capabilities,
+task-list, task-stop-wait, task-rejoin and task-refresh. Requests carry explicit
+local model names. Chat uses the existing public gateway with local-only mode;
+video uses the registered engine and existing H3 workflow. A UUID receipt is
+written before the worker starts; response loss is recovered by reading it,
+never by replaying the prompt. Video refresh reads the original prompt_id and
+validates the original engine fingerprint. It does not submit a new workflow.
+
+Stopping the UI wait does not interrupt an engine. No cancellation is claimed
+without backend evidence; this release exposes no terminate-generation action.
+Partial text and unknown outcomes are retained. Completion is only published
+once text is durable or the video has been saved. Artifacts and user receipts
+live outside the versioned component; updates and code rollback retain them.
+The browser's schema2 index references these receipts and preserves old history
+keys. The OS contract docs/product/workbench-conversations.md describes the
+paired interface, migration, media authorization and maintenance gates.

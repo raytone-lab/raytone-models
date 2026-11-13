@@ -7,6 +7,7 @@ until it finishes, and fetches the video into the user's folder. Output is JSON 
 """
 import json
 import pathlib
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -72,8 +73,12 @@ def workflow(prompt, *, size="480p", seconds=5, seed=0, turbo=True, files=FILES)
 def _call(base, path, body=None, timeout=30):
     req = urllib.request.Request(base.rstrip("/") + path, json.dumps(body).encode() if body is not None else None,
                                  {"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    from .status import NoRedirect
+    with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect()).open(req, timeout=timeout) as r:
+        limit=1024*1024*1024 if path.startswith('/view?') else 1024*1024
+        data=r.read(limit+1)
+        if len(data)>limit:raise VideoError('response exceeds the local save limit')
+        return data
 
 
 def _refusal(e):
@@ -95,28 +100,29 @@ def cancel(base, pid):
             pass
 
 
-def generate(base, wf, out_dir=OUT_DIR, *, poll=1.0, timeout=3600, emit=print, stop=None):
+def generate(base, wf, out_dir=OUT_DIR, *, poll=1.0, timeout=3600, emit=print, stop=None, prompt_id=None, cancel_on_timeout=True):
     """stop() is asked between polls; when it answers true the job is cancelled on ComfyUI too."""
     t0 = time.time()
     try:
-        pid = json.loads(_call(base, "/prompt", {"prompt": wf, "client_id": "raytone-models"}))["prompt_id"]
+        pid = prompt_id or json.loads(_call(base, "/prompt", {"prompt": wf, "client_id": "raytone-models"}))["prompt_id"]
     except urllib.error.HTTPError as e:
         raise VideoError(f"ComfyUI refused the workflow: {_refusal(e)}") from None
     except (OSError, ValueError, KeyError) as e:
         raise VideoError(f"ComfyUI did not answer: {e}") from None
+    if not isinstance(pid,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,160}',pid):raise VideoError('invalid generation task identity')
     emit({"state": "queued", "prompt_id": pid})
     while True:
         if stop and stop():
             cancel(base, pid)
             raise VideoError("stopped")
         if time.time() - t0 > timeout:
-            cancel(base, pid)
+            if cancel_on_timeout:cancel(base, pid)
             raise VideoError(f"no video after {timeout} s")
         try:
             h = json.loads(_call(base, f"/history/{urllib.parse.quote(pid)}")).get(pid)
         except (OSError, ValueError) as e:
             raise VideoError(f"ComfyUI did not answer: {e}") from None
-        if h:
+        if h and ((h.get('status') or {}).get('status_str')=='error' or ((h.get('status') or {}).get('completed') is True and (h.get('status') or {}).get('status_str')=='success')):
             break
         emit({"state": "running", "elapsed": round(time.time() - t0, 1)})
         time.sleep(poll)
@@ -126,7 +132,7 @@ def generate(base, wf, out_dir=OUT_DIR, *, poll=1.0, timeout=3600, emit=print, s
                     if m and m[0] == "execution_error"), "generation failed")
         raise VideoError(str(msg).strip())
     files = [f for out in h.get("outputs", {}).values() for f in out.get("images", []) + out.get("videos", [])
-             if isinstance(f, dict) and f.get("type") == "output"]
+             if isinstance(f, dict) and f.get("type") == "output" and str(f.get("filename","")).lower().endswith(".mp4")]
     if not files:
         raise VideoError("ComfyUI finished without a video")
     f = files[0]

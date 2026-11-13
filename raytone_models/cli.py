@@ -707,9 +707,14 @@ def main(argv=None, env=None):
             system_contract.require()
         if a.command == "workbench":
             from .workbench import handle
-            raw = sys.stdin.read(16385)
-            if len(raw) > 16384:raise ValueError("Request too large")
-            _print(handle(json.loads(raw), env), True)
+            try:
+                raw = sys.stdin.read(98305)
+                if len(raw) > 98304:raise ValueError("Request too large")
+                _print(handle(json.loads(raw), env), True)
+            except (ValueError,TypeError,KeyError,OSError) as error:
+                code='BUSY' if str(error)=='BUSY' else 'NOT_FOUND' if isinstance(error,FileNotFoundError) else 'UNAVAILABLE' if isinstance(error,OSError) else 'INVALID_REQUEST'
+                _print({'workbenchError':code}, True)
+                return 1
         elif a.command == "workbench-worker":
             from .workbench import Jobs
             Jobs().worker(a.id, env)

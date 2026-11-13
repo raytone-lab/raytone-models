@@ -235,14 +235,23 @@ class Jobs:
     def write(self,p,v):
         from .agents import _atomic_write
         _atomic_write(p,(json.dumps(v,ensure_ascii=False)+'\n').encode(),0o600)
-    def get(self,jid):
+    def get(self,jid,full=True):
         from .downloads import _alive
         v=json.loads(self.path(jid).read_text())
         alive=_alive(v)
         try:alive=alive and Path('/proc/'+str(v.get('pid'))+'/stat').read_text().rpartition(')')[2].split()[0]!='Z'
         except (OSError,IndexError):alive=False
         if v['phase']=='running' and not alive:v=v|{'phase':'unknown','message':'任务进程已结束，结果未确认。请重新读取状态；不会自动重试。'}
-        return {k:v[k] for k in ('id','operation','phase','message','created','result') if k in v}
+        out={k:v[k] for k in ('id','operation','phase','message','created','updated','result') if k in v}
+        out['updated']=v.get('updated',v['created'])
+        if v['operation'] in ('chat','video'):
+            request=v['request']
+            out.update({k:request[k] for k in ('conversationId','kind','model','params')})
+            out['prompt']=request['prompt'] if full else request['prompt'][:160]
+            out.update({k:v[k] for k in ('stage','elapsed','generationId','waitStopped','artifact','reasoningChars') if k in v})
+            out['text']=v.get('text','')[:32768] if full else ''
+            out['textTruncated']=len(v.get('text',''))>32768
+        return out
     def submit(self,op,args,jid,spawn=subprocess.Popen):
         from .downloads import _identity
         validate_action(op,args);p=self.path(jid)
@@ -263,6 +272,51 @@ class Jobs:
             except OSError:
                 v.update(phase='failed',message=MESSAGES['FAILED']);self.write(p,v)
             return self.get(jid)
+    def spawn_worker(self,v,spawn=subprocess.Popen):
+        from .downloads import _identity
+        try:
+            proc=spawn([str(Path(__file__).resolve().parents[1]/'bin/raytone-models'),'workbench-worker',v['id']],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+            v.update(pid=proc.pid,ident=_identity(proc.pid));self.write(self.path(v['id']),v)
+        except OSError:
+            v.update(phase='failed',message=MESSAGES['FAILED']);self.write(self.path(v['id']),v)
+        return self.get(v['id'])
+    def submit_task(self,data,jid,spawn=subprocess.Popen):
+        from .tasks import validate
+        validate(data);p=self.path(jid)
+        with self.locked():
+            if p.exists():
+                v=json.loads(p.read_text())
+                if v.get('request')!=data:raise ValueError('Request ID already used')
+                return self.get(jid)
+            if any(j['operation'] not in READS and j['phase'] in ('running','unknown') for j in self.recent()):raise Refused('BUSY')
+            v={'id':jid,'operation':data['kind'],'args':[],'request':data,'phase':'running','stage':'queued','created':time.time(),'message':'任务已记录，正在核对所选模型。','text':'','waitStopped':False}
+            self.write(p,v);return self.spawn_worker(v,spawn)
+    def task_list(self,before=''):
+        if before:self.path(before)
+        values=[j for j in self.recent_all() if j['operation'] in ('chat','video')]
+        if before:
+            index=next((i for i,j in enumerate(values) if j['id']==before),None)
+            if index is None:raise ValueError('Unknown cursor')
+            values=values[index+1:]
+        return {'schema':1,'tasks':values[:40],'nextCursor':values[39]['id'] if len(values)>40 else ''}
+    def recent_all(self):
+        if not self.root.exists():return []
+        values=[self.get(f.stem,full=False) for f in self.root.glob('*.json')]
+        return sorted(values,key=lambda j:j['created'],reverse=True)
+    def task_control(self,jid,action,spawn=subprocess.Popen):
+        with self.locked():
+            self.path(jid);v=json.loads(self.path(jid).read_text())
+            if v['operation'] not in ('chat','video'):raise ValueError('Not an inference task')
+            if action in ('task-stop-wait','task-rejoin'):
+                v['waitStopped']=action=='task-stop-wait';v['updated']=time.time();self.write(self.path(jid),v)
+            elif action=='task-refresh':
+                current=self.get(jid)
+                if v['operation']!='video' or not v.get('generationId') or current['phase'] not in ('unknown','failed'):raise ValueError('No recoverable video task')
+                if any(j['id']!=jid and j['phase'] in ('running','unknown') and j['operation'] not in READS for j in self.recent()):raise Refused('BUSY')
+                v.update(phase='running',stage='recovering',claimed=False,message='正在读取原视频任务，未重新生成。');self.write(self.path(jid),v)
+                return self.spawn_worker(v,spawn)
+            else:raise ValueError('Invalid task control')
+            return self.get(jid)
     def worker(self,jid,env):
         with self.locked():
             v=json.loads(self.path(jid).read_text())
@@ -271,6 +325,9 @@ class Jobs:
         try:
             from .session_guard import require_unlocked
             require_unlocked()
+            if v['operation'] in ('chat','video'):
+                from .tasks import run
+                run(self,jid,env);return
             result=execute(v['operation'],v['args'],env)
             v.update(phase='done',result=result,message=result.get('message','读取完成。'))
         except (Exception,SystemExit) as e:
@@ -280,17 +337,30 @@ class Jobs:
     def recent(self):
         if not self.root.exists():return []
         files=sorted(self.root.glob('*.json'),key=lambda p:p.stat().st_mtime,reverse=True)
-        values=[self.get(f.stem) for f in files]
+        values=[self.get(f.stem,full=False) for f in files]
         values.sort(key=lambda j:(j['phase'] in ('running','unknown'),j['created']),reverse=True)
         return values[:30]
 
 def handle(request,env,jobs=None):
     jobs=jobs or Jobs()
-    if not isinstance(request,dict) or set(request)-{'op','args','requestId'}:raise ValueError('Invalid request')
+    if not isinstance(request,dict) or set(request)-{'op','args','requestId','content'}:raise ValueError('Invalid request')
     op=request.get('op');args=request.get('args',[])
+    if 'content' in request and op!='task-create':raise ValueError('Content not allowed')
+    if op=='task-create' and args==[]:return jobs.submit_task(request.get('content'),request.get('requestId'))
+    if op=='task-capabilities' and args==[]:
+        from .tasks import capabilities
+        return capabilities(env)
+    if op=='activity' and args==[]:return {'protocol':1,'busy':any(j['phase'] in ('running','unknown') and j['operation'] not in READS for j in jobs.recent())}
+    if op=='task-list' and isinstance(args,list) and len(args)==1:return jobs.task_list(args[0])
+    if op in ('task-stop-wait','task-rejoin','task-refresh') and isinstance(args,list) and len(args)==1:return jobs.task_control(args[0],op)
+    if op=='task-artifact' and isinstance(args,list) and len(args)==2:
+        from .tasks import artifact
+        jobs.path(args[0]);return artifact(jobs,args[0],args[1],env)
     if op=='state' and isinstance(args,list) and len(args)==1:
         return snapshot(args[0],env)|{'jobs':jobs.recent()}
-    if op=='job' and isinstance(args,list) and len(args)==1:return jobs.get(args[0])
+    if op=='job' and isinstance(args,list) and len(args)==1:
+        from .tasks import present
+        return present(jobs.get(args[0]),jobs,env)
     if op=='ack' and isinstance(args,list) and len(args)==1:
         with jobs.locked():
             j=jobs.get(args[0])
