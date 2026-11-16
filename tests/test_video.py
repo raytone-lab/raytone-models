@@ -20,6 +20,7 @@ class FakeComfy(http.server.ThreadingHTTPServer):
         self.error = None         # an execution error to report in the history
         self.posts = []           # (path, body) of every POST
         self.view_status = 200
+        self.view_data = b"\x00\x00\x00 ftypmp4"
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -65,7 +66,7 @@ class FakeComfy(http.server.ThreadingHTTPServer):
                         return self.send(outer.view_status, {})
                     q = urllib.parse.parse_qs(u.query)
                     if q == {"filename": ["MiniMax_H3_00001_.mp4"], "subfolder": ["video"], "type": ["output"]}:
-                        return self.send(200, b"\x00\x00\x00 ftypmp4", "video/mp4")
+                        return self.send(200, outer.view_data, "video/mp4")
                 self.send(404, {})
 
         super().__init__(("127.0.0.1", 0), H)

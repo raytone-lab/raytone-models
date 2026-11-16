@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "date": "2026-11-12",
+  "kind": "raytone-models-user-overlay-snapshot",
+  "baseCommit": "8b44ef0bc8870c9dec7ab008c1263b976f053143",
+  "platformObserved": "NVIDIA RTX Spark N1X / DASHI (aarch64)",
+  "version": "0.2.11-model-list-om65",
+  "expectedUserComponent": "db1b5ca7e68076b8d5252cbe3df4ffc324f30f0d2373c3b6875141094811041c",
+  "patch": "user-component-overlay.patch",
+  "patchSha256": "1b725aff8658834e034674b24c9e97bad935c10adc9d1e1e2715fe5a907edb54",
+  "files": [
+    {
+      "path": "raytone_models/__init__.py",
+      "before": "faebb0e8ba40ad925f56ad14ba565741356db311f2fe6065f3bb7cae9b8f9c8e",
+      "after": "601532de1071381bba8468d6562937bd3aff499abb031dcea7c6150742b13738"
+    },
+    {
+      "path": "raytone_models/cli.py",
+      "before": "2dfd67fba71c76c209a66a6a14becafd8b338777322d7f6d0d6ab23ab3475b74",
+      "after": "33251fcd17521ae1aaab864f2d947ea977a04e2db1c787ec91fbfb30aa0e7ad4"
+    },
+    {
+      "path": "raytone_models/device.py",
+      "before": "933c8ffd264f3eab5c90a0839beb84b5c2fb5978307d2012bcfa3f947e35a2a0",
+      "after": "4bf19049d642efa83ccbe8117f56f21f9f5340d9236ec352c5439d41f583d016"
+    },
+    {
+      "path": "raytone_models/engines.py",
+      "before": "da2d15a0d6d29c25b4a54fa1c2e86fd2937c325e641ad97d8dfd2843f42969b7",
+      "after": "51687972492c743b088a0768143a2e7e06561b7995fc0773d8036a20fbaf834a"
+    },
+    {
+      "path": "raytone_models/recipes.py",
+      "before": "bc2bb7f29681fbb74f8a2fe35c95c437e2a0bddf00f51b5763cd33f3bd56cf04",
+      "after": "96cb7351b7b7ea17593b62cffcd709382d180a2b6017598d64302038ebde46c9"
+    },
+    {
+      "path": "raytone_models/router.py",
+      "before": "671235d283ec62a4d391cc5946a908bc3119cca3bfc39c50778378aaa16f80bd",
+      "after": "23743882e5995fd40a6bf350613403c21d176aafaae0e9117e60d503722d836b"
+    },
+    {
+      "path": "raytone_models/spec.py",
+      "before": "2d870e52c5f15588f5c9a708d7f3b2a95257b7efeddba1fa9da6edd82be93953",
+      "after": "5efbfab59bf4d00c855366035165838ed701a853db7ee856c29a84968d62cd29"
+    }
+  ],
+  "scope": "User-component source retention only; not a system package, image, recipe, trust-store or model delivery; never auto-apply"
+}

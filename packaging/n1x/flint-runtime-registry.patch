@@ -1,0 +1,16 @@
+# Existing N1X adapter only: /usr/local/libexec/raytone-flint-k3s.py
+# Reviewed input SHA256: 564dcee6f1f6740c9763edb6e044f228b0869671b3e2656377248e7859fff69a
+# Expected output SHA256: 9b95e796b7cd43f85bb957824a6f2c0f83d3ee3a029d3567b2e68a1ccec86c39
+# Runtime discovery metadata follows helper._write's 0644 contract.
+# Keep the persistent /etc/raytone-models/instances copy private (0600).
+# For an already running instance, validate its metadata contains no secrets,
+# then set /run/raytone-models/instances to 0755 and its JSON to 0644.
+# Back up the adapter before applying; no engine restart is required.
+--- a/usr/local/libexec/raytone-flint-k3s.py
++++ b/usr/local/libexec/raytone-flint-k3s.py
+@@ -11,3 +11,3 @@
+-registry.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
++registry.parent.mkdir(parents=True,exist_ok=True,mode=0o755)
+ if not registry.exists():
+- registry.write_bytes(persistent.read_bytes());registry.chmod(0o600)
++ registry.write_bytes(persistent.read_bytes());registry.chmod(0o644)

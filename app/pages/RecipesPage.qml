@@ -12,7 +12,7 @@ ColumnLayout {
 
     PageHeader {
         title: "配方"
-        subtitle: "签名配方的模型、引擎与参数组合。声明平台与本机适用性分别标注。"
+        subtitle: "选择模型、引擎与参数的预设组合。"
         Pill {
             text: page.backend.instances.filter(function (i) { return i.ready }).length + " running"
             kind: "ready"
@@ -171,12 +171,6 @@ ColumnLayout {
                         // is narrow enough -- which is the thing this page must not do again
                         Text { width: Math.min(implicitWidth, facts.width); text: "<b>" + card.modelData.memory_gib + " GiB</b> memory"; textFormat: Text.StyledText; wrapMode: Text.Wrap; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
                         Text { width: Math.min(implicitWidth, facts.width); text: "<b>" + card.modelData.disk_gib + " GiB</b> disk"; textFormat: Text.StyledText; wrapMode: Text.Wrap; color: Theme.text; font.family: Theme.font; font.pixelSize: Theme.sizeBody }
-                    }
-                    Text {
-                        Layout.fillWidth:true;wrapMode:Text.Wrap;textFormat:Text.PlainText
-                        text:"声明平台："+(card.modelData.platforms||[]).join(", ")+" · "+(card.modelData.applicability ? card.modelData.applicability.message : "本机适用性未知。")
-                        color:card.modelData.applicability && card.modelData.applicability.canApply ? Theme.muted : Theme.pendingText
-                        font.family:Theme.font;font.pixelSize:Theme.sizeCaption
                     }
                     RowLayout {
                         Layout.fillWidth: true

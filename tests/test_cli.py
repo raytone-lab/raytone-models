@@ -176,6 +176,19 @@ class CliTests(unittest.TestCase):
         got = {i["served_name"]: i["ready"] for i in json.loads(out)}
         self.assertEqual(got, {"qwen3.8-27b": True, "muse": False})
 
+    def test_instances_expose_the_snapshot_for_library_status(self):
+        model = f"models--org--chat/snapshots/{SHA}"
+        (self.reg / "renamed.json").write_text(json.dumps(
+            {"id": "renamed", "served_name": "custom-name", "model": model,
+             "port": 18000, "engine": "vllm"}))
+        (self.reg / "legacy.json").write_text(json.dumps(
+            {"id": "legacy", "served_name": "legacy", "port": 18001, "engine": "vllm"}))
+        rc, out = self.run_cli("instances", "--json")
+        self.assertEqual(rc, 0)
+        rows = {i["id"]: i for i in json.loads(out)}
+        self.assertEqual(rows["renamed"]["model"], model)
+        self.assertIsNone(rows["legacy"]["model"])
+
     def test_a_video_engine_is_ready_by_its_own_health_check(self):
         (self.reg / "h3.json").write_text(json.dumps({"id": "h3", "served_name": "minimax-h3", "port": 18002, "engine": "comfyui"}))
         self.env.probe = lambda url: url == "http://127.0.0.1:18002/system_stats"
@@ -357,6 +370,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual((file, argv), ("copilot", ["copilot", "-p", "hi"]))
         self.assertEqual((env["COPILOT_MODEL"], env["COPILOT_OFFLINE"]), ("local", "true"))
         self.assertIn("PATH", env)                    # the rest of the environment stays
+
+    def test_claude_local_launcher_overrides_inherited_cloud_model_without_changing_parent(self):
+        from unittest.mock import patch
+        ran=[]
+        self.env.execvpe=lambda file,argv,env:ran.append((file,argv,env))
+        self.assertNotEqual(self.run_cli('agent-exec','claude')[0],0)
+        self.run_cli('agent','connect','claude')
+        with patch.dict(os.environ,ANTHROPIC_MODEL='cloud-model',ANTHROPIC_BASE_URL='https://cloud.invalid',ANTHROPIC_AUTH_TOKEN='old-token',CLAUDE_CODE_USE_BEDROCK='1',ANTHROPIC_API_KEY='cloud-key'):
+            self.run_cli('agent-exec','claude','-p','fixture prompt')
+            self.assertEqual(os.environ['ANTHROPIC_MODEL'],'cloud-model')
+        file,argv,env=ran[0]
+        self.assertEqual(argv,['claude','--model','local','-p','fixture prompt'])
+        self.assertEqual(env['ANTHROPIC_BASE_URL'],'http://127.0.0.1:8090')
+        self.assertEqual(env['ANTHROPIC_MODEL'],'local')
+        self.assertEqual(env['ANTHROPIC_AUTH_TOKEN'],'raytone-local')
+        self.assertEqual(env['ANTHROPIC_API_KEY'],'')
+        self.assertEqual(env['CLAUDE_CODE_USE_BEDROCK'],'0')
 
     def web(self, agent, answering):
         ran, execs, probes = [], [], []
@@ -590,10 +620,12 @@ class CliTests(unittest.TestCase):
     def test_recipe_fetch_downloads_into_the_store(self):
         self.signed_recipe()
         ran = []
-        self.env.run = lambda argv, env: ran.append((argv, env["HF_HOME"])) or 0
+        self.env.hf_endpoint = 'https://hf-mirror.com'
+        self.env.run = lambda argv, env: ran.append((argv, env["HF_HOME"], env["HF_ENDPOINT"])) or 0
         rc, _ = self.run_cli("recipe", "fetch", "qwen38-27b-coder")
         self.assertEqual(rc, 0)
-        [(argv, hf_home)] = ran
+        [(argv, hf_home, endpoint)] = ran
+        self.assertEqual(endpoint, 'https://hf-mirror.com')
         self.assertEqual(argv[:3], ["hf", "download", "RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead"])
         self.assertEqual(hf_home, str(self.hf))
 
@@ -625,6 +657,7 @@ class CliTests(unittest.TestCase):
         rc, out = self.run_cli("download", "unsloth/Qwen3.8-27B-GGUF", "--variant", "Q4_K_M", "--json")
         self.assertEqual(rc, 0, out)
         [(argv, env)] = self.spawned
+        self.assertEqual(env["HF_ENDPOINT"], self.env.hub_endpoint())
         self.assertEqual(argv, ["hf", "download", "unsloth/Qwen3.8-27B-GGUF", "--revision", "a" * 40,
                                 "--include", "Qwen3.8-27B-Q4_K_M.gguf", "--include", "mmproj-F16.gguf"])
         rc, out = self.run_cli("downloads", "--json")

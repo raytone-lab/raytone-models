@@ -1,0 +1,45 @@
+{
+  "genericSourceCommit": "12edd32c79a47c95546b36dde9c850cd6009a5e7",
+  "fieldBase": "db1b5ca7e68076b8d5252cbe3df4ffc324f30f0d2373c3b6875141094811041c",
+  "version": "0.2.12-hf-source-om78",
+  "componentId": "e273153fd358bcd6d8d25a8bd621147ad673102c11bba2313ecfdfe7e6911a3d",
+  "files": [
+    {
+      "path": "app/pages/DiscoverPage.qml",
+      "before": "2064e46b658a1c5b6cfc80a15e0d9e84d9a3514dd4b5ccc6d70c1459a5ae696e",
+      "after": "5e0e5b038138230b2d77ed673444033813fb2ad88b43e97769ff3846cf783268",
+      "mode": 420
+    },
+    {
+      "path": "raytone_models/__init__.py",
+      "before": "601532de1071381bba8468d6562937bd3aff499abb031dcea7c6150742b13738",
+      "after": "32ed773b6a7bd17ada079b0295977a774757df1ddc6c4cc1f2b8f21d8e452408",
+      "mode": 420
+    },
+    {
+      "path": "raytone_models/cli.py",
+      "before": "33251fcd17521ae1aaab864f2d947ea977a04e2db1c787ec91fbfb30aa0e7ad4",
+      "after": "694693b360511eefe5266af29887287325f2d0abdc1249c9d94b0282033d1299",
+      "mode": 420
+    },
+    {
+      "path": "raytone_models/downloads.py",
+      "before": "1a0669c0df7277cbfda70f6f07165c769e4201a3420a40f72d7643614adf5739",
+      "after": "4dfb83285c9b99e5a558f0b4efc18f4231caed000fb0cbbe36c7bc32acc18dce",
+      "mode": 420
+    },
+    {
+      "path": "raytone_models/hf.py",
+      "before": "e9838b91ea517c34f98ab51e5cd70c69d3f3874e8dcc8ae1f926c8b60d13ed80",
+      "after": "6c33a291dfc96c95c668a9f3c7a10ad83e933135b968a78febf46c46131b1b47",
+      "mode": 420
+    }
+  ],
+  "patchSha256": "fed7c16d1987159396dcd08fb76d9a2a73583f9734d87e497a714c86caef38ce",
+  "archiveSha256": "3d78fb95c10bcf371b21f7f7db2d9cb3e88a8f250ccc5a64a60b309e1857dd51",
+  "baseVersion": "0.2.11-model-list-om65",
+  "baseGenericCommit": "8b44ef0bc8870c9dec7ab008c1263b976f053143",
+  "baseOverlay": "../om65-2026-11-12",
+  "patch": "hf-source.patch",
+  "releaseFileCount": 97
+}

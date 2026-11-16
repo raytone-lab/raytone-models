@@ -82,6 +82,27 @@ where polkit does not let a remote session in, use `RAYTONE_MODELS_ELEVATE=sudo 
 
 After an upgrade, restart the router: `systemctl --user restart raytone-models-router`.
 
+### Hugging Face endpoint
+
+Hub search, repository details, background downloads and recipe fetches use the same endpoint:
+an explicitly injected endpoint, then nonempty `HF_ENDPOINT`, then `[downloads].hf_endpoint`
+in `~/.config/raytone/provider.toml` (or `RAYTONE_PROVIDER_CONFIG`), then the official Hub.
+For a machine that needs the mirror, merge this section into its existing provider file:
+
+```toml
+[downloads]
+hf_endpoint = "https://hf-mirror.com"
+```
+
+The configured mirror uses its ordinary metadata responses rather than unsupported `expand[]`
+requests. There is no silent fallback to another host. Invalid endpoint configuration affects
+network operations only; local model operations remain available. Keep credentials out of URLs.
+The `hf` download child explicitly receives the same endpoint, including for recipes.
+
+For isolated download diagnostics, set **both** `RAYTONE_MODELS_HOME` and `HF_HOME` to the test
+cache and use a separate `XDG_STATE_HOME`. The product store is selected by
+`RAYTONE_MODELS_HOME`; `HF_HOME` alone does not relocate it.
+
 Tests: `python3 -m unittest discover -s tests`. On a machine with Quickshell,
 `tests/ui/render DATA_DIR SHOTS_DIR` renders every page offscreen (fixture data from `DATA_DIR`, or
 the machine's own with `RAYTONE_UI_REAL=1`), and `tests/ui/probe` and `tests/ui/logic-probe` check the
@@ -110,9 +131,19 @@ MIT, © Raytone AI Lab and contributors.
 
 ## Split component candidate (batch 5A)
 
-The managed user component is `0.2.4-batch5a`; its matching system contract is
-`0.2.3-batch5a`, protocol 1. This software candidate has no real GPU/model/Spark
-acceptance. The source polkit policy requires an administrator authentication for
+2026-11-12 field follow-up: see the [Spark fixes, installation checklist and pending acceptance](https://github.com/raytone-lab/RaytoneOS/blob/codex/ai-box-productization/docs/field-fixes/2026-11-spark.md).
+The [N1X user-component snapshot](packaging/n1x/om65-2026-11-12/README.md)
+preserves the installed device adapters; a plain branch checkout is not byte-identical
+to that combined user component. Reconstruct and review the appropriate source before
+upgrading an existing N1X device. This snapshot does not deliver the system component,
+engine images, trust store or model weights.
+
+The split-component contract introduced with user `0.2.4-batch5a` uses system
+`0.2.3-batch5a`, protocol 1. The current generic user version is declared in
+`raytone_models/__init__.py`; device-specific versions are recorded separately.
+The original batch 5A evidence did not include real GPU/model/Spark acceptance;
+the dated field record above describes the later device evidence and its limits.
+The source polkit policy requires an administrator authentication for
 each action; there is no passwordless wheel rule. A desktop polkit agent is a
 separate prerequisite: absent authentication returns AUTH_DENIED without starting
 an engine. Cancel returns AUTH_CANCELLED; timeout requires checking actual state
@@ -186,3 +217,46 @@ to make a remote authorization appear successful. The system bundle carries a
 minimal init module, so a user-only version change does not rewrite privileged
 code. File and directory synchronization is used for transaction journals and
 entry replacements; actual power-loss behavior still requires device validation.
+
+## Unified console protocol 1
+
+`raytone-models workbench` accepts one bounded stdin JSON request. The OS adapter
+sends `state`, `job`, `ack`, or a fixed operation with a UUID v4 requestId. The
+implementation and operation allowlist are in `raytone_models/workbench.py`.
+There is no new HTTP listener or generic command execution. The installed user
+component must include this module (version 0.3.1-workbench); the existing system
+protocol 1 remains compatible and unchanged.
+
+Jobs retain private receipts in `~/.local/state/raytone-models/workbench`. Repeating
+a request ID reads the original receipt; workers claim it once. Lost outcomes
+remain unknown until explicitly acknowledged after checking actual state. A
+returned command never substitutes for engine readiness. Recipe resources,
+matching instances, health and applicability are separate observations. Source
+selection and resumable downloads use the existing provider/HF configuration.
+Missing `hf` is a dependency state, not a network error. No test/fixture switch is
+accepted in production. Explicitly injected tests do not establish GPU support.
+
+The normal console no longer opens this package's legacy GUI. Its old rail links
+to home, settings and files have been removed. Before maintenance, close both the
+legacy GUI and the new console, finish/acknowledge outstanding console operations,
+and explicitly stop the internal router once idle. Maintenance checks these
+conditions; it does not stop business tasks for the user.
+
+### Durable conversation tasks (0.4.0-conversation)
+
+The fixed workbench protocol also accepts task-create, task-capabilities,
+task-list, task-stop-wait, task-rejoin and task-refresh. Requests carry explicit
+local model names. Chat uses the existing public gateway with local-only mode;
+video uses the registered engine and existing H3 workflow. A UUID receipt is
+written before the worker starts; response loss is recovered by reading it,
+never by replaying the prompt. Video refresh reads the original prompt_id and
+validates the original engine fingerprint. It does not submit a new workflow.
+
+Stopping the UI wait does not interrupt an engine. No cancellation is claimed
+without backend evidence; this release exposes no terminate-generation action.
+Partial text and unknown outcomes are retained. Completion is only published
+once text is durable or the video has been saved. Artifacts and user receipts
+live outside the versioned component; updates and code rollback retain them.
+The browser's schema2 index references these receipts and preserves old history
+keys. The OS contract docs/product/workbench-conversations.md describes the
+paired interface, migration, media authorization and maintenance gates.

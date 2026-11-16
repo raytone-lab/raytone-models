@@ -123,9 +123,47 @@ function modelState(m) {
     return "unverified"
 }
 
+// Match the cached snapshot, not a display/served name: recipes can rename a
+// model, and another revision of the same repository may be running instead.
+function modelInstance(m, instances) {
+    if (!m || !m.repo || !m.revision) return null
+    var snapshot = "models--" + m.repo.replace(/\//g, "--") + "/snapshots/" + m.revision
+    return (instances || []).filter(function(i) { return i.model === snapshot })[0] || null
+}
+
+function libraryStatus(m, instance, starting) {
+    if (instance) return instance.ready ? "运行中" : "启动中…"
+    if (starting) return "启动中…"
+    if (m.role === "draft") return "辅助模型"
+    var state = modelState(m)
+    if (state === "ready") return "已下载"
+    if (state === "unverified") return "待校验"
+    return state.replace("incomplete ", "未完成 ").replace("downloading", "下载中")
+}
+
+// This exact H3 snapshot is the one the bundled video workflow consumes.
+// Other diffusion downloads still need their own engine/workflow parameters.
+function minimaxStartArgs(m) {
+    if (!m || m.repo !== "Comfy-Org/MiniMax-H3"
+            || m.revision !== "bf92c4091e333e69b8ca1998e0a669f15cb0832b"
+            || modelState(m) !== "ready") return null
+    var needed = ["diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+        "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "vae/minimax_h3_video_vae_fp16.safetensors", "vae/minimax_h3_audio_vae_fp32.safetensors",
+        "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"]
+    if (!needed.every(function(path) { return (m.files || []).indexOf(path) >= 0 })) return null
+    return ["start", m.repo + "@" + m.revision, "--engine", "comfyui",
+            "--name", "minimax-h3", "--role", "video", "--arg", "disable-smart-memory", "--json"]
+}
+
+function minimaxInstance(instances) {
+    return (instances || []).filter(function(i) { return i.served_name === "minimax-h3" && i.role === "video" })[0] || null
+}
+
 // What omarchy-launch-tui gets for an agent: its command, or for an agent that reads its endpoint
 // from the environment, raytone-models starting it with the variables connect wrote.
 function launchArgs(id) {
+    if (id === "claude") return ["raytone-models", "agent-exec", "claude"]
     if (id === "copilot") return ["--app-id=org.omarchy.copilot", "raytone-models", "agent-exec", "copilot"]
     if (id === "openclaw") return ["omarchy-launch-openclaw", "--tui"]
     // Pi and Oh My Pi keep a saved default model (maybe a cloud one): name ours

@@ -145,8 +145,6 @@ class Env:
                 self.allowed_signers = source_root / 'packaging/allowed_signers'
         if self.ollama is None:
             self.ollama = ollama_mod.Ollama()
-        if self.hf_endpoint is None:
-            self.hf_endpoint = os.environ.get("HF_ENDPOINT") or hf.DEFAULT_ENDPOINT
 
     def token(self):
         try:
@@ -155,7 +153,10 @@ class Env:
             return None
 
     def hub(self):
-        return hf.Hub(endpoint=self.hf_endpoint, token=self.token())
+        return hf.Hub(endpoint=self.hub_endpoint(), token=self.token())
+
+    def hub_endpoint(self):
+        return hf.resolve_endpoint(self.hf_endpoint, home=self.home)
 
 
 def _value(text):
@@ -193,6 +194,7 @@ def _instances(env):
     for d in _registered(env):
         port = d.get("port")
         out.append({"id": d.get("id"), "served_name": d.get("served_name"), "engine": d.get("engine"), "port": port,
+                    "model": d.get("model"),
                     "role": _role(d),
                     "chat": d.get("engine") not in engines.NOT_CHAT,
                     "context": next((a[k] for a in [d.get("args") or {}]
@@ -264,6 +266,17 @@ def cmd_start(a, env):
 def cmd_agent_exec(a, env):
     """Start an agent that reads its endpoint from the environment, with the variables connect wrote."""
     ad = agents.get(a.agent, home=env.home, state=env.state)
+    if isinstance(ad, agents.Claude):
+        if not ad.status()["connected"]:
+            raise SystemExit("claude is not connected: raytone-models agent connect claude")
+        # A terminal may already export cloud variables. The product's local
+        # launcher must override those without changing the parent session.
+        cfg = json.loads(ad.path.read_text())
+        variables = cfg.get("env", {})
+        if variables.get("ANTHROPIC_BASE_URL") != agents.ROUTER.removesuffix("/v1") or variables.get("ANTHROPIC_MODEL") != agents.MODEL:
+            raise SystemExit("Claude local settings changed: reconnect Claude in the workbench")
+        env.execvpe("claude", ["claude", "--model", agents.MODEL, *a.rest], {**os.environ, **variables})
+        return
     if not isinstance(ad, agents.EnvAdapter):
         raise SystemExit(f"{a.agent} keeps its settings in its own files: start it as usual")
     variables = ad.env()
@@ -403,7 +416,7 @@ def cmd_recipe(a, env):
         # only the instances that run as this recipe; another instance with the same name stays
         matching, _ = _matching(r, env)
         return [env.helper(["stop", iid]) for iid in matching.values()]
-    hf_env = dict(os.environ, HF_HOME=str(env.hf_home), HF_HUB_DISABLE_TELEMETRY="1")
+    hf_env = hf.download_environment(env.hf_home, env.hub_endpoint(), env.token())
     for cmd in recipes.fetch_commands(r):
         if env.run(cmd, hf_env):
             raise SystemExit(f"download failed: {' '.join(cmd[:3])}")
@@ -434,7 +447,7 @@ def cmd_download(a, env):
         include = v["include"]
     try:
         return downloads.start(repo, sha, files, include=include, hf_home=env.hf_home, token=env.token(),
-                               state_dir=env.downloads_dir, spawn=env.spawn)
+                               endpoint=env.hub_endpoint(), state_dir=env.downloads_dir, spawn=env.spawn)
     except downloads.DownloadError as e:
         raise SystemExit(str(e)) from None
 
@@ -615,6 +628,8 @@ def parse(argv):
     tk.add_argument("--json", action="store_true")
     for name in ("stats", "engines"):
         sub.add_parser(name).add_argument("--json", action="store_true")
+    sub.add_parser("workbench")
+    sub.add_parser("workbench-worker").add_argument("id")
     sub.add_parser("chat")
     ol = sub.add_parser("ollama")
     ol.add_argument("action", choices=["models", "run", "stop", "pull", "delete"])
@@ -690,7 +705,20 @@ def main(argv=None, env=None):
             or (a.command == 'recipe' and a.action in ('apply', 'stop'))
             or (a.command == 'ollama' and a.action in ('run', 'stop', 'delete'))):
             system_contract.require()
-        if a.command == "status":
+        if a.command == "workbench":
+            from .workbench import handle
+            try:
+                raw = sys.stdin.read(98305)
+                if len(raw) > 98304:raise ValueError("Request too large")
+                _print(handle(json.loads(raw), env), True)
+            except (ValueError,TypeError,KeyError,OSError) as error:
+                code='BUSY' if str(error)=='BUSY' else 'NOT_FOUND' if isinstance(error,FileNotFoundError) else 'UNAVAILABLE' if isinstance(error,OSError) else 'INVALID_REQUEST'
+                _print({'workbenchError':code}, True)
+                return 1
+        elif a.command == "workbench-worker":
+            from .workbench import Jobs
+            Jobs().worker(a.id, env)
+        elif a.command == "status":
             from .status import snapshot
             _print(snapshot(), a.json)
         elif a.command == "models":
@@ -763,7 +791,7 @@ def main(argv=None, env=None):
                 raise SystemExit('路由端口须与 connection.json 一致，未启动另一个入口。')
             srv = router.make_server("127.0.0.1", port)
             srv.serve_forever()
-    except (agents.AgentError, OSError, ValueError) as e:
+    except (agents.AgentError, hf.HubError, OSError, ValueError) as e:
         print(f"raytone-models: {e}", file=sys.stderr)
         return 1
     except SystemExit as e:
