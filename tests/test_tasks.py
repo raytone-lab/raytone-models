@@ -17,11 +17,11 @@ def data(kind='chat'):
  return {'conversationId':CID,'kind':kind,'model':'test-model','prompt':'你好','messages':[{'role':'user','content':'你好'}] if kind=='chat' else [],'params':{} if kind=='chat' else {'size':'480p','seconds':3,'turbo':True}}
 class Gateway(ThreadingHTTPServer):
  def __init__(self):
-  self.requests=[];self.truncated=False;self.hold=None;self.started=threading.Event();outer=self
+  self.requests=[];self.truncated=False;self.hold=None;self.started=threading.Event();self.models=['test-model'];self.healthy=True;self.configured=True;outer=self
   class H(BaseHTTPRequestHandler):
    def log_message(self,*a):pass
    def do_GET(self):
-    body=json.dumps({'local':{'healthy':True,'models':['test-model']}}).encode();self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+    body=json.dumps({'local':{'configured':outer.configured,'healthy':outer.healthy,'models':outer.models}}).encode();self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
    def do_POST(self):
     body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));outer.requests.append((body,self.headers.get('X-Raytone-Mode')))
     self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
@@ -72,9 +72,25 @@ class TaskTests(unittest.TestCase):
    g.hold.set();thread.join(3);self.assertFalse(thread.is_alive())
   result=self.jobs.get(ID);self.assertEqual(result['phase'],'done');self.assertTrue(result['waitStopped']);self.assertEqual(len(g.requests),1)
  def test_unready_selected_model_fails_without_calling_another_model(self):
-  self.seed()
-  with patch.object(cli,'_instances',return_value=[]),patch.object(tasks,'http_json') as network:tasks.run(self.jobs,ID,self.env)
-  self.assertEqual(self.jobs.get(ID)['phase'],'failed');network.assert_not_called()
+  self.seed();g=self.gateway();g.models=['another-model'];a,b=self.chat_patches(g)
+  with patch.object(cli,'_instances',return_value=[]),b:tasks.run(self.jobs,ID,self.env)
+  self.assertEqual(self.jobs.get(ID)['phase'],'failed');self.assertEqual(g.requests,[])
+ def test_existing_public_local_model_stream_keeps_exact_absolute_identity(self):
+  self.seed();g=self.gateway();name='/srv/models/Example-3B-Q4_K_M.gguf';g.models=[name]
+  value=json.loads(self.jobs.path(ID).read_text());value['request']['model']=name;tasks.validate(value['request']);self.jobs.write(self.jobs.path(ID),value)
+  with patch.object(cli,'_instances',return_value=[]),patch.object(tasks.connection,'load',return_value=SimpleNamespace(public=f'http://127.0.0.1:{g.server_port}/v1')):
+   choices=tasks.capabilities(self.env)['chat'];self.assertEqual(len(choices),1);self.assertEqual(choices[0]['label'],'Example-3B-Q4_K_M.gguf')
+   tasks.run(self.jobs,ID,self.env)
+  self.assertEqual(self.jobs.get(ID)['phase'],'done');self.assertEqual(self.jobs.get(ID)['text'],'真实夹具正文')
+  self.assertEqual(g.requests[0][0]['model'],name);self.assertEqual(g.requests[0][1],'local');self.assertEqual(len(g.requests),1)
+ def test_public_local_discovery_fails_closed_and_does_not_replace_registered_identity(self):
+  g=self.gateway();a,b=self.chat_patches(g)
+  with a,b:self.assertEqual(len(tasks.capabilities(self.env)['chat']),1)
+  with patch.object(cli,'_instances',return_value=[]),patch.object(tasks.connection,'load',return_value=SimpleNamespace(public=f'http://127.0.0.1:{g.server_port}/v1')):
+   for healthy,configured in ((False,True),(True,False)):
+    g.healthy=healthy;g.configured=configured;self.assertEqual(tasks.capabilities(self.env)['chat'],[])
+   g.healthy=g.configured=True;g.models=['local',None,'bad\nmodel','x'*192]
+   self.assertEqual(tasks.capabilities(self.env)['chat'],[])
  def comfy(self):
   server=FakeComfy();server.view_data=b'\x00\x00\x00\x18ftypisom0000000000000000';self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
   return server

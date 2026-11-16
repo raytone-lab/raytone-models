@@ -1,1 +1,1 @@
-USER_VERSION = "0.4.0-conversation"
+USER_VERSION = "0.4.1-local-gateway"

@@ -16,6 +16,7 @@ from . import connection, video
 
 INFERENCE = {'chat','video'}
 MAX_TEXT = 131072
+MODEL = re.compile(r'[A-Za-z0-9/][A-Za-z0-9_.:/-]{0,190}')
 
 class TaskError(ValueError):
     pass
@@ -26,7 +27,7 @@ def validate(data):
     if not isinstance(data,dict) or set(data)!={'conversationId','kind','model','prompt','messages','params'}:raise ValueError('Invalid task')
     if not isinstance(data['conversationId'],str) or not UUID.fullmatch(data['conversationId']):raise ValueError('Invalid conversation')
     if not isinstance(data['kind'],str) or data['kind'] not in INFERENCE:raise ValueError('Invalid task kind')
-    if not isinstance(data['model'],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:/-]{0,190}',data['model']) or data['model']=='local':raise ValueError('Select an explicit model')
+    if not isinstance(data['model'],str) or not MODEL.fullmatch(data['model']) or data['model']=='local':raise ValueError('Select an explicit model')
     if not isinstance(data['prompt'],str) or not data['prompt'].strip() or len(data['prompt'])>8192 or '\0' in data['prompt']:raise ValueError('Invalid prompt')
     msgs=data['messages'];params=data['params']
     if data['kind']=='chat':
@@ -46,24 +47,39 @@ def capabilities(env):
     values=cli._instances(env)
     try:
         h=http_json(connection.load().public.removesuffix('/v1')+'/healthz')
+        if not isinstance(h,dict) or not isinstance(h.get('local'),dict):raise ValueError('Invalid local gateway state')
         local=h.get('local') or {};advertised=local.get('models') if local.get('healthy') is True else []
         if not isinstance(advertised,list):advertised=[]
         gateway=True
-    except (OSError,ValueError,TypeError):advertised=[];gateway=False
+    except (OSError,ValueError,TypeError):advertised=[];gateway=False;local={}
     chat=[];videos=[]
     for x in values:
         entry={'id':x['id'],'name':x['served_name'],'ready':x.get('ready') is True,'current':x.get('current') is True}
         if x.get('chat') is True:chat.append(entry|{'ready':entry['ready'] and x['served_name'] in advertised})
         elif x.get('engine')=='comfyui' and x.get('role')=='video':videos.append(entry)
+    # The existing OS local runner is not a Models-owned instance. Reuse only
+    # identities actually advertised as healthy by the local public gateway;
+    # never fabricate registry entries, choose `local`, or own its lifecycle.
+    if local.get('configured') is True and local.get('healthy') is True:
+        known={x['name'] for x in chat}
+        for name in advertised:
+            if not isinstance(name,str) or not MODEL.fullmatch(name) or name=='local' or name in known:continue
+            chat.append({'id':'public-local:'+hashlib.sha256(name.encode()).hexdigest()[:16],
+                         'name':name,'label':name.rsplit('/',1)[-1] or name,'ready':True,
+                         'current':False,'source':'public-local-gateway'})
+            known.add(name)
     return {'schema':1,'chat':chat,'video':videos,'gatewayAvailable':gateway,'videoSizes':env.video_sizes(),
             'knowledgeConfigured':False,'cancelGeneration':False,'message':'仅使用明确选择的本机模型。停止等待不会终止后台生成。'}
 
 
 def ready_model(kind,name,env):
     from . import cli
+    if kind=='chat':
+        found=[x for x in capabilities(env)['chat'] if x['name']==name and x['ready']]
+        if len(found)!=1:raise TaskError('MODEL_NOT_READY')
+        return found[0]
     found=[x for x in cli._instances(env) if x.get('served_name')==name and x.get('ready') is True and ((kind=='chat' and x.get('chat') is True) or (kind=='video' and x.get('engine')=='comfyui' and x.get('role')=='video'))]
     if len(found)!=1:raise TaskError('MODEL_NOT_READY')
-    if kind=='chat' and not any(x['name']==name and x['ready'] for x in capabilities(env)['chat']):raise TaskError('MODEL_NOT_READY')
     return found[0]
 
 
