@@ -57,6 +57,23 @@ class UserComponentTests(unittest.TestCase):
         self.assertEqual(target.read_text(),'personal');self.assertFalse(self.component.receipt.exists())
         self.assertFalse(self.component.targets['current'].exists())
 
+    def test_explicit_desktop_profile_keeps_gui_retired_on_component_update(self):
+        relay=self.home/'.local/share/raytone-workbench/desktop-profile/entry.py'
+        relay.parent.mkdir(parents=True);relay.write_text('# fixed relay\n')
+        marker=self.home/'.config/raytone/desktop-frontend.json';marker.parent.mkdir(parents=True)
+        overlays={'app':user_component.file_value('#!/bin/sh\nrelay models\n',0o755),
+                  'desktop':user_component.file_value('[Desktop Entry]\nNoDisplay=true\n')}
+        marker.write_text(json.dumps({'schema':1,'kind':'raytone-desktop-frontend','frontend':'workbench-app',
+            'relay':str(relay.resolve()),'relaySha256':user_component.sha(relay.read_bytes()),'models':overlays}))
+        self.component.install(ROOT)
+        self.assertEqual(user_component.encoded(self.component.targets['app']),overlays['app'])
+        self.assertEqual(user_component.encoded(self.component.targets['desktop']),overlays['desktop'])
+        self.assertTrue(self.component.status()['filesMatch'])
+        relay.write_text('modified')
+        before=self.component.receipt.read_bytes()
+        with self.assertRaisesRegex(ValueError,'配置失效'):self.component.install(ROOT)
+        self.assertEqual(self.component.receipt.read_bytes(),before)
+
     def test_repeat_and_recovery_keep_user_data(self):
         user=self.home/'Documents/中文.txt';user.parent.mkdir();user.write_bytes(b'untouched')
         first=self.component.install(ROOT);self.assertTrue(first['changed'])

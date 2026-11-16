@@ -105,7 +105,7 @@ class Component:
         r=subprocess.run(['/usr/bin/hyprctl','clients','-j'],capture_output=True,text=True,timeout=5)
         rows=json.loads(r.stdout)
         if r.returncode or not isinstance(rows,list):raise ValueError('无法确认图形前端状态，未切换组件。')
-        if any(w.get('class') in ('ai.raytone.Models', 'chrome-127.0.0.1__raytone-visual-preview_-Default') for w in rows):
+        if any(w.get('class') in ('ai.raytone.Models', 'chrome-127.0.0.1__raytone-visual-preview_-Default','chrome-127.0.0.1__raytone-workbench-app-Default') for w in rows):
             raise ValueError('请先结束前台对话/视频并关闭模型控制台，再更新组件；后台下载不会由安装器停止。')
         from .workbench import Jobs
         if any(j['phase'] in ('running','unknown') for j in Jobs().recent()):raise ValueError('工作台操作尚未结束，未切换组件。')
@@ -178,6 +178,20 @@ class Component:
             for page, label in actions:
                 desktop += f'\n[Desktop Action {page}]\nName={label}\nExec={launcher} --page {page}\n'
         after['desktop'] = file_value(desktop)
+        profile=self.home/'.config/raytone/desktop-frontend.json'
+        if profile.exists():
+            data=json.loads(profile.read_text())
+            relay=self.home.resolve()/'.local/share/raytone-workbench/desktop-profile/entry.py'
+            if (data.get('schema')!=1 or data.get('kind')!='raytone-desktop-frontend' or data.get('frontend')!='workbench-app'
+                or data.get('relay')!=str(relay) or relay.is_symlink()
+                or sha(relay.read_bytes())!=data.get('relaySha256')):
+                raise ValueError('独立桌面入口配置失效，请先恢复入口再维护Models。')
+            overlays=data.get('models',{})
+            if set(overlays)!={'app','desktop'}:raise ValueError('模型入口覆盖不完整。')
+            for key,v in overlays.items():
+                if set(v)!={'data','mode'} or v['mode']!=(0o755 if key=='app' else 0o644):raise ValueError('模型入口覆盖格式无效。')
+                base64.b64decode(v['data'],validate=True)
+            after.update(overlays)
         executable=json.dumps(str(release/'bin/raytone-models'),ensure_ascii=False).replace('%','%%')
         after['router']=file_value('[Unit]\nDescription=Raytone Models internal loopback router\nStartLimitIntervalSec=30\nStartLimitBurst=2\n\n[Service]\nExecStart='+executable+' router\nRestart=on-failure\nRestartSec=2\nNoNewPrivileges=yes\n\n[Install]\nWantedBy=default.target\n')
         old={}

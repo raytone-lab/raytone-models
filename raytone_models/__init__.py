@@ -1,1 +1,1 @@
-USER_VERSION = "0.4.1-local-gateway"
+USER_VERSION = "0.4.2-desktop-profile"
