@@ -1,3 +1,4 @@
+//@ pragma AppId raytone-models
 import QtQuick
 import Quickshell
 import "."

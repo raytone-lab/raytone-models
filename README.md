@@ -82,6 +82,16 @@ where polkit does not let a remote session in, use `RAYTONE_MODELS_ELEVATE=sudo 
 
 After an upgrade, restart the router: `systemctl --user restart raytone-models-router`.
 
+On Omarchy, `Super+L` cycles the workspace layout. If Raytone Models stays centered while
+other windows tile, check `~/.config/hypr/hyprland.lua` for this local override:
+
+```lua
+o.window({ class = "^raytone-models$" }, { float = true, center = true })
+```
+
+To let the workspace manage the window, remove that rule, run `hyprctl reload`, then close
+and reopen Raytone Models.
+
 Tests: `python3 -m unittest discover -s tests`. On a machine with Quickshell,
 `tests/ui/render DATA_DIR SHOTS_DIR` renders every page offscreen (fixture data from `DATA_DIR`, or
 the machine's own with `RAYTONE_UI_REAL=1`), and `tests/ui/probe` and `tests/ui/logic-probe` check the
